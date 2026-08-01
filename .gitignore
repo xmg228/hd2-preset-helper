@@ -1,0 +1,44 @@
+# Rust build output
+/target/
+
+# Runtime data
+/debug/
+/data/app.log
+/data/presets.json
+
+# Local release packages
+/dist/
+/release/
+*.exe
+*.dll
+*.pdb
+*.msi
+*.msix
+*.zip
+*.7z
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor files
+/.idea/
+/.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.bak
+*.dmp
+*.old
+*.orig
+*.tmp
+*~

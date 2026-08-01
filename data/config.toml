@@ -1,0 +1,19 @@
+[presets]
+# Preset file.
+path = "data/presets.json"
+
+# Press B after applying a preset with a booster.
+auto_ready_up = false
+
+[hotkey]
+# Hold these modifiers to show the overlay.
+# Values: shift, ctrl, alt, win.
+modifiers = ["ctrl", "shift"]
+
+# Preset keys, mapped to preset_1..preset_N in order.
+# Values: f1-f12. Use 1-12 keys.
+keys = ["f7", "f8", "f9", "f10", "f11", "f12"]
+
+[overlay]
+# Show the preset overlay.
+enabled = true

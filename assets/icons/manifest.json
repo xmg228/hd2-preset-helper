@@ -1,0 +1,742 @@
+{
+  "items": [
+    {
+      "item_id": "armed-resupply-pods",
+      "display_name": "Armed Resupply Pods",
+      "kind": "booster",
+      "path": "booster/armed-resupply-pods.png"
+    },
+    {
+      "item_id": "concealed-insertion",
+      "display_name": "Concealed Insertion",
+      "kind": "booster",
+      "path": "booster/concealed-insertion.png"
+    },
+    {
+      "item_id": "dead-sprint",
+      "display_name": "Dead Sprint",
+      "kind": "booster",
+      "path": "booster/dead-sprint.png"
+    },
+    {
+      "item_id": "experimental-infusion",
+      "display_name": "Experimental Infusion",
+      "kind": "booster",
+      "path": "booster/experimental-infusion.png"
+    },
+    {
+      "item_id": "expert-extraction-pilot",
+      "display_name": "Expert Extraction Pilot",
+      "kind": "booster",
+      "path": "booster/expert-extraction-pilot.png"
+    },
+    {
+      "item_id": "firebomb-hellpods",
+      "display_name": "Firebomb Hellpods",
+      "kind": "booster",
+      "path": "booster/firebomb-hellpods.png"
+    },
+    {
+      "item_id": "flexible-reinforcement-budget",
+      "display_name": "Flexible Reinforcement Budget",
+      "kind": "booster",
+      "path": "booster/flexible-reinforcement-budget.png"
+    },
+    {
+      "item_id": "hellpod-space-optimization",
+      "display_name": "Hellpod Space Optimization",
+      "kind": "booster",
+      "path": "booster/hellpod-space-optimization.png"
+    },
+    {
+      "item_id": "increased-reinforcement-budget",
+      "display_name": "Increased Reinforcement Budget",
+      "kind": "booster",
+      "path": "booster/increased-reinforcement-budget.png"
+    },
+    {
+      "item_id": "localization-confusion",
+      "display_name": "Localization Confusion",
+      "kind": "booster",
+      "path": "booster/localization-confusion.png"
+    },
+    {
+      "item_id": "motivational-shocks",
+      "display_name": "Motivational Shocks",
+      "kind": "booster",
+      "path": "booster/motivational-shocks.png"
+    },
+    {
+      "item_id": "muscle-enhancement",
+      "display_name": "Muscle Enhancement",
+      "kind": "booster",
+      "path": "booster/muscle-enhancement.png"
+    },
+    {
+      "item_id": "sample-extricator",
+      "display_name": "Sample Extricator",
+      "kind": "booster",
+      "path": "booster/sample-extricator.png"
+    },
+    {
+      "item_id": "sample-scanner",
+      "display_name": "Sample Scanner",
+      "kind": "booster",
+      "path": "booster/sample-scanner.png"
+    },
+    {
+      "item_id": "stamina-enhancement",
+      "display_name": "Stamina Enhancement",
+      "kind": "booster",
+      "path": "booster/stamina-enhancement.png"
+    },
+    {
+      "item_id": "stun-pods",
+      "display_name": "Stun Pods",
+      "kind": "booster",
+      "path": "booster/stun-pods.png"
+    },
+    {
+      "item_id": "uav-recon",
+      "display_name": "UAV Recon",
+      "kind": "booster",
+      "path": "booster/uav-recon.png"
+    },
+    {
+      "item_id": "vitality-enhancement",
+      "display_name": "Vitality Enhancement",
+      "kind": "booster",
+      "path": "booster/vitality-enhancement.png"
+    },
+    {
+      "item_id": "anti-personnel-minefield",
+      "display_name": "Anti-Personnel Minefield",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/anti-personnel-minefield.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "anti-tank-emplacement",
+      "display_name": "Anti-Tank Emplacement",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/anti-tank-emplacement.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "anti-tank-mines",
+      "display_name": "Anti-Tank Mines",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/anti-tank-mines.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "autocannon-sentry",
+      "display_name": "Autocannon Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/autocannon-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "ems-mortar-sentry",
+      "display_name": "EMS Mortar Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/ems-mortar-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "flame-sentry",
+      "display_name": "Flame Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/flame-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "gas-mines",
+      "display_name": "Gas Mines",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/gas-mines.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "gas-mortar-sentry",
+      "display_name": "Gas Mortar Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/gas-mortar-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "gatling-sentry",
+      "display_name": "Gatling Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/gatling-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "grenadier-battlement",
+      "display_name": "Grenadier Battlement",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/grenadier-battlement.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "hmg-emplacement",
+      "display_name": "HMG Emplacement",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/hmg-emplacement.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "incendiary-mines",
+      "display_name": "Incendiary Mines",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/incendiary-mines.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "laser-sentry",
+      "display_name": "Laser Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/laser-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "machine-gun-sentry",
+      "display_name": "Machine Gun Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/machine-gun-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "mortar-sentry",
+      "display_name": "Mortar Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/mortar-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "rocket-sentry",
+      "display_name": "Rocket Sentry",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/rocket-sentry.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "shield-generator-relay",
+      "display_name": "Shield Generator Relay",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/shield-generator-relay.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "tesla-tower",
+      "display_name": "Tesla Tower",
+      "kind": "stratagem",
+      "path": "stratagem/defensive/tesla-tower.png",
+      "category": "defensive"
+    },
+    {
+      "item_id": "eagle-110mm-rocket-pods",
+      "display_name": "Eagle 110mm Rocket Pods",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-110mm-rocket-pods.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-500kg-bomb",
+      "display_name": "Eagle 500kg Bomb",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-500kg-bomb.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-airstrike",
+      "display_name": "Eagle Airstrike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-airstrike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-cluster-bomb",
+      "display_name": "Eagle Cluster Bomb",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-cluster-bomb.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-napalm-airstrike",
+      "display_name": "Eagle Napalm Airstrike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-napalm-airstrike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-smoke-strike",
+      "display_name": "Eagle Smoke Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-smoke-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "eagle-strafing-run",
+      "display_name": "Eagle Strafing Run",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-strafing-run.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-120mm-he-barrage",
+      "display_name": "Orbital 120mm HE Barrage",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-120mm-he-barrage.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-380mm-he-barrage",
+      "display_name": "Orbital 380mm HE Barrage",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-380mm-he-barrage.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-airburst-strike",
+      "display_name": "Orbital Airburst Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-airburst-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-ems-strike",
+      "display_name": "Orbital EMS Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-ems-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-gas-strike",
+      "display_name": "Orbital Gas Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-gas-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-gatling-barrage",
+      "display_name": "Orbital Gatling Barrage",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-gatling-barrage.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-laser",
+      "display_name": "Orbital Laser",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-laser.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-napalm-barrage",
+      "display_name": "Orbital Napalm Barrage",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-napalm-barrage.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-precision-strike",
+      "display_name": "Orbital Precision Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-precision-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-railcannon-strike",
+      "display_name": "Orbital Railcannon Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-railcannon-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-smoke-strike",
+      "display_name": "Orbital Smoke Strike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-smoke-strike.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "orbital-walking-barrage",
+      "display_name": "Orbital Walking Barrage",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/orbital-walking-barrage.png",
+      "category": "offensive"
+    },
+    {
+      "item_id": "airburst-rocket-launcher",
+      "display_name": "Airburst Rocket Launcher",
+      "kind": "stratagem",
+      "path": "stratagem/supply/airburst-rocket-launcher.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "anti-materiel-rifle",
+      "display_name": "Anti-Materiel Rifle",
+      "kind": "stratagem",
+      "path": "stratagem/supply/anti-materiel-rifle.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "arc-thrower",
+      "display_name": "Arc Thrower",
+      "kind": "stratagem",
+      "path": "stratagem/supply/arc-thrower.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "autocannon",
+      "display_name": "Autocannon",
+      "kind": "stratagem",
+      "path": "stratagem/supply/autocannon.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "ballistic-shield-backpack",
+      "display_name": "Ballistic Shield Backpack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/ballistic-shield-backpack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "bastion-mk-xvi",
+      "display_name": "Bastion MK XVI",
+      "kind": "stratagem",
+      "path": "stratagem/supply/bastion-mk-xvi.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "belt-fed-grenade-launcher",
+      "display_name": "Belt-Fed Grenade Launcher",
+      "kind": "stratagem",
+      "path": "stratagem/supply/belt-fed-grenade-launcher.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "breaching-hammer",
+      "display_name": "Breaching Hammer",
+      "kind": "stratagem",
+      "path": "stratagem/supply/breaching-hammer.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "breakthrough-exosuit",
+      "display_name": "Breakthrough Exosuit",
+      "kind": "stratagem",
+      "path": "stratagem/supply/breakthrough-exosuit.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "bullet-storm",
+      "display_name": "Bullet Storm",
+      "kind": "stratagem",
+      "path": "stratagem/supply/bullet-storm.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "c4-pack",
+      "display_name": "C4 Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/c4-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "commando",
+      "display_name": "Commando",
+      "kind": "stratagem",
+      "path": "stratagem/supply/commando.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "cremator",
+      "display_name": "Cremator",
+      "kind": "stratagem",
+      "path": "stratagem/supply/cremator.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "de-escalator",
+      "display_name": "De-Escalator",
+      "kind": "stratagem",
+      "path": "stratagem/supply/de-escalator.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "defoliation-tool",
+      "display_name": "Defoliation Tool",
+      "kind": "stratagem",
+      "path": "stratagem/supply/defoliation-tool.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "directional-shield",
+      "display_name": "Directional Shield",
+      "kind": "stratagem",
+      "path": "stratagem/supply/directional-shield.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "dog-breath",
+      "display_name": "Dog Breath",
+      "kind": "stratagem",
+      "path": "stratagem/supply/dog-breath.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "emancipator-exosuit",
+      "display_name": "Emancipator Exosuit",
+      "kind": "stratagem",
+      "path": "stratagem/supply/emancipator-exosuit.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "epoch",
+      "display_name": "Epoch",
+      "kind": "stratagem",
+      "path": "stratagem/supply/epoch.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "expendable-anti-tank",
+      "display_name": "Expendable Anti-Tank",
+      "kind": "stratagem",
+      "path": "stratagem/supply/expendable-anti-tank.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "expendable-napalm",
+      "display_name": "Expendable Napalm",
+      "kind": "stratagem",
+      "path": "stratagem/supply/expendable-napalm.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "fast-recon-vehicle",
+      "display_name": "Fast Recon Vehicle",
+      "kind": "stratagem",
+      "path": "stratagem/supply/fast-recon-vehicle.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "flamethrower",
+      "display_name": "Flamethrower",
+      "kind": "stratagem",
+      "path": "stratagem/supply/flamethrower.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "grenade-launcher",
+      "display_name": "Grenade Launcher",
+      "kind": "stratagem",
+      "path": "stratagem/supply/grenade-launcher.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "guard-dog",
+      "display_name": "Guard Dog",
+      "kind": "stratagem",
+      "path": "stratagem/supply/guard-dog.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "heavy-machine-gun",
+      "display_name": "Heavy Machine Gun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/heavy-machine-gun.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "hot-dog",
+      "display_name": "Hot Dog",
+      "kind": "stratagem",
+      "path": "stratagem/supply/hot-dog.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "hover-pack",
+      "display_name": "Hover Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/hover-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "incinerator-frv",
+      "display_name": "Incinerator FRV",
+      "kind": "stratagem",
+      "path": "stratagem/supply/incinerator-frv.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "jump-pack",
+      "display_name": "Jump Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/jump-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "k-9",
+      "display_name": "K-9",
+      "kind": "stratagem",
+      "path": "stratagem/supply/k-9.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "laser-cannon",
+      "display_name": "Laser Cannon",
+      "kind": "stratagem",
+      "path": "stratagem/supply/laser-cannon.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "leveller",
+      "display_name": "Leveller",
+      "kind": "stratagem",
+      "path": "stratagem/supply/leveller.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "lumberer-exosuit",
+      "display_name": "Lumberer Exosuit",
+      "kind": "stratagem",
+      "path": "stratagem/supply/lumberer-exosuit.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "machine-gun",
+      "display_name": "Machine Gun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/machine-gun.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "maxigun",
+      "display_name": "Maxigun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/maxigun.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "one-true-flag",
+      "display_name": "One True Flag",
+      "kind": "stratagem",
+      "path": "stratagem/supply/one-true-flag.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "patriot-exosuit",
+      "display_name": "Patriot Exosuit",
+      "kind": "stratagem",
+      "path": "stratagem/supply/patriot-exosuit.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "portable-hellbomb",
+      "display_name": "Portable Hellbomb",
+      "kind": "stratagem",
+      "path": "stratagem/supply/portable-hellbomb.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "quasar-cannon",
+      "display_name": "Quasar Cannon",
+      "kind": "stratagem",
+      "path": "stratagem/supply/quasar-cannon.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "railgun",
+      "display_name": "Railgun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/railgun.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "recoilless-rifle",
+      "display_name": "Recoilless Rifle",
+      "kind": "stratagem",
+      "path": "stratagem/supply/recoilless-rifle.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "rover",
+      "display_name": "Rover",
+      "kind": "stratagem",
+      "path": "stratagem/supply/rover.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "shield-generator-pack",
+      "display_name": "Shield Generator Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/shield-generator-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "solo-silo",
+      "display_name": "Solo Silo",
+      "kind": "stratagem",
+      "path": "stratagem/supply/solo-silo.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "spear",
+      "display_name": "Spear",
+      "kind": "stratagem",
+      "path": "stratagem/supply/spear.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "speargun",
+      "display_name": "Speargun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/speargun.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "stalwart",
+      "display_name": "Stalwart",
+      "kind": "stratagem",
+      "path": "stratagem/supply/stalwart.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "sterilizer",
+      "display_name": "Sterilizer",
+      "kind": "stratagem",
+      "path": "stratagem/supply/sterilizer.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "supply-frv",
+      "display_name": "Supply FRV",
+      "kind": "stratagem",
+      "path": "stratagem/supply/supply-frv.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "supply-pack",
+      "display_name": "Supply Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/supply-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "warp-pack",
+      "display_name": "Warp Pack",
+      "kind": "stratagem",
+      "path": "stratagem/supply/warp-pack.png",
+      "category": "supply"
+    },
+    {
+      "item_id": "wasp-launcher",
+      "display_name": "W.A.S.P. Launcher",
+      "kind": "stratagem",
+      "path": "stratagem/supply/wasp-launcher.png",
+      "category": "supply"
+    }
+  ]
+}
