@@ -12,9 +12,7 @@ use crate::slot::SlotLayout;
 use crate::vision::{RoiFrame, RoiObservation};
 use crate::visual_fingerprint::distance as fingerprint_distance;
 
-use super::page_relation::{
-    PAGE_TURN_FULL_SHIFT_MIN_RATIO, PageRelation, compare_page_turn,
-};
+use super::page_relation::{PAGE_TURN_FULL_SHIFT_MIN_RATIO, PageRelation, compare_page_turn};
 
 const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(100);
 const PAGE_TURN_TIMEOUT: Duration = Duration::from_millis(350);
@@ -130,11 +128,7 @@ impl<'a> PageNavigator<'a> {
             }
 
             let candidate = self.scan_direct_page(frame)?;
-            let relation = compare_page_turn(
-                &current_page.roi,
-                &candidate.roi,
-                self.item_kind,
-            );
+            let relation = compare_page_turn(&current_page.roi, &candidate.roi, self.item_kind);
             trace!(
                 relation = ?relation,
                 elapsed = ?start.elapsed(),

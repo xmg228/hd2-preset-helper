@@ -37,12 +37,9 @@ pub(super) fn open_slot_list(
         hold_ms = CLICK_HOLD_MS,
         "opening home list with a direct mouse click"
     );
-    input::click_with_boundary(
-        target.click_x,
-        target.click_y,
-        CLICK_HOLD_MS,
-        || capture.sync_to_latest(),
-    )?;
+    input::click_with_boundary(target.click_x, target.click_y, CLICK_HOLD_MS, || {
+        capture.sync_to_latest()
+    })?;
 
     let observation = wait_for_ui_state(capture, runtime, target_state, LIST_OPEN_TIMEOUT)?;
 
@@ -56,12 +53,8 @@ pub(super) fn wait_for_home_booster_target(
     let span = debug_span!("wait_home_booster_slot");
     let _guard = span.enter();
 
-    let observation = wait_for_ui_state(
-        capture,
-        runtime,
-        UiState::HomeFilled,
-        HOME_LAYOUT_TIMEOUT,
-    )?;
+    let observation =
+        wait_for_ui_state(capture, runtime, UiState::HomeFilled, HOME_LAYOUT_TIMEOUT)?;
     let slot = home_booster_slot(&observation)
         .context("stable home layout did not contain a booster slot")?;
     let (click_x, click_y) = observation.screen_center(slot);

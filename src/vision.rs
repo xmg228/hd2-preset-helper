@@ -146,8 +146,9 @@ pub fn resolve_calibration_roi_for_size(
     let scale = match calibration.scale_axis {
         ScaleAxis::Width => image_w as f32 / reference.w as f32,
         ScaleAxis::Height => image_h as f32 / reference.h as f32,
-        ScaleAxis::Fit => (image_w as f32 / reference.w as f32)
-            .min(image_h as f32 / reference.h as f32),
+        ScaleAxis::Fit => {
+            (image_w as f32 / reference.w as f32).min(image_h as f32 / reference.h as f32)
+        }
     };
 
     let scaled_reference_w = reference.w as f32 * scale;
@@ -190,10 +191,7 @@ pub fn resolve_calibration_roi_for_size(
     })
 }
 
-pub fn detect_slot_layout(
-    frame: RoiFrame,
-    expected_layout: SlotLayout,
-) -> Result<RoiObservation> {
+pub fn detect_slot_layout(frame: RoiFrame, expected_layout: SlotLayout) -> Result<RoiObservation> {
     let RoiFrame {
         image,
         screen_x,

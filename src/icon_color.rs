@@ -172,8 +172,7 @@ fn color_likeness(sample: ColorSample, profile: ColorProfile) -> f32 {
         + (sample.chroma[1] - profile.chroma[1]).powi(2)
         + (sample.chroma[2] - profile.chroma[2]).powi(2))
     .sqrt();
-    let brightness =
-        0.35 + 0.65 * smoothstep(profile.luma_low, profile.luma_full, sample.luma);
+    let brightness = 0.35 + 0.65 * smoothstep(profile.luma_low, profile.luma_full, sample.luma);
     let chromaticity = 1.0 - smoothstep(profile.distance_full, profile.distance_zero, distance);
 
     brightness * chromaticity

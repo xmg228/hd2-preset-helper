@@ -73,9 +73,8 @@ pub fn handle_preset_hotkey(
 
     let ready_up_after_apply = match ui_state {
         UiState::HomeFilled => {
-            let preset =
-                collect_current_preset(&initial_result)
-                    .context("failed to collect current preset")?;
+            let preset = collect_current_preset(&initial_result)
+                .context("failed to collect current preset")?;
             save_current_preset(config, preset_name, &preset)?;
             false
         }
@@ -94,13 +93,8 @@ pub fn handle_preset_hotkey(
                 "applying preset from empty home"
             );
             log_preset_contents(&preset);
-            apply_empty_loadout_preset(
-                runtime,
-                capture,
-                config.events,
-                &preset.stratagems,
-            )
-            .context("failed to apply stratagems from empty home")?;
+            apply_empty_loadout_preset(runtime, capture, config.events, &preset.stratagems)
+                .context("failed to apply stratagems from empty home")?;
             apply_booster_if_present(runtime, capture, config, &preset)?;
             preset.booster.is_some()
         }

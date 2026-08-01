@@ -87,10 +87,7 @@ fn best_visible_target(
         })
 }
 
-fn compare_center_y(
-    left: &DirectClickTarget,
-    right: &DirectClickTarget,
-) -> std::cmp::Ordering {
+fn compare_center_y(left: &DirectClickTarget, right: &DirectClickTarget) -> std::cmp::Ordering {
     left.center_y_roi.total_cmp(&right.center_y_roi)
 }
 

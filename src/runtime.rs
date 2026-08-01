@@ -23,8 +23,7 @@ impl RecognizerRuntime {
         let load_time = Instant::now();
         let calibration = parse_json_asset(default_calibration())?;
         let icons = Arc::new(IconCatalog::load(default_icon_manifest())?);
-        let classifier =
-            TemplateClassifier::load(&icons, TEMPLATE_THRESHOLD, TEMPLATE_MIN_MARGIN)?;
+        let classifier = TemplateClassifier::load(&icons, TEMPLATE_THRESHOLD, TEMPLATE_MIN_MARGIN)?;
 
         debug!(elapsed = ?load_time.elapsed(), "recognizer runtime ready");
 
@@ -43,11 +42,7 @@ impl RecognizerRuntime {
         &self.icons
     }
 
-    pub fn detect(
-        &self,
-        frame: RoiFrame,
-        expected_layout: SlotLayout,
-    ) -> Result<RoiObservation> {
+    pub fn detect(&self, frame: RoiFrame, expected_layout: SlotLayout) -> Result<RoiObservation> {
         let span = debug_span!("detect_layout");
         let _guard = span.enter();
 

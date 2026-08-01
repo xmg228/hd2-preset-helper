@@ -4,8 +4,7 @@ use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
 
 use crate::capture::{
-    CaptureRebuildSignature, CaptureSource, DisplayWhiteLevel,
-    query_sdr_white_level_for_window,
+    CaptureRebuildSignature, CaptureSource, DisplayWhiteLevel, query_sdr_white_level_for_window,
 };
 use crate::game_window::{GameWindow, find_game_window_once};
 
@@ -70,9 +69,7 @@ impl CaptureSessionCache {
         if self
             .cached
             .as_mut()
-            .is_some_and(|capture| {
-                capture.try_reuse_for_game_window(game_window, sdr_white_level)
-            })
+            .is_some_and(|capture| capture.try_reuse_for_game_window(game_window, sdr_white_level))
         {
             self.pending_signature = None;
             return;
@@ -108,8 +105,7 @@ impl CaptureSessionCache {
 
             debug!(
                 ?signature,
-                seen_count,
-                "invalidating prewarmed WGC capture session: window signature changed"
+                seen_count, "invalidating prewarmed WGC capture session: window signature changed"
             );
             self.cached = None;
         }
@@ -122,9 +118,7 @@ impl CaptureSessionCache {
         if self
             .cached
             .as_mut()
-            .is_some_and(|capture| {
-                capture.try_reuse_for_game_window(game_window, sdr_white_level)
-            })
+            .is_some_and(|capture| capture.try_reuse_for_game_window(game_window, sdr_white_level))
         {
             self.pending_signature = None;
             return Ok(self.cached.as_mut().expect("checked cached capture"));

@@ -45,8 +45,8 @@ pub(super) fn compare_page_turn(
 
     let row_pitch = estimate_row_pitch(previous, item_kind);
     let x_tolerance = 10.0 * previous.image.width() as f32 / ROI_REFERENCE_W as f32;
-    let dy_tolerance = (row_pitch * 0.12)
-        .max(8.0 * previous.image.height() as f32 / ROI_REFERENCE_H as f32);
+    let dy_tolerance =
+        (row_pitch * 0.12).max(8.0 * previous.image.height() as f32 / ROI_REFERENCE_H as f32);
     let mut used_current = vec![false; current.slots.len()];
     let mut shifts = Vec::new();
 
@@ -60,9 +60,7 @@ pub(super) fn compare_page_turn(
             .slots
             .iter()
             .enumerate()
-            .filter(|(index, slot)| {
-                !used_current[*index] && is_identity_slot(slot, item_kind)
-            })
+            .filter(|(index, slot)| !used_current[*index] && is_identity_slot(slot, item_kind))
             .filter_map(|(index, slot)| {
                 let classification = slot.classification.as_ref()?;
                 if classification.item_id != previous_classification.item_id
@@ -109,9 +107,8 @@ pub(super) fn compare_page_turn(
     }
 
     let directed_shift = -median_dy;
-    let expected_full_shift = PAGE_TURN_SHIFT_REFERENCE_PX
-        * previous.image.height() as f32
-        / ROI_REFERENCE_H as f32;
+    let expected_full_shift =
+        PAGE_TURN_SHIFT_REFERENCE_PX * previous.image.height() as f32 / ROI_REFERENCE_H as f32;
     let shift_ratio = directed_shift / expected_full_shift;
     PageRelation::Shifted(PageShift {
         directed_shift,
@@ -142,9 +139,7 @@ fn estimate_row_pitch(result: &RoiObservation, item_kind: ItemKind) -> f32 {
         .iter()
         .filter(|slot| is_identity_slot(slot, item_kind))
     {
-        rows.entry(slot.row)
-            .or_default()
-            .push(slot.center_f32().1);
+        rows.entry(slot.row).or_default().push(slot.center_f32().1);
     }
 
     let mut centers: Vec<f32> = rows

@@ -9,8 +9,7 @@ use tracing::{debug, trace};
 
 use crate::assets::{IconCatalog, icon_image, resize_rgba_box};
 use crate::icon_color::{
-    StratagemCategoryCandidates, StratagemColorEvidence, add_stratagem_color_evidence,
-    luma601_u8,
+    StratagemCategoryCandidates, StratagemColorEvidence, add_stratagem_color_evidence, luma601_u8,
 };
 use crate::item::{ItemKind, StratagemCategory};
 use crate::slot::SlotLayout;
@@ -115,11 +114,7 @@ pub struct TemplateClassifier {
 }
 
 impl TemplateClassifier {
-    pub fn load(
-        catalog: &IconCatalog,
-        threshold: f32,
-        min_margin: f32,
-    ) -> Result<Self> {
+    pub fn load(catalog: &IconCatalog, threshold: f32, min_margin: f32) -> Result<Self> {
         let mut items = catalog.iter().collect::<Vec<_>>();
         items.sort_unstable_by_key(|(item_id, _)| *item_id);
         let sources = items
@@ -227,7 +222,10 @@ impl TemplateClassifier {
 
     fn build_profile(&self, key: ProfileKey) -> Result<TemplateProfile> {
         let total_start = Instant::now();
-        ensure!(key.canvas_w > 0 && key.canvas_h > 0, "zero-size template canvas");
+        ensure!(
+            key.canvas_w > 0 && key.canvas_h > 0,
+            "zero-size template canvas"
+        );
         ensure!(key.icon_size > 0, "zero-size icon template");
         ensure!(
             key.icon_size <= key.canvas_w.min(key.canvas_h),
@@ -246,7 +244,10 @@ impl TemplateClassifier {
             .map(|(source_index, source)| render_source(source_index, source, key))
             .collect();
         let rendered = rendered_results.into_iter().collect::<Result<Vec<_>>>()?;
-        ensure!(!rendered.is_empty(), "template profile has no source images");
+        ensure!(
+            !rendered.is_empty(),
+            "template profile has no source images"
+        );
         let render_time = render_start.elapsed();
         let prepare_start = Instant::now();
 
@@ -273,21 +274,10 @@ impl TemplateClassifier {
         let prepared_results: Vec<Result<PreparedTemplate>> = rendered
             .into_par_iter()
             .map(|template| {
-                let gray = normalized_mask_values(
-                    &template.gray,
-                    key.canvas_w as usize,
-                    &mask,
-                    0,
-                    0,
-                )?;
+                let gray =
+                    normalized_mask_values(&template.gray, key.canvas_w as usize, &mask, 0, 0)?;
                 let gradient = if key.kind == ItemKind::Stratagem {
-                    normalized_mask_values(
-                        &template.gradient,
-                        key.canvas_w as usize,
-                        &mask,
-                        0,
-                        0,
-                    )?
+                    normalized_mask_values(&template.gradient, key.canvas_w as usize, &mask, 0, 0)?
                 } else {
                     Vec::new()
                 };
@@ -434,10 +424,7 @@ impl TemplateClassifier {
         }
 
         for icon_size in neighboring_icon_sizes(key.icon_size, key.canvas_w.min(key.canvas_h)) {
-            let profile = self.profile(ProfileKey {
-                icon_size,
-                ..key
-            })?;
+            let profile = self.profile(ProfileKey { icon_size, ..key })?;
             score_profile(
                 features,
                 &profile,
@@ -676,9 +663,8 @@ fn extract_slot_features(
     let raw = screenshot.as_raw();
     for y in 0..slot.h {
         for x in 0..slot.w {
-            let source_index = ((slot.y + y) as usize * screenshot_width
-                + (slot.x + x) as usize)
-                * 4;
+            let source_index =
+                ((slot.y + y) as usize * screenshot_width + (slot.x + x) as usize) * 4;
             let r = raw[source_index];
             let g = raw[source_index + 1];
             let b = raw[source_index + 2];
@@ -765,8 +751,7 @@ fn score_profile(
             };
             let score = gradient_score
                 .map(|gradient| {
-                    STRATAGEM_GRAY_WEIGHT * gray_score
-                        + STRATAGEM_GRADIENT_WEIGHT * gradient
+                    STRATAGEM_GRAY_WEIGHT * gray_score + STRATAGEM_GRADIENT_WEIGHT * gradient
                 })
                 .unwrap_or(gray_score);
             let target = &mut scores[template.source_index];
@@ -841,15 +826,11 @@ fn sobel_magnitude(gray: &[f32], width: usize, height: usize) -> Vec<f32> {
         let current = y * width;
         let below = (y + 1) * width;
         for x in 1..width - 1 {
-            let gx = -gray[above + x - 1]
-                + gray[above + x + 1]
-                - 2.0 * gray[current + x - 1]
+            let gx = -gray[above + x - 1] + gray[above + x + 1] - 2.0 * gray[current + x - 1]
                 + 2.0 * gray[current + x + 1]
                 - gray[below + x - 1]
                 + gray[below + x + 1];
-            let gy = -gray[above + x - 1]
-                - 2.0 * gray[above + x]
-                - gray[above + x + 1]
+            let gy = -gray[above + x - 1] - 2.0 * gray[above + x] - gray[above + x + 1]
                 + gray[below + x - 1]
                 + 2.0 * gray[below + x]
                 + gray[below + x + 1];
@@ -926,10 +907,7 @@ const SEARCH_OFFSETS: &[(i32, i32)] = &[
     (1, 1),
 ];
 
-fn offsets_excluding(
-    offsets: &[(i32, i32)],
-    excluded: &[(i32, i32)],
-) -> Vec<(i32, i32)> {
+fn offsets_excluding(offsets: &[(i32, i32)], excluded: &[(i32, i32)]) -> Vec<(i32, i32)> {
     offsets
         .iter()
         .copied()
@@ -950,4 +928,3 @@ fn neighboring_icon_sizes(nominal: u32, max_size: u32) -> Vec<u32> {
     }
     sizes
 }
-

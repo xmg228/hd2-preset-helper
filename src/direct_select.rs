@@ -1,7 +1,7 @@
 mod click_plan;
-mod page_relation;
-mod page_navigation;
 mod home_activation;
+mod page_navigation;
+mod page_relation;
 
 use std::time::Duration;
 
@@ -11,8 +11,8 @@ use tracing::{debug, debug_span, info_span};
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::capture::CaptureSource;
 use crate::input;
-use crate::page_sync::capture_latest_roi_frame;
 use crate::item::ItemKind;
+use crate::page_sync::capture_latest_roi_frame;
 use crate::preset_flow::empty_loadout_entry_slot;
 use crate::runtime::RecognizerRuntime;
 use crate::slot::SlotLayout;
@@ -218,9 +218,10 @@ fn click_visible_preset_targets(
     }
 
     if let Some(target) = plan.terminal_bottom {
-        if remaining.first().is_some_and(|item| {
-            remaining.len() == 1 && item == &target.item_id
-        }) {
+        if remaining
+            .first()
+            .is_some_and(|item| remaining.len() == 1 && item == &target.item_id)
+        {
             click_preset_target(capture, &target, true, events)?;
             remove_remaining(remaining, &target.item_id);
             clicked += 1;

@@ -7,12 +7,12 @@ use image::{GrayImage, RgbaImage};
 use rayon::prelude::*;
 use tracing::debug;
 
+use crate::icon_color;
+use crate::item::ItemKind;
 use crate::layout::{
     HOME_BOOSTER_X, HOME_COLS, LIST_COLS, ROI_REFERENCE_H, ROI_REFERENCE_H_F32, ROI_REFERENCE_W,
     ROI_REFERENCE_W_F32, SLOT_SIZE_I32,
 };
-use crate::icon_color;
-use crate::item::ItemKind;
 use crate::slot::{SlotKind, SlotLayout};
 use crate::vision::{Rect, Slot};
 
@@ -50,8 +50,7 @@ const MIN_SIDE: f32 = 0.16;
 
 // Robust frame-luma consistency. A slot contributes 36 border segments:
 // ten each on top/bottom and eight each on the intentionally gapped sides.
-const BORDER_SEGMENTS: usize =
-    4 * SEGMENT_BINS - 2 * V_SEGMENT_SKIP_CENTER_BINS;
+const BORDER_SEGMENTS: usize = 4 * SEGMENT_BINS - 2 * V_SEGMENT_SKIP_CENTER_BINS;
 const BORDER_UNIFORMITY_TRIM: usize = 8;
 const BORDER_UNIFORMITY_RETAINED: usize = BORDER_SEGMENTS - BORDER_UNIFORMITY_TRIM;
 const BORDER_UNIFORMITY_LUMA_FLOOR: f32 = 0.08;
@@ -190,9 +189,9 @@ fn detect_list(
     let rows = scan_profile(&lookup, integral, LIST_PROFILE);
     match item_kind {
         ItemKind::Booster => booster_list_rows_to_slots(image_w, image_h, &LIST_PROFILE, &rows),
-        ItemKind::Stratagem => rows_to_slots_by(image_w, image_h, &rows, |_, _| {
-            SlotKind::Stratagem
-        }),
+        ItemKind::Stratagem => {
+            rows_to_slots_by(image_w, image_h, &rows, |_, _| SlotKind::Stratagem)
+        }
     }
 }
 
@@ -331,9 +330,7 @@ fn select_rows_dp_hard(
     let mut prev = vec![-1isize; n];
     let mut j: isize = -1;
     for i in 0..n {
-        while (j + 1) < i as isize
-            && candidates[i].y - candidates[(j + 1) as usize].y >= min_gap
-        {
+        while (j + 1) < i as isize && candidates[i].y - candidates[(j + 1) as usize].y >= min_gap {
             j += 1;
         }
         prev[i] = j;
@@ -474,8 +471,7 @@ fn border_uniformity_factor(integral: &IntegralImage, x: i32, y: i32) -> f32 {
     for bin in 0..SEGMENT_BINS {
         let (start, end) = segment_bounds(width, bin);
         values[index] = integral.mean_rect(x + start, top, x + end, top + H_LINE_H);
-        values[index + 1] =
-            integral.mean_rect(x + start, bottom, x + end, bottom + H_LINE_H);
+        values[index + 1] = integral.mean_rect(x + start, bottom, x + end, bottom + H_LINE_H);
         index += 2;
     }
 
@@ -487,8 +483,7 @@ fn border_uniformity_factor(integral: &IntegralImage, x: i32, y: i32) -> f32 {
         }
         let (start, end) = segment_bounds(height, bin);
         values[index] = integral.mean_rect(left, y + start, left + V_LINE_W, y + end);
-        values[index + 1] =
-            integral.mean_rect(right, y + start, right + V_LINE_W, y + end);
+        values[index + 1] = integral.mean_rect(right, y + start, right + V_LINE_W, y + end);
         index += 2;
     }
     debug_assert_eq!(index, BORDER_SEGMENTS);
@@ -510,11 +505,9 @@ fn border_uniformity_factor(integral: &IntegralImage, x: i32, y: i32) -> f32 {
     let retained = &values[first..last];
     debug_assert_eq!(retained.len(), BORDER_UNIFORMITY_RETAINED);
     let center = median_sorted(retained).max(BORDER_UNIFORMITY_LUMA_FLOOR);
-    let (sum, sum_sq) = retained
-        .iter()
-        .fold((0.0, 0.0), |(sum, sum_sq), &value| {
-            (sum + value, sum_sq + value * value)
-        });
+    let (sum, sum_sq) = retained.iter().fold((0.0, 0.0), |(sum, sum_sq), &value| {
+        (sum + value, sum_sq + value * value)
+    });
     let count = retained.len() as f32;
     let mean = sum / count;
     let relative_std = (sum_sq / count - mean * mean).max(0.0).sqrt() / center;
@@ -551,9 +544,7 @@ impl ProfileLookup {
         let h_lines: Vec<LineScores> = profile
             .cols
             .par_iter()
-            .map(|x| {
-                build_horizontal_line_scores(integral, *x, h_y_min, h_y_max)
-            })
+            .map(|x| build_horizontal_line_scores(integral, *x, h_y_min, h_y_max))
             .collect();
 
         let mut h_x_to_index = vec![None; width];
@@ -600,7 +591,9 @@ impl ProfileLookup {
         };
         let line = &self.h_lines[*index];
         let center = line.score_at(y);
-        let neighbor = line.score_at(y - EDGE_BAND).max(line.score_at(y + EDGE_BAND));
+        let neighbor = line
+            .score_at(y - EDGE_BAND)
+            .max(line.score_at(y + EDGE_BAND));
         center_biased_band_score(center, neighbor, H_EDGE_CENTER_WEIGHT)
     }
 
@@ -670,11 +663,7 @@ fn build_horizontal_line_scores(
     }
 }
 
-fn build_vertical_line_scores(
-    integral: &IntegralImage,
-    x: i32,
-    profile: &Profile,
-) -> LineScores {
+fn build_vertical_line_scores(integral: &IntegralImage, x: i32, profile: &Profile) -> LineScores {
     let y_min = profile.y_min;
     let y_max = profile.y_max;
     let response_y_max = y_max + SLOT_SIZE_I32;
@@ -742,11 +731,7 @@ where
             sum += sample(offset);
             count += 1;
         }
-        if count == 0 {
-            0.0
-        } else {
-            sum / count as f32
-        }
+        if count == 0 { 0.0 } else { sum / count as f32 }
     })
 }
 
@@ -924,14 +909,7 @@ impl IntegralImage {
         self.rect_sum(table, x0, y0, x0 + width, y0 + height)
     }
 
-    fn rect_sum(
-        &self,
-        table: &[f32],
-        x0: i32,
-        y0: i32,
-        x1: i32,
-        y1: i32,
-    ) -> (f32, u32) {
+    fn rect_sum(&self, table: &[f32], x0: i32, y0: i32, x1: i32, y1: i32) -> (f32, u32) {
         let x0 = x0.clamp(0, self.width as i32) as usize;
         let y0 = y0.clamp(0, self.height as i32) as usize;
         let x1 = x1.clamp(0, self.width as i32) as usize;
@@ -941,8 +919,7 @@ impl IntegralImage {
         }
 
         let stride = self.width + 1;
-        let sum = table[y1 * stride + x1] - table[y0 * stride + x1]
-            - table[y1 * stride + x0]
+        let sum = table[y1 * stride + x1] - table[y0 * stride + x1] - table[y1 * stride + x0]
             + table[y0 * stride + x0];
         (sum, ((x1 - x0) * (y1 - y0)) as u32)
     }

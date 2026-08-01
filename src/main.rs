@@ -86,10 +86,7 @@ struct HotkeyConfig {
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
-            modifiers: vec![
-                input::HotkeyModifier::Ctrl,
-                input::HotkeyModifier::Shift,
-            ],
+            modifiers: vec![input::HotkeyModifier::Ctrl, input::HotkeyModifier::Shift],
             keys: vec![
                 input::Vk::F7,
                 input::Vk::F8,
@@ -115,13 +112,11 @@ impl Default for OverlaySettings {
 }
 
 fn main() -> Result<()> {
-    let _ = unsafe {
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-    };
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     let _log_guard = init_tracing()?;
     let config_path = Path::new("data/config.toml");
-    let result = load_app_config(config_path)
-        .and_then(|config| run_preset_hotkey_mode(config, config_path));
+    let result =
+        load_app_config(config_path).and_then(|config| run_preset_hotkey_mode(config, config_path));
     if let Err(error) = &result {
         error!(error = %format!("{error:#}"), "application terminated");
     }
@@ -133,8 +128,7 @@ fn run_preset_hotkey_mode(config: AppConfig, config_path: &Path) -> Result<()> {
 
     let hotkey_modifiers = input::HotkeyModifiers::new(config.hotkey.modifiers.clone())?;
     let bindings = preset_hotkeys(hotkey_modifiers, &config.hotkey.keys);
-    let hotkeys: Vec<input::HotkeySpec> =
-        bindings.iter().map(|binding| binding.hotkey).collect();
+    let hotkeys: Vec<input::HotkeySpec> = bindings.iter().map(|binding| binding.hotkey).collect();
     let _tray = tray::spawn()?;
 
     for binding in &bindings {
@@ -189,12 +183,8 @@ fn run_preset_hotkey_mode(config: AppConfig, config_path: &Path) -> Result<()> {
 
         let preset_name = &binding.preset;
         let action_start = Instant::now();
-        let outcome = handle_preset_hotkey(
-            &runtime,
-            &action_config,
-            preset_name,
-            &mut capture_cache,
-        );
+        let outcome =
+            handle_preset_hotkey(&runtime, &action_config, preset_name, &mut capture_cache);
         if let Err(error) = outcome {
             let error = format!("{error:#}");
             error!(
@@ -214,7 +204,10 @@ fn run_preset_hotkey_mode(config: AppConfig, config_path: &Path) -> Result<()> {
 
 fn load_app_config(config_path: &Path) -> Result<AppConfig> {
     if !config_path.exists() {
-        if let Some(parent) = config_path.parent().filter(|path| !path.as_os_str().is_empty()) {
+        if let Some(parent) = config_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create config directory {}", parent.display())
             })?;
@@ -284,11 +277,7 @@ fn overlay_presets_for_bindings(
                     %error,
                     "invalid overlay preset summary"
                 );
-                return overlay_preset(
-                    binding,
-                    None,
-                    OverlayPresetStatus::Invalid(error),
-                );
+                return overlay_preset(binding, None, OverlayPresetStatus::Invalid(error));
             }
 
             let status = invalid_preset_reason(preset, catalog).map_or(

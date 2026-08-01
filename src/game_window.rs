@@ -98,9 +98,7 @@ pub fn find_game_window_once() -> Result<GameWindow> {
     let hwnd = unsafe { GetForegroundWindow() };
     let title = window_title(hwnd);
     if !title_matches(&title) {
-        bail!(
-            "Helldivers is not the foreground window; foreground={hwnd:?}, title={title:?}"
-        );
+        bail!("Helldivers is not the foreground window; foreground={hwnd:?}, title={title:?}");
     }
     game_window_from_hwnd(hwnd)
 }

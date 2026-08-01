@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::{MaybeUninit, size_of};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,26 +12,25 @@ use tracing::warn;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, CLIP_DEFAULT_PRECIS,
-    CreateFontW, DC_BRUSH, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CALCRECT,
-    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    DT_WORDBREAK, DeleteObject, DrawTextW, EndPaint, FW_NORMAL, FW_SEMIBOLD, FillRect, GetDC,
-    GetStockObject, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-    ReleaseDC, SelectObject, SetBkMode, SetDCBrushColor, SetDIBitsToDevice, SetTextColor,
-    TRANSPARENT,
+    CreateFontW, DC_BRUSH, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER,
+    DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteObject,
+    DrawTextW, EndPaint, FW_NORMAL, FW_SEMIBOLD, FillRect, GetDC, GetStockObject, HBRUSH, HDC,
+    HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, SelectObject, SetBkMode,
+    SetDCBrushColor, SetDIBitsToDevice, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::{
-    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK,
-    RID_INPUT, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
+    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
+    RIDEV_INPUTSINK, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
     GetSystemMetrics, HWND_TOPMOST, KillTimer, LWA_ALPHA, MSG, RegisterClassW, SM_CXSCREEN,
     SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetLayeredWindowAttributes,
     SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_INPUT, WM_PAINT, WM_QUIT, WM_TIMER,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    WS_POPUP, WS_VISIBLE,
 };
 use windows::core::PCWSTR;
 
@@ -252,8 +251,7 @@ impl OverlayMetrics {
         let key_icon_gap = scaled_i32(BASE_KEY_ICON_GAP, scale);
         let icon_size = scaled_i32(BASE_ICON_SIZE, scale);
         let icon_gap = scaled_i32(BASE_ICON_GAP, scale);
-        let icons_w = MAX_PRESET_ICONS * icon_size
-            + (MAX_PRESET_ICONS - 1) * icon_gap;
+        let icons_w = MAX_PRESET_ICONS * icon_size + (MAX_PRESET_ICONS - 1) * icon_gap;
         let content_w = key_w + key_icon_gap + icons_w;
         let key_x = (window_w - content_w).max(0) / 2;
         let icon_x = key_x + key_w + key_icon_gap;
@@ -288,8 +286,7 @@ impl OverlayMetrics {
 
     fn with_status_height(mut self, status_h: i32) -> Self {
         self.status_h = status_h.max(scaled_i32(BASE_STATUS_H, self.scale));
-        self.window_h =
-            self.status_y + self.status_h + scaled_i32(BASE_BOTTOM_PADDING, self.scale);
+        self.window_h = self.status_y + self.status_h + scaled_i32(BASE_BOTTOM_PADDING, self.scale);
         self
     }
 }
@@ -353,10 +350,7 @@ impl OverlayContext {
     }
 }
 
-pub fn spawn_overlay(
-    modifiers: HotkeyModifiers,
-    catalog: Arc<IconCatalog>,
-) -> AppEventSink {
+pub fn spawn_overlay(modifiers: HotkeyModifiers, catalog: Arc<IconCatalog>) -> AppEventSink {
     let (sender, receiver) = mpsc::channel();
     let wake_thread = Arc::new(AtomicU32::new(0));
     let overlay_wake_thread = Arc::clone(&wake_thread);
@@ -364,12 +358,7 @@ pub fn spawn_overlay(
     thread::Builder::new()
         .name("hd2-preset-helper-overlay".to_string())
         .spawn(move || {
-            if let Err(error) = run_overlay(
-                receiver,
-                modifiers,
-                catalog,
-                &overlay_wake_thread,
-            ) {
+            if let Err(error) = run_overlay(receiver, modifiers, catalog, &overlay_wake_thread) {
                 warn!(error = %format!("{error:#}"), "overlay thread stopped");
             }
             overlay_wake_thread.store(0, Ordering::Release);
@@ -584,9 +573,7 @@ fn drain_app_events(
     resize_overlay(hwnd);
     show_overlay(hwnd);
 
-    if !modifier_down
-        && let OverlayEventPolicy::HideAfter(delay) = policy
-    {
+    if !modifier_down && let OverlayEventPolicy::HideAfter(delay) = policy {
         schedule_hide_timer(hwnd, hide_deadline, delay);
     }
 
@@ -665,11 +652,7 @@ fn cancel_timer(hwnd: HWND, timer_id: usize) {
 
 fn begin_fade(hwnd: HWND, fade_started: &mut Option<Instant>) {
     *fade_started = Some(Instant::now());
-    schedule_timer(
-        hwnd,
-        TIMER_FADE,
-        Duration::from_millis(FADE_TICK_MS as u64),
-    );
+    schedule_timer(hwnd, TIMER_FADE, Duration::from_millis(FADE_TICK_MS as u64));
 }
 
 fn update_fade(hwnd: HWND, fade_started: &mut Option<Instant>) {
@@ -1137,10 +1120,7 @@ fn draw_status(hdc: HDC, state: &OverlayState, renderer: &OverlayRenderer) {
     unsafe {
         let metrics = state.metrics;
         let separator_y = metrics.status_y
-            - scaled_i32(
-                BASE_STATUS_GAP - BASE_STATUS_SEPARATOR_GAP,
-                metrics.scale,
-            );
+            - scaled_i32(BASE_STATUS_GAP - BASE_STATUS_SEPARATOR_GAP, metrics.scale);
         let separator = RECT {
             left: metrics.padding,
             top: separator_y,
@@ -1226,11 +1206,7 @@ fn warm_preset_icons(state: &mut OverlayState) {
     }
 }
 
-fn render_item_icon(
-    catalog: &IconCatalog,
-    item_id: &str,
-    icon_size: u32,
-) -> Result<IconBitmap> {
+fn render_item_icon(catalog: &IconCatalog, item_id: &str, icon_size: u32) -> Result<IconBitmap> {
     ensure!(icon_size > 0, "overlay icon size must be non-zero");
     let entry = catalog
         .get(item_id)
@@ -1246,16 +1222,13 @@ fn render_item_icon(
     for y in 0..icon_size {
         for x in 0..icon_size {
             let out_index = ((y * icon_size + x) * 4) as usize;
-            let (r, g, b, a) = if x >= offset_x
-                && x < offset_x + dst_w
-                && y >= offset_y
-                && y < offset_y + dst_h
-            {
-                let pixel = resized.get_pixel(x - offset_x, y - offset_y).0;
-                (pixel[0], pixel[1], pixel[2], pixel[3])
-            } else {
-                (0, 0, 0, 0)
-            };
+            let (r, g, b, a) =
+                if x >= offset_x && x < offset_x + dst_w && y >= offset_y && y < offset_y + dst_h {
+                    let pixel = resized.get_pixel(x - offset_x, y - offset_y).0;
+                    (pixel[0], pixel[1], pixel[2], pixel[3])
+                } else {
+                    (0, 0, 0, 0)
+                };
 
             // The embedded PNG uses straight alpha. Composite after alpha-aware
             // resizing so the dark tile color does not bleed into antialiased edges.
@@ -1264,12 +1237,19 @@ fn render_item_icon(
             let out_r = (r as u16 * alpha + 30u16 * inv_alpha + 127) / 255;
             let out_g = (g as u16 * alpha + 36u16 * inv_alpha + 127) / 255;
             let out_b = (b as u16 * alpha + 42u16 * inv_alpha + 127) / 255;
-            bgra[out_index..out_index + 4]
-                .copy_from_slice(&[out_b as u8, out_g as u8, out_r as u8, 255]);
+            bgra[out_index..out_index + 4].copy_from_slice(&[
+                out_b as u8,
+                out_g as u8,
+                out_r as u8,
+                255,
+            ]);
         }
     }
 
-    Ok(IconBitmap { size: icon_size, bgra })
+    Ok(IconBitmap {
+        size: icon_size,
+        bgra,
+    })
 }
 
 fn fit_inside(source_w: u32, source_h: u32, bounds: u32) -> (u32, u32) {
@@ -1277,12 +1257,12 @@ fn fit_inside(source_w: u32, source_h: u32, bounds: u32) -> (u32, u32) {
         return (bounds, bounds);
     }
     if source_w >= source_h {
-        let height = ((source_h as u64 * bounds as u64 + source_w as u64 / 2)
-            / source_w as u64) as u32;
+        let height =
+            ((source_h as u64 * bounds as u64 + source_w as u64 / 2) / source_w as u64) as u32;
         (bounds, height.max(1))
     } else {
-        let width = ((source_w as u64 * bounds as u64 + source_h as u64 / 2)
-            / source_h as u64) as u32;
+        let width =
+            ((source_w as u64 * bounds as u64 + source_h as u64 / 2) / source_h as u64) as u32;
         (width.max(1), bounds)
     }
 }

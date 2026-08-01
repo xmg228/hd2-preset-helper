@@ -20,13 +20,13 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Resource, ID3D11Texture2D,
 };
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
-};
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+};
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
 };
@@ -49,7 +49,6 @@ use crate::game_window::{ClientCrop, GameWindow};
 use crate::vision::{Rect, RoiFrame};
 
 const WGC_FRAME_POOL_BUFFER_COUNT: i32 = 2;
-
 
 pub struct CaptureSource {
     screen_x: i32,
@@ -96,52 +95,54 @@ impl WgcFrameBus {
         let handler_shared = Arc::clone(&shared);
 
         let token = frame_pool
-            .FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
-                move |sender, _| {
-                    let Some(sender) = sender.as_ref() else {
-                        return Ok(());
-                    };
+            .FrameArrived(
+                &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
+                    move |sender, _| {
+                        let Some(sender) = sender.as_ref() else {
+                            return Ok(());
+                        };
 
-                    // Keep only the newest queued frame. Intermediate frames are obsolete for
-                    // recognition, but they must be closed promptly to return their pool buffers.
-                    let mut newest = None;
-                    let mut received = 0u64;
-                    while let Ok(frame) = sender.TryGetNextFrame() {
-                        received = received.saturating_add(1);
-                        if let Some(old) = newest.replace(frame) {
+                        // Keep only the newest queued frame. Intermediate frames are obsolete for
+                        // recognition, but they must be closed promptly to return their pool buffers.
+                        let mut newest = None;
+                        let mut received = 0u64;
+                        while let Ok(frame) = sender.TryGetNextFrame() {
+                            received = received.saturating_add(1);
+                            if let Some(old) = newest.replace(frame) {
+                                let _ = old.Close();
+                            }
+                        }
+
+                        let Some(frame) = newest else {
+                            return Ok(());
+                        };
+
+                        let (state_lock, changed) = &*handler_shared;
+                        let mut state = state_lock
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if state.closed {
+                            drop(state);
+                            let _ = frame.Close();
+                            return Ok(());
+                        }
+
+                        let old = state.latest.replace(frame);
+                        state.generation = state.generation.saturating_add(received);
+                        state.published_at = Some(Instant::now());
+                        drop(state);
+                        changed.notify_all();
+
+                        // Closing a replaced frame can touch WinRT/D3D internals. Keep that work
+                        // outside the bus mutex and after notification so a waiting consumer can
+                        // start immediately.
+                        if let Some(old) = old {
                             let _ = old.Close();
                         }
-                    }
-
-                    let Some(frame) = newest else {
-                        return Ok(());
-                    };
-
-                    let (state_lock, changed) = &*handler_shared;
-                    let mut state = state_lock
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if state.closed {
-                        drop(state);
-                        let _ = frame.Close();
-                        return Ok(());
-                    }
-
-                    let old = state.latest.replace(frame);
-                    state.generation = state.generation.saturating_add(received);
-                    state.published_at = Some(Instant::now());
-                    drop(state);
-                    changed.notify_all();
-
-                    // Closing a replaced frame can touch WinRT/D3D internals. Keep that work
-                    // outside the bus mutex and after notification so a waiting consumer can
-                    // start immediately.
-                    if let Some(old) = old {
-                        let _ = old.Close();
-                    }
-                    Ok(())
-                },
-            ))
+                        Ok(())
+                    },
+                ),
+            )
             .context("failed to register WGC FrameArrived handler")?;
 
         Ok((Self { shared }, token))
@@ -443,10 +444,7 @@ impl CaptureSource {
         // Take ownership of the published frame while holding the mutex, then release the
         // bus immediately. The FrameArrived callback can now publish frame N+1 while the main
         // thread performs the D3D copy, map and FP16-to-RGBA conversion for frame N.
-        let frame = state
-            .latest
-            .take()
-            .expect("checked latest WGC frame above");
+        let frame = state.latest.take().expect("checked latest WGC frame above");
         state.published_at = None;
         drop(state);
 
@@ -621,7 +619,8 @@ fn read_d3d11_texture_region_to_rgba_cached(
         let mut staging = None;
         unsafe { device.CreateTexture2D(&staging_desc, None, Some(&mut staging)) }
             .context("failed to create CPU-readable D3D11 staging texture")?;
-        cache.staging_texture = Some(staging.context("CreateTexture2D returned no staging texture")?);
+        cache.staging_texture =
+            Some(staging.context("CreateTexture2D returned no staging texture")?);
         cache.staging_key = Some(key);
     }
     let t_staging = t.elapsed();
@@ -684,11 +683,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
 
             DXGI_FORMAT_R16G16B16A16_FLOAT => {
                 let row_bytes = unsafe { std::slice::from_raw_parts(row_ptr, width as usize * 8) };
-                read_rgba16f_row_to_rgba8_slice(
-                    row_bytes,
-                    dst_row,
-                    &cache.f16_to_sdr_u8_lut,
-                );
+                read_rgba16f_row_to_rgba8_slice(row_bytes, dst_row, &cache.f16_to_sdr_u8_lut);
             }
 
             _ => unreachable!(),
@@ -754,11 +749,7 @@ fn build_f16_to_sdr_u8_lut(sdr_white_level: u32) -> Box<[u8; 65536]> {
     for bits in 0u32..=65535 {
         let x = f16::from_bits(bits as u16).to_f32();
 
-        let y = if x.is_finite() {
-            x * scale
-        } else {
-            0.0
-        };
+        let y = if x.is_finite() { x * scale } else { 0.0 };
 
         lut[bits as usize] = linear_to_srgb_u8(y);
     }
@@ -841,8 +832,7 @@ pub(crate) fn query_sdr_white_level_for_window(hwnd: HWND) -> Result<DisplayWhit
         paths.truncate(path_count as usize);
 
         for path in paths {
-            let Ok(source_name) =
-                query_source_name(path.sourceInfo.adapterId, path.sourceInfo.id)
+            let Ok(source_name) = query_source_name(path.sourceInfo.adapterId, path.sourceInfo.id)
             else {
                 continue;
             };
@@ -878,10 +868,7 @@ unsafe fn query_source_name(adapter_id: LUID, source_id: u32) -> Result<String> 
     name.header.id = source_id;
 
     let error = unsafe { DisplayConfigGetDeviceInfo(&mut name.header) };
-    win32_i32_to_result(
-        error,
-        "DisplayConfigGetDeviceInfo(GET_SOURCE_NAME) failed",
-    )?;
+    win32_i32_to_result(error, "DisplayConfigGetDeviceInfo(GET_SOURCE_NAME) failed")?;
     Ok(utf16_trim(&name.viewGdiDeviceName))
 }
 

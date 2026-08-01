@@ -29,11 +29,9 @@ pub fn parse_json_asset<T: DeserializeOwned>(asset: JsonAsset) -> Result<T> {
 }
 
 pub fn parse_json_file<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    let bytes = fs::read(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
-    serde_json::from_slice(bytes)
-        .with_context(|| format!("failed to parse {}", path.display()))
+    serde_json::from_slice(bytes).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 pub fn default_calibration() -> JsonAsset {
@@ -58,8 +56,7 @@ pub fn icon_image(path: &str) -> Result<RgbaImage> {
     let bytes = IconAssets::get(path)
         .map(|file| file.data)
         .with_context(|| format!("embedded icon {path} was not found"))?;
-    png_io::decode_rgba8(&bytes)
-        .with_context(|| format!("failed to decode embedded icon {path}"))
+    png_io::decode_rgba8(&bytes).with_context(|| format!("failed to decode embedded icon {path}"))
 }
 
 pub fn resize_rgba_box(source: &RgbaImage, width: u32, height: u32) -> Result<RgbaImage> {
@@ -188,9 +185,7 @@ fn validate_item_id(item_id: &str) -> Result<()> {
         "invalid icon item ID {item_id:?}"
     );
     ensure!(
-        !item_id.starts_with('-')
-            && !item_id.ends_with('-')
-            && !item_id.contains("--"),
+        !item_id.starts_with('-') && !item_id.ends_with('-') && !item_id.contains("--"),
         "invalid icon item ID {item_id:?}"
     );
     Ok(())

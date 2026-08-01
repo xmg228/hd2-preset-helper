@@ -15,8 +15,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_HOTKEY,
+    GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_HOTKEY,
 };
 
 use crate::game_window::GameWindow;
@@ -79,7 +79,6 @@ pub enum Vk {
     F10 = 0x79,
     F11 = 0x7A,
     F12 = 0x7B,
-
 
     LCtrl = 0xA2,
     RCtrl = 0xA3,
@@ -363,11 +362,7 @@ fn release_tracked_inputs_best_effort() {
         return;
     }
 
-    let key_names = state
-        .keys
-        .iter()
-        .map(|key| key.name())
-        .collect::<Vec<_>>();
+    let key_names = state.keys.iter().map(|key| key.name()).collect::<Vec<_>>();
     let mut inputs = Vec::with_capacity(state.keys.len() + state.left_mouse_down as usize);
     if state.left_mouse_down {
         inputs.push(mouse_input(MOUSEEVENTF_LEFTUP));
@@ -545,7 +540,9 @@ impl RegisteredHotkeys {
             }
         }
 
-        Ok(Self { hotkeys: registered })
+        Ok(Self {
+            hotkeys: registered,
+        })
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> Result<HotkeyPoll> {

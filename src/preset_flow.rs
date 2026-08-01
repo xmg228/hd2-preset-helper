@@ -19,8 +19,7 @@ const UI_STATE_STABLE_DISTANCE: f32 = 3.0;
 const UI_HOME_Y_STABLE_DISTANCE: f32 = 4.0;
 const SLOT_FINGERPRINT_GRID: u32 = 8;
 const SLOT_FINGERPRINT_INSET_RATIO: f32 = 0.18;
-const SLOT_FINGERPRINT_SAMPLES: f32 =
-    (SLOT_FINGERPRINT_GRID * SLOT_FINGERPRINT_GRID) as f32;
+const SLOT_FINGERPRINT_SAMPLES: f32 = (SLOT_FINGERPRINT_GRID * SLOT_FINGERPRINT_GRID) as f32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiState {
@@ -69,9 +68,7 @@ pub fn detect_ui_state(result: &RoiObservation) -> UiState {
                 _ => UiState::HomeMixed,
             }
         }
-        SlotLayout::List(item_kind) if is_slot_list(result, item_kind) => {
-            UiState::List(item_kind)
-        }
+        SlotLayout::List(item_kind) if is_slot_list(result, item_kind) => UiState::List(item_kind),
         _ => UiState::Unknown,
     }
 }
@@ -203,9 +200,9 @@ pub fn wait_for_ui_state(
 
 fn ui_stability_signature(result: &RoiObservation) -> Result<UiStabilitySignature> {
     match result.layout {
-        SlotLayout::List(item_kind) => Ok(UiStabilitySignature::Visual(
-            slot_region_fingerprint(result, item_kind),
-        )),
+        SlotLayout::List(item_kind) => Ok(UiStabilitySignature::Visual(slot_region_fingerprint(
+            result, item_kind,
+        ))),
         SlotLayout::Home => {
             let (stratagems, _) = find_home_row(result).context("missing home loadout row")?;
             Ok(UiStabilitySignature::HomeY(stratagems[0].center().1))
@@ -259,11 +256,11 @@ fn slot_region_fingerprint(result: &RoiObservation, item_kind: ItemKind) -> Vec<
         for row in 0..SLOT_FINGERPRINT_GRID {
             for col in 0..SLOT_FINGERPRINT_GRID {
                 let x = left
-                    + ((col as f32 + 0.5) * (right - left) as f32
-                        / SLOT_FINGERPRINT_GRID as f32) as u32;
+                    + ((col as f32 + 0.5) * (right - left) as f32 / SLOT_FINGERPRINT_GRID as f32)
+                        as u32;
                 let y = top
-                    + ((row as f32 + 0.5) * (bottom - top) as f32
-                        / SLOT_FINGERPRINT_GRID as f32) as u32;
+                    + ((row as f32 + 0.5) * (bottom - top) as f32 / SLOT_FINGERPRINT_GRID as f32)
+                        as u32;
                 let [r, g, b, _] = rgba.get_pixel(x, y).0;
                 let luma = icon_color::luma601_u8(r, g, b) as f32;
                 let weight = icon_color::icon_likeness(r, g, b);
@@ -293,9 +290,7 @@ fn slot_region_fingerprint(result: &RoiObservation, item_kind: ItemKind) -> Vec<
             fingerprint.push(quantize_u8(plain_b / SLOT_FINGERPRINT_SAMPLES));
         }
 
-        fingerprint.push(quantize_u8(
-            weight_sum / SLOT_FINGERPRINT_SAMPLES * 255.0,
-        ));
+        fingerprint.push(quantize_u8(weight_sum / SLOT_FINGERPRINT_SAMPLES * 255.0));
     }
 
     fingerprint
@@ -339,7 +334,9 @@ fn is_slot_list(result: &RoiObservation, item_kind: ItemKind) -> bool {
         .map(|slot| slot.row);
 
     match item_kind {
-        ItemKind::Stratagem => rows.next().is_some_and(|first| rows.any(|row| row != first)),
+        ItemKind::Stratagem => rows
+            .next()
+            .is_some_and(|first| rows.any(|row| row != first)),
         ItemKind::Booster => rows.next().is_some(),
     }
 }

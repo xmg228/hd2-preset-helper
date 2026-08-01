@@ -25,8 +25,7 @@ impl SlotKind {
     pub const fn is_selectable_item_for(self, item_kind: ItemKind) -> bool {
         matches!(
             (item_kind, self),
-            (ItemKind::Stratagem, Self::Stratagem)
-                | (ItemKind::Booster, Self::Booster)
+            (ItemKind::Stratagem, Self::Stratagem) | (ItemKind::Booster, Self::Booster)
         )
     }
 

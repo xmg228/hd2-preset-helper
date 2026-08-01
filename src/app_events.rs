@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 
 use crate::item::ItemKind;
 
@@ -79,12 +79,7 @@ impl AppEventSink {
         let thread_id = wake_thread.load(Ordering::Acquire);
         if thread_id != 0 {
             unsafe {
-                let _ = PostThreadMessageW(
-                    thread_id,
-                    APP_EVENT_MESSAGE,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
+                let _ = PostThreadMessageW(thread_id, APP_EVENT_MESSAGE, WPARAM(0), LPARAM(0));
             }
         }
     }
