@@ -13,6 +13,9 @@ traffic.
 2. Extract it to a separate writable folder.
 3. Run `HD2PresetHelper.exe`.
 
+To update, extract the new `HD2PresetHelper` folder over the existing folder.
+Files in the `data` folder are preserved.
+
 The application runs in the system tray. Right-click its tray icon and select
 **Exit** to close it.
 

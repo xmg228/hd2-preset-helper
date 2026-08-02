@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify
+        shell: pwsh
+        run: |
+          cargo fmt --check
+          cargo test --locked
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Build and package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Read the package version from Cargo.toml/Cargo.lock.
+          $metadata = cargo metadata `
+            --locked `
+            --no-deps `
+            --format-version 1 |
+            ConvertFrom-Json
+
+          $package = $metadata.packages |
+            Where-Object { $_.name -eq "hd2-preset-helper" } |
+            Select-Object -First 1
+
+          if (-not $package) {
+            throw "Package hd2-preset-helper was not found"
+          }
+
+          # Require the tag to match the Cargo package version.
+          $expectedTag = "v$($package.version)"
+
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $($package.version)"
+          }
+
+          cargo build --release --locked
+
+          $exe = "target\release\HD2PresetHelper.exe"
+          $packageDir = "dist\package\HD2PresetHelper"
+          $zipName = "HD2PresetHelper-$expectedTag-windows-x64.zip"
+          $zipPath = "dist\$zipName"
+
+          if (-not (Test-Path $exe)) {
+            throw "Executable was not produced: $exe"
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $packageDir |
+            Out-Null
+
+          Copy-Item `
+            -Path $exe `
+            -Destination "$packageDir\HD2PresetHelper.exe"
+
+          Copy-Item `
+            -Path "LICENSE" `
+            -Destination $packageDir
+
+          # Compress the directory itself so the ZIP contains one top-level
+          # HD2PresetHelper folder.
+          Compress-Archive `
+            -Path $packageDir `
+            -DestinationPath $zipPath `
+            -CompressionLevel Optimal
+
+          $zipHash = (
+            Get-FileHash `
+              $zipPath `
+              -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+
+          "$zipHash *$zipName" | Set-Content `
+              "dist\SHA256SUMS.txt" `
+              -Encoding ascii
+
+          "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Attest artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/package/HD2PresetHelper/HD2PresetHelper.exe
+            dist/*.zip
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" `
+            "dist\$env:ZIP_NAME" `
+            "dist\SHA256SUMS.txt" `
+            --verify-tag `
+            --generate-notes `
+            --title "HD2 Preset Helper $env:GITHUB_REF_NAME"

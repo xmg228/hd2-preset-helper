@@ -520,7 +520,7 @@ fn border_uniformity_factor(integral: &IntegralImage, x: i32, y: i32) -> f32 {
 
 fn median_sorted(values: &[f32]) -> f32 {
     let mid = values.len() / 2;
-    if values.len() % 2 == 0 {
+    if values.len().is_multiple_of(2) {
         0.5 * (values[mid - 1] + values[mid])
     } else {
         values[mid]
