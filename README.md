@@ -1,11 +1,10 @@
 # HD2 Preset Helper
 
-Save and apply Helldivers 2 Stratagem and optional Booster presets directly
-from the loadout screen.
+**English** | [简体中文](README.zh-CN.md)
 
-HD2 Preset Helper uses screen capture and normal mouse and keyboard input. It
-does not modify game files, inject code, read game memory, or alter network
-traffic.
+HD2 Preset Helper is a lightweight Windows utility for saving and applying loadout presets in Helldivers 2. Each preset can include four Stratagems and an optional Booster, and can be activated with a configurable global hotkey.
+
+The program recognizes the game interface through screen capture and completes selections using standard mouse and keyboard input. It does not modify game files, inject code into the game process, read game memory, or alter network traffic.
 
 ## Download and install
 
