@@ -163,7 +163,7 @@ impl Vk {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HotkeyModifier {
     Shift,
@@ -188,6 +188,15 @@ impl HotkeyModifier {
             Self::Ctrl => MOD_CONTROL,
             Self::Alt => MOD_ALT,
             Self::Win => MOD_WIN,
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Shift => "Shift",
+            Self::Ctrl => "Ctrl",
+            Self::Alt => "Alt",
+            Self::Win => "Win",
         }
     }
 
@@ -267,6 +276,15 @@ impl HotkeyModifiers {
 
     fn iter(self) -> impl Iterator<Item = HotkeyModifier> {
         self.values.into_iter().flatten()
+    }
+
+    fn label_with_key(self, key: Vk) -> String {
+        let mut parts = self
+            .iter()
+            .map(HotkeyModifier::display_name)
+            .collect::<Vec<_>>();
+        parts.push(key.name());
+        parts.join(" + ")
     }
 }
 
@@ -504,6 +522,12 @@ pub struct HotkeySpec {
     pub key: Vk,
 }
 
+impl HotkeySpec {
+    fn label(self) -> String {
+        self.modifiers.label_with_key(self.key)
+    }
+}
+
 pub enum HotkeyPoll {
     Triggered(i32),
     ExitRequested,
@@ -521,23 +545,40 @@ impl RegisteredHotkeys {
         }
 
         let mut registered = Vec::with_capacity(hotkeys.len());
+        let mut failures = Vec::new();
+        let mut seen = Vec::with_capacity(hotkeys.len());
         unsafe {
             for hotkey in hotkeys {
-                RegisterHotKey(
+                let registration_key = (hotkey.modifiers.hotkey_modifiers().0, hotkey.key as u32);
+                if seen.contains(&registration_key) {
+                    failures.push(format!("{}: configured more than once", hotkey.label()));
+                    continue;
+                }
+                seen.push(registration_key);
+
+                match RegisterHotKey(
                     None,
                     hotkey.id,
                     hotkey.modifiers.hotkey_modifiers(),
                     hotkey.key as u32,
-                )
-                .with_context(|| {
-                    format!(
-                        "failed to register hotkey id={} key={}",
-                        hotkey.id,
-                        hotkey.key.name()
-                    )
-                })?;
-                registered.push(*hotkey);
+                ) {
+                    Ok(()) => registered.push(*hotkey),
+                    Err(error) => failures.push(format!("{}: {error}", hotkey.label())),
+                }
             }
+
+            if !failures.is_empty() {
+                for hotkey in &registered {
+                    let _ = UnregisterHotKey(None, hotkey.id);
+                }
+            }
+        }
+
+        if !failures.is_empty() {
+            bail!(
+                "the following hotkeys could not be registered:\n- {}\n\nChange them in the configuration file",
+                failures.join("\n- ")
+            );
         }
 
         Ok(Self {

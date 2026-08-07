@@ -50,7 +50,8 @@ non-default HDR UI brightness have not been fully tested.
 
 ## Configuration
 
-Keep the application in a writable folder. It uses the following runtime files:
+Keep the application in a writable folder. It creates and uses the following
+runtime files beside the executable:
 
 - `data/config.toml` — hotkeys, overlay settings, and optional behavior.
 - `data/presets.json` — saved presets.

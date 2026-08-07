@@ -350,7 +350,10 @@ impl OverlayContext {
     }
 }
 
-pub fn spawn_overlay(modifiers: HotkeyModifiers, catalog: Arc<IconCatalog>) -> AppEventSink {
+pub fn spawn_overlay(
+    modifiers: HotkeyModifiers,
+    catalog: Arc<IconCatalog>,
+) -> Result<AppEventSink> {
     let (sender, receiver) = mpsc::channel();
     let wake_thread = Arc::new(AtomicU32::new(0));
     let overlay_wake_thread = Arc::clone(&wake_thread);
@@ -363,9 +366,9 @@ pub fn spawn_overlay(modifiers: HotkeyModifiers, catalog: Arc<IconCatalog>) -> A
             }
             overlay_wake_thread.store(0, Ordering::Release);
         })
-        .expect("failed to spawn overlay thread");
+        .context("failed to start overlay thread")?;
 
-    AppEventSink::channel(sender, wake_thread)
+    Ok(AppEventSink::channel(sender, wake_thread))
 }
 
 fn run_overlay(

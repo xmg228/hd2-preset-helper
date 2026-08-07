@@ -1,7 +1,4 @@
 [presets]
-# Preset file.
-path = "data/presets.json"
-
 # Press B after applying a preset with a booster.
 auto_ready_up = false
 
