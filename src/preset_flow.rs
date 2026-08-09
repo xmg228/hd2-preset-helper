@@ -326,6 +326,11 @@ pub fn home_booster_slot(result: &RoiObservation) -> Option<&Slot> {
     find_home_row(result).map(|(_stratagems, booster)| booster)
 }
 
+pub fn home_booster_needs_warning(result: &RoiObservation) -> bool {
+    home_booster_slot(result)
+        .is_some_and(|slot| slot.kind == SlotKind::HomeBooster && slot.classification.is_none())
+}
+
 fn is_slot_list(result: &RoiObservation, item_kind: ItemKind) -> bool {
     let mut rows = result
         .slots
@@ -346,17 +351,11 @@ fn collect_home_booster(result: &RoiObservation) -> Result<Option<String>> {
         return Ok(None);
     };
 
-    match slot.kind {
-        SlotKind::HomeBoosterEmpty => Ok(None),
-        SlotKind::HomeBooster => {
-            let Some(classification) = slot.classification.as_ref() else {
-                bail!("home booster slot is filled but not classified");
-            };
-
-            Ok(Some(classification.item_id.clone()))
-        }
-        _ => unreachable!("home_booster_slot returned a non-home booster kind"),
-    }
+    debug_assert!(slot.kind.is_home_booster());
+    Ok(slot
+        .classification
+        .as_ref()
+        .map(|classification| classification.item_id.clone()))
 }
 
 fn find_home_row(result: &RoiObservation) -> Option<([&Slot; 4], &Slot)> {

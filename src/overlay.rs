@@ -857,11 +857,17 @@ fn apply_event(event: AppEvent) -> Option<OverlayEventPolicy> {
                 state.accent = rgb(255, 220, 96);
                 Some(OverlayEventPolicy::Hold)
             }
-            AppEvent::PresetDone { preset } => {
+            AppEvent::PresetDone { preset, warning } => {
                 state.active_preset = Some(preset);
-                state.status = "Done".to_string();
-                state.accent = rgb(120, 230, 150);
-                Some(OverlayEventPolicy::HideAfter(DONE_HIDE_DELAY))
+                if let Some(warning) = warning {
+                    state.status = format!("Warning: {warning}");
+                    state.accent = rgb(255, 220, 96);
+                    Some(OverlayEventPolicy::HideAfter(FAILED_HIDE_DELAY))
+                } else {
+                    state.status = "Done".to_string();
+                    state.accent = rgb(120, 230, 150);
+                    Some(OverlayEventPolicy::HideAfter(DONE_HIDE_DELAY))
+                }
             }
             AppEvent::PresetFailed { preset, error } => {
                 state.active_preset = Some(preset);

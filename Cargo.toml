@@ -1,6 +1,6 @@
 [package]
 name = "hd2-preset-helper"
-version = "0.1.2"
+version = "0.1.3-rc.1"
 edition = "2024"
 build = "build.rs"
 description = "A Windows utility for saving and applying Stratagem and Booster presets from the Helldivers 2 loadout screen"

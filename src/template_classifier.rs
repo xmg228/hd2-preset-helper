@@ -164,7 +164,7 @@ impl TemplateClassifier {
     fn prewarm_nominal_profiles(&self, slots: &[Slot], layout: SlotLayout) -> Result<()> {
         let mut keys = Vec::new();
         for slot in slots {
-            let Some(kind) = slot.kind.classification_kind() else {
+            let Some(kind) = classification_kind_for_slot(slot, layout) else {
                 continue;
             };
             let key = ProfileKey {
@@ -531,7 +531,7 @@ impl TemplateClassifier {
     ) -> Result<()> {
         let classifiable = slots
             .iter()
-            .filter(|slot| slot.kind.classification_kind().is_some())
+            .filter(|slot| classification_kind_for_slot(slot, layout).is_some())
             .count();
         if classifiable == 0 {
             return Ok(());
@@ -545,7 +545,7 @@ impl TemplateClassifier {
         let outcomes: Vec<Result<Option<MatchStats>>> = slots
             .par_iter_mut()
             .map(|slot| {
-                let Some(kind) = slot.kind.classification_kind() else {
+                let Some(kind) = classification_kind_for_slot(slot, layout) else {
                     return Ok(None);
                 };
                 let outcome = self.classify_slot(screenshot, slot, layout, kind)?;
@@ -596,6 +596,14 @@ impl TemplateClassifier {
         );
 
         Ok(())
+    }
+}
+
+fn classification_kind_for_slot(slot: &Slot, layout: SlotLayout) -> Option<ItemKind> {
+    if layout == SlotLayout::Home && slot.kind.is_home_booster() {
+        Some(ItemKind::Booster)
+    } else {
+        slot.kind.classification_kind()
     }
 }
 

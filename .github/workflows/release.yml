@@ -112,9 +112,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" `
-            "dist\$env:ZIP_NAME" `
-            "dist\SHA256SUMS.txt" `
-            --verify-tag `
-            --generate-notes `
-            --title "HD2 Preset Helper $env:GITHUB_REF_NAME"
+          $releaseArgs = @(
+            "release", "create", $env:GITHUB_REF_NAME,
+            "dist\$env:ZIP_NAME",
+            "dist\SHA256SUMS.txt",
+            "--verify-tag",
+            "--generate-notes",
+            "--title", "HD2 Preset Helper $env:GITHUB_REF_NAME"
+          )
+
+          if ($env:GITHUB_REF_NAME -match "-") {
+            $releaseArgs += "--prerelease"
+          }
+
+          gh @releaseArgs

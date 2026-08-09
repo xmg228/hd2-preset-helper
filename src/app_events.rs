@@ -50,6 +50,7 @@ pub enum AppEvent {
     },
     PresetDone {
         preset: String,
+        warning: Option<String>,
     },
     PresetFailed {
         preset: String,

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use tracing::{debug, info, info_span};
+use tracing::{debug, info, info_span, warn};
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION;
 
@@ -13,7 +13,8 @@ use crate::direct_select::{apply_booster_from_home, apply_empty_loadout_preset};
 use crate::game_window::find_game_window;
 use crate::input;
 use crate::preset_flow::{
-    UiState, collect_current_preset, detect_ui_state, scan_loadout_home, wait_for_ui_state,
+    UiState, collect_current_preset, detect_ui_state, home_booster_needs_warning,
+    scan_loadout_home, wait_for_ui_state,
 };
 use crate::presets::{Preset, invalid_preset_reason, load_preset, save_preset};
 use crate::runtime::RecognizerRuntime;
@@ -71,12 +72,20 @@ pub fn handle_preset_hotkey(
         (initial_result, ui_state)
     };
 
-    let ready_up_after_apply = match ui_state {
+    let (ready_up_after_apply, completion_warning) = match ui_state {
         UiState::HomeFilled => {
+            let booster_needs_warning = home_booster_needs_warning(&initial_result);
             let preset = collect_current_preset(&initial_result)
                 .context("failed to collect current preset")?;
             save_current_preset(config, preset_name, &preset)?;
-            false
+            let warning = booster_needs_warning.then(|| {
+                warn!(
+                    preset = %preset_name,
+                    "home booster appears filled but was not recognized; preset saved without a booster"
+                );
+                "Booster not recognized; saved without it".to_string()
+            });
+            (false, warning)
         }
 
         UiState::HomeMixed => {
@@ -96,7 +105,7 @@ pub fn handle_preset_hotkey(
             apply_empty_loadout_preset(runtime, capture, config.events, &preset.stratagems)
                 .context("failed to apply stratagems from empty home")?;
             apply_booster_if_present(runtime, capture, config, &preset)?;
-            preset.booster.is_some()
+            (preset.booster.is_some(), None)
         }
 
         UiState::List(_) | UiState::Unknown => {
@@ -118,6 +127,7 @@ pub fn handle_preset_hotkey(
 
     config.events.emit(AppEvent::PresetDone {
         preset: preset_name.to_string(),
+        warning: completion_warning,
     });
     info!(
         preset = %preset_name,
