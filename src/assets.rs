@@ -1,17 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use fast_image_resize as fir;
 use fir::{ResizeAlg, ResizeOptions, Resizer};
-use image::RgbaImage;
+use image::codecs::png::PngDecoder;
+use image::{ColorType, ImageDecoder, RgbaImage};
 use rust_embed::Embed;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::item::{ItemKind, StratagemCategory};
-use crate::png_io;
 
 #[derive(Clone, Copy)]
 pub struct JsonAsset {
@@ -56,7 +57,23 @@ pub fn icon_image(path: &str) -> Result<RgbaImage> {
     let bytes = IconAssets::get(path)
         .map(|file| file.data)
         .with_context(|| format!("embedded icon {path} was not found"))?;
-    png_io::decode_rgba8(&bytes).with_context(|| format!("failed to decode embedded icon {path}"))
+    decode_rgba8(&bytes).with_context(|| format!("failed to decode embedded icon {path}"))
+}
+
+fn decode_rgba8(bytes: &[u8]) -> Result<RgbaImage> {
+    let decoder = PngDecoder::new(Cursor::new(bytes)).context("failed to read PNG header")?;
+    ensure!(
+        decoder.color_type() == ColorType::Rgba8,
+        "expected an RGBA8 PNG, got {:?}",
+        decoder.color_type(),
+    );
+
+    let (width, height) = decoder.dimensions();
+    let mut image = RgbaImage::new(width, height);
+    decoder
+        .read_image(image.as_mut())
+        .context("failed to decode RGBA8 PNG")?;
+    Ok(image)
 }
 
 pub fn resize_rgba_box(source: &RgbaImage, width: u32, height: u32) -> Result<RgbaImage> {

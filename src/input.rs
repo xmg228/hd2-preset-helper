@@ -19,7 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_HOTKEY,
 };
 
-use crate::game_window::GameWindow;
+use crate::game_window::ensure_automation_target as ensure_game_automation_target;
+use crate::window::WindowTarget;
 
 const CLICK_MOVE_SETTLE_DELAY: Duration = Duration::from_millis(30);
 
@@ -30,18 +31,18 @@ struct InjectedInputState {
 }
 
 thread_local! {
-    static AUTOMATION_TARGET: Cell<Option<GameWindow>> = const { Cell::new(None) };
+    static AUTOMATION_TARGET: Cell<Option<WindowTarget>> = const { Cell::new(None) };
     static INJECTED_INPUT_STATE: RefCell<InjectedInputState> =
         RefCell::new(InjectedInputState::default());
 }
 
 pub struct AutomationScope {
-    previous: Option<GameWindow>,
+    previous: Option<WindowTarget>,
 }
 
 impl AutomationScope {
-    pub fn new(target: GameWindow) -> Result<Self> {
-        target.ensure_automation_target()?;
+    pub fn new(target: WindowTarget) -> Result<Self> {
+        ensure_game_automation_target(target)?;
         let previous = AUTOMATION_TARGET.replace(Some(target));
         Ok(Self { previous })
     }
@@ -56,7 +57,7 @@ impl Drop for AutomationScope {
 
 fn ensure_automation_target() -> Result<()> {
     AUTOMATION_TARGET.with(|target| match target.get() {
-        Some(target) => target.ensure_automation_target(),
+        Some(target) => ensure_game_automation_target(target),
         None => Ok(()),
     })
 }
@@ -587,15 +588,15 @@ impl RegisteredHotkeys {
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> Result<HotkeyPoll> {
-        let result = wait_for_any_hotkey_message_timeout(&self.hotkeys, timeout)?;
-        if let HotkeyPoll::Triggered(hotkey_id) = result
-            && let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id)
-        {
+        wait_for_any_hotkey_message_timeout(&self.hotkeys, timeout)
+    }
+
+    pub fn wait_released(&self, hotkey_id: i32) {
+        if let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id) {
             let mut release_keys = hotkey.modifiers.release_keys();
             release_keys.push(hotkey.key);
-            wait_released(&release_keys, 1500);
+            wait_keys_released(&release_keys, 1500);
         }
-        Ok(result)
     }
 }
 
@@ -641,7 +642,7 @@ fn wait_for_any_hotkey_message_timeout(
     }
 }
 
-fn wait_released(keys: &[Vk], timeout_ms: u64) {
+fn wait_keys_released(keys: &[Vk], timeout_ms: u64) {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_millis(timeout_ms) {
         if keys.iter().all(|key| !is_pressed(*key)) {

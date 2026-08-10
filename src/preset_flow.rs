@@ -7,12 +7,11 @@ use crate::capture::CaptureSource;
 use crate::icon_color;
 use crate::input::{self, HotkeyModifiers, Vk};
 use crate::item::ItemKind;
-use crate::page_sync::capture_latest_roi_frame;
+use crate::page_sync::{capture_latest_roi_frame, fingerprint_distance};
 use crate::presets::Preset;
 use crate::runtime::RecognizerRuntime;
 use crate::slot::{SlotKind, SlotLayout};
 use crate::vision::{RoiObservation, Slot};
-use crate::visual_fingerprint::distance as fingerprint_distance;
 
 const UI_TRANSITION_DELAY: Duration = Duration::from_millis(150);
 const UI_STATE_STABLE_DISTANCE: f32 = 3.0;

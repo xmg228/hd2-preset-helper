@@ -8,7 +8,7 @@ use windows::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION;
 
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::capture::CaptureSource;
-use crate::capture_cache::CaptureSessionCache;
+use crate::capture_session::CaptureSessionManager;
 use crate::direct_select::{apply_booster_from_home, apply_empty_loadout_preset};
 use crate::game_window::find_game_window;
 use crate::input;
@@ -31,7 +31,7 @@ pub fn handle_preset_hotkey(
     runtime: &RecognizerRuntime,
     config: &PresetActionConfig<'_>,
     preset_name: &str,
-    capture_cache: &mut CaptureSessionCache,
+    capture_session: &mut CaptureSessionManager,
 ) -> Result<()> {
     let span = info_span!("preset_action");
     let _guard = span.enter();
@@ -53,7 +53,7 @@ pub fn handle_preset_hotkey(
     );
 
     let capture_start = Instant::now();
-    let capture = capture_cache
+    let capture = capture_session
         .get_or_create(game_window)
         .context("failed to get capture session")?;
     debug!(

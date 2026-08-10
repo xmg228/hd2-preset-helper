@@ -2,13 +2,15 @@ use anyhow::{Result, bail};
 use image::RgbaImage;
 use serde::Deserialize;
 
+use crate::capture::RoiFrame;
 use crate::geometry_detector;
+use crate::image_rect::ImageRect;
 use crate::slot::{SlotKind, SlotLayout};
 
 #[derive(Debug, Deserialize)]
 pub struct Calibration {
     pub reference: ReferenceSize,
-    pub roi_ref: Rect,
+    pub roi_ref: ImageRect,
     pub scale_axis: ScaleAxis,
     #[serde(default)]
     pub anchor: RoiAnchor,
@@ -16,14 +18,6 @@ pub struct Calibration {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct ReferenceSize {
-    pub w: u32,
-    pub h: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub struct Rect {
-    pub x: u32,
-    pub y: u32,
     pub w: u32,
     pub h: u32,
 }
@@ -43,12 +37,6 @@ pub enum RoiAnchor {
     TopLeft,
     TopCenter,
     Center,
-}
-
-pub struct RoiFrame {
-    pub image: RgbaImage,
-    pub screen_x: i32,
-    pub screen_y: i32,
 }
 
 #[derive(Debug)]
@@ -113,7 +101,7 @@ pub fn resolve_calibration_roi_for_size(
     image_w: u32,
     image_h: u32,
     calibration: &Calibration,
-) -> Result<Rect> {
+) -> Result<ImageRect> {
     let reference = calibration.reference;
     let rect = calibration.roi_ref;
     if reference.w == 0 || reference.h == 0 {
@@ -178,7 +166,7 @@ pub fn resolve_calibration_roi_for_size(
     let right = right.round() as u32;
     let bottom = bottom.round() as u32;
 
-    Ok(Rect {
+    Ok(ImageRect {
         x,
         y,
         w: right.saturating_sub(x).max(1),

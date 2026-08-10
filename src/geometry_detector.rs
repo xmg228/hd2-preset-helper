@@ -8,13 +8,14 @@ use rayon::prelude::*;
 use tracing::debug;
 
 use crate::icon_color;
+use crate::image_rect::ImageRect;
 use crate::item::ItemKind;
 use crate::layout::{
     HOME_BOOSTER_X, HOME_COLS, LIST_COLS, ROI_REFERENCE_H, ROI_REFERENCE_H_F32, ROI_REFERENCE_W,
     ROI_REFERENCE_W_F32, SLOT_SIZE_I32,
 };
 use crate::slot::{SlotKind, SlotLayout};
-use crate::vision::{Rect, Slot};
+use crate::vision::Slot;
 
 // Window sizes for the three-band luma edge response.
 const H_WIN: i32 = 48;
@@ -273,7 +274,7 @@ fn rows_to_slots_by(
     slots
 }
 
-fn slot_from_rect(rect: Rect, row: u32, col: u32, kind: SlotKind) -> Slot {
+fn slot_from_rect(rect: ImageRect, row: u32, col: u32, kind: SlotKind) -> Slot {
     Slot {
         x: rect.x,
         y: rect.y,
@@ -286,10 +287,10 @@ fn slot_from_rect(rect: Rect, row: u32, col: u32, kind: SlotKind) -> Slot {
     }
 }
 
-fn slot_rect(image_w: u32, image_h: u32, x: i32, y: i32) -> Rect {
+fn slot_rect(image_w: u32, image_h: u32, x: i32, y: i32) -> ImageRect {
     let sx = image_w as f32 / ROI_REFERENCE_W_F32;
     let sy = image_h as f32 / ROI_REFERENCE_H_F32;
-    Rect {
+    ImageRect {
         x: (x as f32 * sx).round() as u32,
         y: (y as f32 * sy).round() as u32,
         w: (SLOT_SIZE_I32 as f32 * sx).round().max(1.0) as u32,
@@ -937,7 +938,7 @@ fn slot_has_content(integral: &IntegralImage, x: i32, y: i32) -> bool {
     std / mean.max(HOME_CONTENT_MEAN_FLOOR) >= HOME_CONTENT_MIN_RELATIVE_STD
 }
 
-fn home_booster_kind(rgba: &RgbaImage, rect: Rect) -> SlotKind {
+fn home_booster_kind(rgba: &RgbaImage, rect: ImageRect) -> SlotKind {
     let width = rect.w.min(rgba.width().saturating_sub(rect.x));
     let height = rect.h.min(rgba.height().saturating_sub(rect.y));
     let mut yellow_pixels = 0u32;

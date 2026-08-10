@@ -3,14 +3,13 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use tracing::{debug, debug_span, trace};
 
-use crate::capture::CaptureSource;
+use crate::capture::{CaptureSource, RoiFrame};
 use crate::input;
 use crate::item::ItemKind;
-use crate::page_sync::{capture_latest_roi_frame, image_fingerprint};
+use crate::page_sync::{capture_latest_roi_frame, fingerprint_distance, image_fingerprint};
 use crate::runtime::RecognizerRuntime;
 use crate::slot::SlotLayout;
-use crate::vision::{RoiFrame, RoiObservation};
-use crate::visual_fingerprint::distance as fingerprint_distance;
+use crate::vision::RoiObservation;
 
 use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
 

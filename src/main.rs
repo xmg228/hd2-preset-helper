@@ -3,17 +3,17 @@
 mod app_events;
 mod assets;
 mod capture;
-mod capture_cache;
+mod capture_session;
 mod direct_select;
 mod game_window;
 mod geometry_detector;
 mod icon_color;
+mod image_rect;
 mod input;
 mod item;
 mod layout;
 mod overlay;
 mod page_sync;
-mod png_io;
 mod preset_action;
 mod preset_flow;
 mod presets;
@@ -22,7 +22,7 @@ mod slot;
 mod template_classifier;
 mod tray;
 mod vision;
-mod visual_fingerprint;
+mod window;
 
 use std::fs;
 use std::path::Path;
@@ -47,7 +47,7 @@ use windows::core::PCWSTR;
 
 use crate::app_events::{AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::assets::IconCatalog;
-use crate::capture_cache::CaptureSessionCache;
+use crate::capture_session::CaptureSessionManager;
 use crate::preset_action::{PresetActionConfig, handle_preset_hotkey};
 use crate::preset_flow::{PresetHotkeyBinding, preset_hotkeys};
 use crate::presets::{Preset, invalid_preset_reason, load_presets, validate_preset};
@@ -58,7 +58,7 @@ const CONFIG_RELATIVE_PATH: &str = "data/config.toml";
 const LOG_RELATIVE_PATH: &str = "data/app.log";
 const PRESETS_RELATIVE_PATH: &str = "data/presets.json";
 const MAX_PRESET_HOTKEYS: usize = 12;
-const HOTKEY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const HOTKEY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -183,19 +183,31 @@ fn run_preset_hotkey_mode(
         auto_ready_up: config.presets.auto_ready_up,
         events: &events,
     };
-    let mut capture_cache = CaptureSessionCache::new();
-    capture_cache.tick_prewarm();
+    let mut capture_session = CaptureSessionManager::new();
+    let mut modifiers_were_down = false;
+    let mut prewarm_suppressed = false;
 
     loop {
         let hotkey_id = loop {
             match registered_hotkeys.wait_timeout(HOTKEY_WAIT_POLL_INTERVAL)? {
-                input::HotkeyPoll::Triggered(hotkey_id) => break hotkey_id,
+                input::HotkeyPoll::Triggered(hotkey_id) => {
+                    capture_session.prewarm();
+                    registered_hotkeys.wait_released(hotkey_id);
+                    break hotkey_id;
+                }
                 input::HotkeyPoll::ExitRequested => {
                     info!("tray exit requested");
                     return Ok(());
                 }
                 input::HotkeyPoll::Timeout => {
-                    capture_cache.tick_prewarm();
+                    let modifiers_down = hotkey_modifiers.is_down();
+                    if modifiers_down && !modifiers_were_down && !prewarm_suppressed {
+                        capture_session.prewarm();
+                    } else if !modifiers_down && modifiers_were_down {
+                        capture_session.discard();
+                        prewarm_suppressed = false;
+                    }
+                    modifiers_were_down = modifiers_down;
                 }
             }
         };
@@ -207,7 +219,10 @@ fn run_preset_hotkey_mode(
         let preset_name = &binding.preset;
         let action_start = Instant::now();
         let outcome =
-            handle_preset_hotkey(&runtime, &action_config, preset_name, &mut capture_cache);
+            handle_preset_hotkey(&runtime, &action_config, preset_name, &mut capture_session);
+        capture_session.discard();
+        modifiers_were_down = hotkey_modifiers.is_down();
+        prewarm_suppressed = modifiers_were_down;
         if let Err(error) = outcome {
             let error = format!("{error:#}");
             error!(

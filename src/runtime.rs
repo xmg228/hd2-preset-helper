@@ -5,9 +5,10 @@ use anyhow::Result;
 use tracing::{debug, debug_span};
 
 use crate::assets::{IconCatalog, default_calibration, default_icon_manifest, parse_json_asset};
+use crate::capture::RoiFrame;
 use crate::slot::SlotLayout;
 use crate::template_classifier::TemplateClassifier;
-use crate::vision::{Calibration, RoiFrame, RoiObservation, detect_slot_layout};
+use crate::vision::{Calibration, RoiObservation, detect_slot_layout};
 
 const TEMPLATE_THRESHOLD: f32 = 0.70;
 const TEMPLATE_MIN_MARGIN: f32 = 0.035;
