@@ -12,12 +12,16 @@ use crate::slot::SlotLayout;
 use crate::vision::{RoiFrame, RoiObservation};
 use crate::visual_fingerprint::distance as fingerprint_distance;
 
-use super::page_relation::{PAGE_TURN_FULL_SHIFT_MIN_RATIO, PageRelation, compare_page_turn};
+use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
 
-const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(100);
-const PAGE_TURN_TIMEOUT: Duration = Duration::from_millis(350);
+const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(700);
+const PAGE_TURN_DECISION_TIMEOUT: Duration = Duration::from_millis(1200);
+const PAGE_TURN_HARD_TIMEOUT: Duration = Duration::from_secs(4);
+const PAGE_TURN_MIN_SEMANTIC_OBSERVATIONS: usize = 3;
+const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 3;
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
 const PAGE_WHEEL_DELTA: i32 = -600;
+const PAGE_END_PROBE_DELTA: i32 = -120;
 
 pub(super) struct PageSnapshot {
     pub(super) roi: RoiObservation,
@@ -30,11 +34,23 @@ pub(super) struct PageNavigator<'a> {
 }
 
 pub(super) enum PageTurnResult {
-    Moved {
-        page: PageSnapshot,
-        reached_end: bool,
-    },
+    Moved { page: PageSnapshot, short: bool },
     NoMovement(PageSnapshot),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum PageTurnInput {
+    Full,
+    EndProbe,
+}
+
+impl PageTurnInput {
+    fn wheel_delta(self) -> i32 {
+        match self {
+            Self::Full => PAGE_WHEEL_DELTA,
+            Self::EndProbe => PAGE_END_PROBE_DELTA,
+        }
+    }
 }
 
 impl<'a> PageNavigator<'a> {
@@ -42,105 +58,87 @@ impl<'a> PageNavigator<'a> {
         Self { runtime, item_kind }
     }
 
+    pub(super) fn calibration(&self) -> &crate::vision::Calibration {
+        self.runtime.calibration()
+    }
+
+    pub(super) fn detect_home(&self, frame: RoiFrame) -> Result<RoiObservation> {
+        self.runtime.detect(frame, SlotLayout::Home)
+    }
+
     pub(super) fn perform_confirmed_semantic_page_turn(
         &self,
         capture: &mut CaptureSource,
         current_page: PageSnapshot,
-        next_page_index: u32,
+        input: PageTurnInput,
+        wheel_attempt: u32,
     ) -> Result<PageTurnResult> {
-        let span = debug_span!("confirmed_semantic_page_turn", next_page_index);
+        let span = debug_span!("confirmed_semantic_page_turn", wheel_attempt, ?input);
         let _guard = span.enter();
 
-        input::wheel_with_boundary(PAGE_WHEEL_DELTA, || capture.sync_to_latest())?;
-
-        let (page, relation) = self.observe_instant_viewport_change(capture, &current_page)?;
-
-        match relation {
-            PageRelation::Shifted(shift) => {
-                debug!(
-                    target: "hd2_preset_helper::perf",
-                    directed_shift = shift.directed_shift,
-                    expected_full_shift = shift.expected_full_shift,
-                    shift_ratio = shift.shift_ratio,
-                    full_shift_min_ratio = PAGE_TURN_FULL_SHIFT_MIN_RATIO,
-                    reached_end = shift.reached_end,
-                    "page turn completed"
-                );
-                Ok(PageTurnResult::Moved {
-                    page,
-                    reached_end: shift.reached_end,
-                })
-            }
-            PageRelation::DifferentViewport => {
-                debug!(
-                    target: "hd2_preset_helper::perf",
-                    relation = ?PageRelation::DifferentViewport,
-                    "page turn completed"
-                );
-                Ok(PageTurnResult::Moved {
-                    page,
-                    reached_end: false,
-                })
-            }
-            PageRelation::SameViewport | PageRelation::Uncertain => {
-                Ok(PageTurnResult::NoMovement(page))
-            }
-        }
+        input::wheel_with_boundary(input.wheel_delta(), || capture.sync_to_latest())?;
+        self.observe_instant_viewport_change(capture, &current_page)
     }
 
     fn observe_instant_viewport_change(
         &self,
         capture: &mut CaptureSource,
         current_page: &PageSnapshot,
-    ) -> Result<(PageSnapshot, PageRelation)> {
+    ) -> Result<PageTurnResult> {
         // Fingerprints trigger classification; semantic anchor displacement
         // determines whether the explicit page input moved the viewport.
         let start = Instant::now();
         let mut visual_reference = current_page.signature.clone();
-        let mut last_same_page: Option<PageSnapshot> = None;
         let mut pending_different: Option<PageSnapshot> = None;
-        let mut no_movement_checked = false;
+        let mut same_viewport_frames = 0usize;
+        let mut semantic_observations = 0usize;
 
         loop {
             let frame = capture_latest_roi_frame(capture, self.runtime.calibration())?;
             let signature = image_fingerprint(&frame.image);
             let distance = fingerprint_distance(&visual_reference, &signature);
             let elapsed = start.elapsed();
-            let grace_check = !no_movement_checked
-                && pending_different.is_none()
-                && elapsed >= PAGE_TURN_NO_MOVEMENT_GRACE;
-            if grace_check {
-                no_movement_checked = true;
-                if let Some(same_page) = last_same_page.take() {
-                    debug!(
-                        target: "hd2_preset_helper::perf",
-                        elapsed = ?elapsed,
-                        reason = "same_viewport_after_grace",
-                        "page turn produced no movement"
-                    );
-                    return Ok((same_page, PageRelation::SameViewport));
-                }
-            }
-
-            let timed_out = elapsed >= PAGE_TURN_TIMEOUT;
-            if distance < PAGE_CHANGE_THRESHOLD && !grace_check && !timed_out {
+            let decision_time_elapsed = elapsed >= PAGE_TURN_DECISION_TIMEOUT;
+            let no_movement_check = elapsed >= PAGE_TURN_NO_MOVEMENT_GRACE;
+            if distance < PAGE_CHANGE_THRESHOLD && !no_movement_check && !decision_time_elapsed {
                 continue;
             }
 
             let candidate = self.scan_direct_page(frame)?;
+            semantic_observations += 1;
             let relation = compare_page_turn(&current_page.roi, &candidate.roi, self.item_kind);
+            let elapsed = start.elapsed();
+            let decision_timed_out = elapsed >= PAGE_TURN_DECISION_TIMEOUT
+                && semantic_observations >= PAGE_TURN_MIN_SEMANTIC_OBSERVATIONS;
+            let hard_timed_out = elapsed >= PAGE_TURN_HARD_TIMEOUT;
             trace!(
                 relation = ?relation,
-                elapsed = ?start.elapsed(),
+                semantic_observations,
+                elapsed = ?elapsed,
                 "page semantic relation"
             );
 
             match relation {
-                relation @ PageRelation::Shifted(_) => {
-                    return Ok((candidate, relation));
+                PageRelation::Shifted(shift) => {
+                    let short = shift.shift_ratio < PAGE_TURN_SHORT_THRESHOLD_RATIO;
+                    debug!(
+                        target: "hd2_preset_helper::perf",
+                        directed_shift = shift.directed_shift,
+                        shift_ratio = shift.shift_ratio,
+                        short_threshold_ratio = PAGE_TURN_SHORT_THRESHOLD_RATIO,
+                        short,
+                        "page turn completed"
+                    );
+                    return Ok(PageTurnResult::Moved {
+                        page: candidate,
+                        short,
+                    });
                 }
-                relation @ PageRelation::DifferentViewport => {
+                PageRelation::DifferentViewport => {
+                    same_viewport_frames = 0;
+                    let mut had_pending_different = false;
                     if let Some(previous_candidate) = pending_different.take() {
+                        had_pending_different = true;
                         let confirmation = compare_page_turn(
                             &previous_candidate.roi,
                             &candidate.roi,
@@ -153,41 +151,57 @@ impl<'a> PageNavigator<'a> {
                             "different viewport confirmation"
                         );
                         if confirmed {
-                            return Ok((candidate, relation));
+                            debug!(
+                                target: "hd2_preset_helper::perf",
+                                relation = ?PageRelation::DifferentViewport,
+                                "page turn completed"
+                            );
+                            return Ok(PageTurnResult::Moved {
+                                page: candidate,
+                                short: false,
+                            });
                         }
                     }
-                    if timed_out {
+                    if hard_timed_out || (decision_timed_out && had_pending_different) {
                         bail!(
-                            "page input reached a different viewport but it was not confirmed by a second semantic frame after {:?}",
-                            start.elapsed()
+                            "page input reached a different viewport but it was not confirmed after {} semantic observations over {:?}",
+                            semantic_observations,
+                            elapsed
                         );
                     }
                     pending_different = Some(candidate);
                 }
-                relation @ PageRelation::SameViewport => {
+                PageRelation::SameViewport => {
                     visual_reference = candidate.signature.clone();
                     pending_different = None;
-                    if elapsed >= PAGE_TURN_NO_MOVEMENT_GRACE {
-                        let reason = if timed_out {
-                            "same_viewport_at_timeout"
-                        } else {
-                            "same_viewport_after_grace"
-                        };
+                    same_viewport_frames += 1;
+                    if no_movement_check && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES {
                         debug!(
                             target: "hd2_preset_helper::perf",
                             elapsed = ?start.elapsed(),
-                            reason,
+                            same_viewport_frames,
                             "page turn produced no movement"
                         );
-                        return Ok((candidate, relation));
+                        return Ok(PageTurnResult::NoMovement(candidate));
                     }
-                    last_same_page = Some(candidate);
+                    if hard_timed_out {
+                        bail!(
+                            "page input collected only {} of {} stable same-viewport frames after {} semantic observations over {:?}",
+                            same_viewport_frames,
+                            PAGE_TURN_NO_MOVEMENT_FRAMES,
+                            semantic_observations,
+                            elapsed
+                        );
+                    }
                 }
                 PageRelation::Uncertain => {
-                    if timed_out {
+                    same_viewport_frames = 0;
+                    pending_different = None;
+                    if decision_timed_out || hard_timed_out {
                         bail!(
-                            "page input produced no semantically confirmed viewport transition after {:?}",
-                            start.elapsed()
+                            "page input produced no confirmed viewport transition after {} semantic observations over {:?}",
+                            semantic_observations,
+                            elapsed
                         );
                     }
                 }

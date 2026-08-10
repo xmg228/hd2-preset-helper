@@ -457,7 +457,7 @@ where
 /// allowed to settle/hover before taking a screenshot or before issuing the
 /// actual button press.  The button down/up events are pure button events; they
 /// do not carry MOUSEEVENTF_MOVE / ABSOLUTE coordinates.
-fn click_current_with_boundary<F>(hold_ms: u64, before_press: F) -> Result<()>
+pub(crate) fn click_current_with_boundary<F>(hold_ms: u64, before_press: F) -> Result<()>
 where
     F: FnOnce(),
 {

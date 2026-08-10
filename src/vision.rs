@@ -3,7 +3,6 @@ use image::RgbaImage;
 use serde::Deserialize;
 
 use crate::geometry_detector;
-use crate::layout::ROI_REFERENCE_H;
 use crate::slot::{SlotKind, SlotLayout};
 
 #[derive(Debug, Deserialize)]
@@ -96,10 +95,6 @@ impl RoiObservation {
             self.screen_x + center_x as i32,
             self.screen_y + center_y as i32,
         )
-    }
-
-    pub fn scale_y(&self) -> f32 {
-        self.image.height() as f32 / ROI_REFERENCE_H as f32
     }
 }
 

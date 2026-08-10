@@ -6,6 +6,12 @@ HD2 Preset Helper is a lightweight Windows utility for saving and applying loado
 
 The program recognizes the game interface through screen capture and completes selections using standard mouse and keyboard input. It does not modify game files, inject code into the game process, read game memory, or alter network traffic.
 
+> [!WARNING]
+> **Stratagem icon replacement mods are not currently supported.** Replacing the original Stratagem icons will prevent the tool from recognizing them correctly.
+>
+> I'm currently looking into ways to support modified icons.
+
+
 ## Download and install
 
 1. Download the latest ZIP from [GitHub Releases](../../releases/latest).

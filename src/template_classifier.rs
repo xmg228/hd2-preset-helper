@@ -17,6 +17,9 @@ use crate::vision::{Classification, Slot};
 
 const TEMPLATE_BACKGROUND: f32 = 30.0;
 const ALPHA_MASK_THRESHOLD: u8 = 64;
+const BOOSTER_HEX_CALIBRATION_RADIUS: f32 = 120.0 / 256.0;
+const BOOSTER_SHELL_INSET_PX: f32 = 3.0;
+const REGULAR_HEX_HALF_HEIGHT_RATIO: f32 = 0.866_025_4;
 const LIST_ICON_SCALE: f32 = 68.0 / 104.0;
 const HOME_STRATAGEM_SCALE: f32 = 93.0 / 104.0;
 const HOME_BOOSTER_SCALE: f32 = 93.0 / 104.0;
@@ -263,9 +266,14 @@ impl TemplateClassifier {
             .iter()
             .enumerate()
             .filter_map(|(index, alpha)| {
-                (*alpha > ALPHA_MASK_THRESHOLD).then_some(MaskPoint {
-                    x: (index % key.canvas_w as usize) as u16,
-                    y: (index / key.canvas_w as usize) as u16,
+                let x = index % key.canvas_w as usize;
+                let y = index / key.canvas_w as usize;
+                (*alpha > ALPHA_MASK_THRESHOLD
+                    && (key.kind != ItemKind::Booster
+                        || booster_interior_contains(key, x as u32, y as u32)))
+                .then_some(MaskPoint {
+                    x: x as u16,
+                    y: y as u16,
                 })
             })
             .collect();
@@ -299,6 +307,7 @@ impl TemplateClassifier {
             canvas_h = key.canvas_h,
             icon_size = key.icon_size,
             mask_pixels = mask.len(),
+            booster_shell_ignored = key.kind == ItemKind::Booster,
             templates = templates.len(),
             decode_render = ?render_time,
             prepare = ?prepare_time,
@@ -597,6 +606,20 @@ impl TemplateClassifier {
 
         Ok(())
     }
+}
+
+fn booster_interior_contains(key: ProfileKey, x: u32, y: u32) -> bool {
+    let center_x = key.canvas_w as f32 * 0.5;
+    let center_y = key.canvas_h as f32 * 0.5;
+    let half_width =
+        (key.icon_size as f32 * BOOSTER_HEX_CALIBRATION_RADIUS - BOOSTER_SHELL_INSET_PX).max(1.0);
+    let half_height = half_width * REGULAR_HEX_HALF_HEIGHT_RATIO;
+    let dx = ((x as f32 + 0.5) - center_x).abs();
+    let dy = ((y as f32 + 0.5) - center_y).abs();
+    let vertical = dy / half_height;
+    let row_half_width = half_width * (1.0 - 0.5 * vertical);
+
+    vertical <= 1.0 && dx <= row_half_width
 }
 
 fn classification_kind_for_slot(slot: &Slot, layout: SlotLayout) -> Option<ItemKind> {
