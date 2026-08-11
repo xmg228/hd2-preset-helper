@@ -33,6 +33,13 @@ pub enum AppEvent {
     PresetStarted {
         preset: String,
     },
+    HotkeyReleaseRequested {
+        preset: String,
+    },
+    PresetCancelled {
+        preset: String,
+        reason: String,
+    },
     PresetSaved {
         preset: String,
         stratagems: Vec<String>,

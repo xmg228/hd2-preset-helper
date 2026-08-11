@@ -59,6 +59,7 @@ const LOG_RELATIVE_PATH: &str = "data/app.log";
 const PRESETS_RELATIVE_PATH: &str = "data/presets.json";
 const MAX_PRESET_HOTKEYS: usize = 12;
 const HOTKEY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -192,7 +193,6 @@ fn run_preset_hotkey_mode(
             match registered_hotkeys.wait_timeout(HOTKEY_WAIT_POLL_INTERVAL)? {
                 input::HotkeyPoll::Triggered(hotkey_id) => {
                     capture_session.prewarm();
-                    registered_hotkeys.wait_released(hotkey_id);
                     break hotkey_id;
                 }
                 input::HotkeyPoll::ExitRequested => {
@@ -217,6 +217,26 @@ fn run_preset_hotkey_mode(
             .with_context(|| format!("unknown hotkey id: {hotkey_id}"))?;
 
         let preset_name = &binding.preset;
+        events.emit(AppEvent::HotkeyReleaseRequested {
+            preset: preset_name.to_string(),
+        });
+        if !registered_hotkeys.wait_released(hotkey_id, HOTKEY_RELEASE_TIMEOUT) {
+            capture_session.discard();
+            modifiers_were_down = hotkey_modifiers.is_down();
+            prewarm_suppressed = modifiers_were_down;
+            warn!(
+                preset = %preset_name,
+                timeout = ?HOTKEY_RELEASE_TIMEOUT,
+                "preset action cancelled because the hotkey was not released"
+            );
+            events.emit(AppEvent::PresetCancelled {
+                preset: preset_name.to_string(),
+                reason: "hotkey was not released in time".to_string(),
+            });
+            sleep(Duration::from_millis(200));
+            continue;
+        }
+
         let action_start = Instant::now();
         let outcome =
             handle_preset_hotkey(&runtime, &action_config, preset_name, &mut capture_session);

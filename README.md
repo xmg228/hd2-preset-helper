@@ -32,7 +32,8 @@ preset slots 1–6.
 1. Open the loadout home screen and select all four Stratagems and, optionally,
    a Booster.
 2. Hold `Ctrl+Shift` to show the preset overlay.
-3. While holding the modifiers, press `F7`–`F12` to save the current loadout.
+3. Press `F7`–`F12` and release all keys. The program then saves the current
+   loadout to the corresponding preset slot.
 4. To apply it later, return to the loadout home screen with all four Stratagem
    slots empty and press the same key combination.
 

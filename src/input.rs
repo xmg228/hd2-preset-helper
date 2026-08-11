@@ -591,12 +591,13 @@ impl RegisteredHotkeys {
         wait_for_any_hotkey_message_timeout(&self.hotkeys, timeout)
     }
 
-    pub fn wait_released(&self, hotkey_id: i32) {
-        if let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id) {
-            let mut release_keys = hotkey.modifiers.release_keys();
-            release_keys.push(hotkey.key);
-            wait_keys_released(&release_keys, 1500);
-        }
+    pub fn wait_released(&self, hotkey_id: i32, timeout: Duration) -> bool {
+        let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id) else {
+            return false;
+        };
+        let mut release_keys = hotkey.modifiers.release_keys();
+        release_keys.push(hotkey.key);
+        wait_keys_released(&release_keys, timeout)
     }
 }
 
@@ -642,14 +643,15 @@ fn wait_for_any_hotkey_message_timeout(
     }
 }
 
-fn wait_keys_released(keys: &[Vk], timeout_ms: u64) {
+fn wait_keys_released(keys: &[Vk], timeout: Duration) -> bool {
     let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_millis(timeout_ms) {
+    while start.elapsed() < timeout {
         if keys.iter().all(|key| !is_pressed(*key)) {
-            return;
+            return true;
         }
         sleep(Duration::from_millis(20));
     }
+    keys.iter().all(|key| !is_pressed(*key))
 }
 
 fn is_pressed(key: Vk) -> bool {

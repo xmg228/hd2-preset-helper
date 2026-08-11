@@ -810,6 +810,22 @@ fn apply_event(event: AppEvent) -> Option<OverlayEventPolicy> {
                 state.accent = rgb(255, 220, 96);
                 Some(OverlayEventPolicy::Hold)
             }
+            AppEvent::HotkeyReleaseRequested { preset } => {
+                state.active_preset = Some(preset);
+                state.status = "Release all shortcut keys to continue".to_string();
+                state.selected_count = 0;
+                state.requested_count = 0;
+                state.accent = rgb(255, 220, 96);
+                Some(OverlayEventPolicy::Hold)
+            }
+            AppEvent::PresetCancelled { preset, reason } => {
+                state.active_preset = Some(preset);
+                state.status = format!("Cancelled: {reason}");
+                state.selected_count = 0;
+                state.requested_count = 0;
+                state.accent = rgb(255, 180, 100);
+                Some(OverlayEventPolicy::HideAfter(FAILED_HIDE_DELAY))
+            }
             AppEvent::PresetSaved {
                 preset,
                 stratagems,
