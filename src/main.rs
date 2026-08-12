@@ -48,6 +48,7 @@ use windows::core::PCWSTR;
 use crate::app_events::{AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::assets::IconCatalog;
 use crate::capture_session::CaptureSessionManager;
+use crate::page_sync::capture_latest_roi_frame;
 use crate::preset_action::{PresetActionConfig, handle_preset_hotkey};
 use crate::preset_flow::{PresetHotkeyBinding, preset_hotkeys};
 use crate::presets::{Preset, invalid_preset_reason, load_presets, validate_preset};
@@ -57,6 +58,7 @@ const DEFAULT_CONFIG_TOML: &str = include_str!("../data/config.toml");
 const CONFIG_RELATIVE_PATH: &str = "data/config.toml";
 const LOG_RELATIVE_PATH: &str = "data/app.log";
 const PRESETS_RELATIVE_PATH: &str = "data/presets.json";
+const LAST_FAILURE_DEBUG_PATH: &str = "data/debug/last_failure";
 const MAX_PRESET_HOTKEYS: usize = 12;
 const HOTKEY_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -240,6 +242,9 @@ fn run_preset_hotkey_mode(
         let action_start = Instant::now();
         let outcome =
             handle_preset_hotkey(&runtime, &action_config, preset_name, &mut capture_session);
+        if let Err(error) = &outcome {
+            save_last_failure(&runtime, &mut capture_session, error);
+        }
         capture_session.discard();
         modifiers_were_down = hotkey_modifiers.is_down();
         prewarm_suppressed = modifiers_were_down;
@@ -257,6 +262,46 @@ fn run_preset_hotkey_mode(
             });
         }
         sleep(Duration::from_millis(200));
+    }
+}
+
+fn save_last_failure(
+    runtime: &RecognizerRuntime,
+    capture_session: &mut CaptureSessionManager,
+    action_error: &anyhow::Error,
+) {
+    let result = (|| -> Result<Option<PathBuf>> {
+        let Some(capture) = capture_session.active_capture() else {
+            return Ok(None);
+        };
+        capture.sync_to_latest();
+        let frame = capture_latest_roi_frame(capture, runtime.calibration())?;
+        let directory = app_path(LAST_FAILURE_DEBUG_PATH)?;
+        fs::create_dir_all(&directory).with_context(|| {
+            format!(
+                "failed to create failure debug directory {}",
+                directory.display()
+            )
+        })?;
+        frame
+            .image
+            .save(directory.join("frame.png"))
+            .context("failed to save failure debug frame")?;
+        fs::write(directory.join("error.txt"), format!("{action_error:#}"))
+            .context("failed to save failure debug error")?;
+        Ok(Some(directory))
+    })();
+
+    match result {
+        Ok(Some(directory)) => warn!(
+            path = %directory.display(),
+            "saved last preset failure diagnostics"
+        ),
+        Ok(None) => debug!("preset failure has no active capture frame to save"),
+        Err(error) => warn!(
+            error = %format!("{error:#}"),
+            "failed to save preset failure diagnostics"
+        ),
     }
 }
 

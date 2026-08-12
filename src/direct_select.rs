@@ -17,18 +17,20 @@ use crate::page_sync::capture_latest_roi_frame;
 use crate::preset_flow::{UiState, detect_ui_state, empty_loadout_entry_slot};
 use crate::runtime::RecognizerRuntime;
 use crate::slot::SlotLayout;
-use crate::vision::RoiObservation;
+use crate::vision::{RoiObservation, Slot};
 
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, open_slot_list, wait_for_home_booster_target};
 use self::hover::{HoverSample, HoverVerifier};
 use self::page_navigation::{PageNavigator, PageSnapshot, PageTurnInput, PageTurnResult};
+use self::page_relation::common_identity_vertical_shift;
 
 const MAX_WHEEL_INPUTS: u32 = 20;
 const CLICK_HOLD_MS: u64 = 45;
 const MAX_TARGET_CLICK_ATTEMPTS: usize = 3;
 const MAX_HOVER_RELOCATIONS: usize = 4;
 const TARGET_POSITION_TOLERANCE: u32 = 2;
+const POST_CLICK_ROW_SNAP_TOLERANCE: f32 = 4.0;
 const POST_CLICK_CONFIRM_TIMEOUT: Duration = Duration::from_millis(400);
 const POST_CLICK_MIN_OBSERVATIONS: u32 = 2;
 const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(600);
@@ -116,7 +118,7 @@ fn select_items_from_open_list(
     });
 
     let navigator = PageNavigator::new(runtime, item_kind);
-    let mut hover_verifier = HoverVerifier::default();
+    let mut hover_verifier = HoverVerifier;
     let mut remaining = items.to_vec();
     let mut wheel_attempts = 0u32;
     let mut end_candidate = false;
@@ -274,7 +276,9 @@ fn select_preset_target(
     )?;
     let mut target = prepared.target;
     let before = prepared.sample;
+    let mut before_slots = prepared.page_slots;
     let mut viewport_repositioned = prepared.viewport_repositioned;
+    let mut last_after_score = None;
 
     for attempt in 1..=MAX_TARGET_CLICK_ATTEMPTS {
         debug!(
@@ -297,13 +301,7 @@ fn select_preset_target(
             }
 
             if let Some(retry_target) = unchanged_terminal_target(
-                capture,
-                navigator,
-                &item_id,
-                item_kind,
-                &target,
-                &before,
-                hover_verifier,
+                capture, navigator, &item_id, item_kind, &target, &before,
             )? {
                 debug!(
                     item_id = %item_id,
@@ -323,27 +321,13 @@ fn select_preset_target(
             );
         }
 
-        match observe_post_click_state(
-            capture,
-            navigator,
-            &item_id,
-            item_kind,
-            &target,
-            &before,
-            hover_verifier,
-        )? {
-            PostClickObservation::Selected {
-                page,
-                after_score,
-                moved,
-            } => {
+        match observe_post_click_state(capture, navigator, &target, &before, &before_slots)? {
+            PostClickObservation::Selected { page, moved } => {
                 viewport_repositioned |= moved;
                 debug!(
                     item_id = %item_id,
                     attempt,
                     viewport_repositioned,
-                    before_score = before.target_score(),
-                    after_score,
                     "preset item selected state confirmed"
                 );
                 return Ok(TargetSelectionOutcome::List {
@@ -352,17 +336,21 @@ fn select_preset_target(
                 });
             }
             PostClickObservation::Unchanged {
-                target: retry_target,
+                slot,
+                page,
                 after_score,
             } => {
+                let (x, y) = page.roi.screen_center(&slot);
                 debug!(
                     item_id = %item_id,
                     attempt,
-                    before_score = before.target_score(),
-                    after_score,
                     "click left the target at the same position and brightness; retrying in place"
                 );
-                target = retry_target;
+                target.x = x;
+                target.y = y;
+                target.slot = slot;
+                before_slots = page.roi.slots;
+                last_after_score = Some(after_score);
             }
         }
     }
@@ -372,19 +360,22 @@ fn select_preset_target(
             "final target item {item_id} remained unchanged after {MAX_TARGET_CLICK_ATTEMPTS} confirmed click attempts"
         );
     }
+    let after_score = last_after_score.unwrap_or(before.target_score());
     bail!(
-        "target item {item_id} neither moved nor dimmed after {MAX_TARGET_CLICK_ATTEMPTS} click attempts"
+        "target item {item_id} neither moved nor dimmed after {MAX_TARGET_CLICK_ATTEMPTS} click attempts (before={:.1}, after={after_score:.1}, required drop={:.1})",
+        before.target_score(),
+        before.required_score_drop(),
     )
 }
 
 enum PostClickObservation {
     Selected {
         page: PageSnapshot,
-        after_score: f32,
         moved: bool,
     },
     Unchanged {
-        target: DirectClickTarget,
+        slot: Slot,
+        page: PageSnapshot,
         after_score: f32,
     },
 }
@@ -392,72 +383,115 @@ enum PostClickObservation {
 fn observe_post_click_state(
     capture: &mut CaptureSource,
     navigator: &PageNavigator<'_>,
-    item_id: &str,
-    item_kind: ItemKind,
     clicked_target: &DirectClickTarget,
     before: &HoverSample,
-    hover_verifier: &HoverVerifier,
+    before_slots: &[Slot],
 ) -> Result<PostClickObservation> {
     let started = Instant::now();
     let mut observation = 0u32;
+    let item_id = clicked_target.item_id.as_str();
+    let item_kind = clicked_target
+        .slot
+        .kind
+        .classification_kind()
+        .context("clicked target slot has no classifiable item kind")?;
 
     loop {
         observation += 1;
         let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
         let page = navigator.scan_direct_page(frame)?;
-        let Some(target) = find_visible_target(&page.roi, item_id, item_kind) else {
+        let vertical_shift = common_identity_vertical_shift(before_slots, &page.roi, item_kind);
+        let moved =
+            vertical_shift.is_some_and(|shift| shift.abs() > TARGET_POSITION_TOLERANCE as f32);
+        if moved {
             debug!(
                 item_id,
                 observation,
-                "post-click target is absent from the current viewport; observing another frame"
+                vertical_shift,
+                "post-click success confirmed by vertical viewport movement"
+            );
+            return Ok(PostClickObservation::Selected { page, moved: true });
+        }
+
+        let Some(slot) = track_post_click_slot(
+            &page,
+            item_kind,
+            clicked_target,
+            vertical_shift.unwrap_or(0.0),
+        ) else {
+            debug!(
+                item_id,
+                observation, "post-click target row cannot be tracked; observing another frame"
             );
             if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
                 && observation >= POST_CLICK_MIN_OBSERVATIONS
             {
-                bail!(
-                    "target item {item_id} left the visible viewport before its selected state could be confirmed"
-                );
+                bail!("target item {item_id} could not be tracked after clicking");
             }
             continue;
         };
 
-        let moved = clicked_target.slot.x.abs_diff(target.slot.x) > TARGET_POSITION_TOLERANCE
-            || clicked_target.slot.y.abs_diff(target.slot.y) > TARGET_POSITION_TOLERANCE;
+        let sample = HoverVerifier::sample_current_frame(&page.roi.image, &slot)?;
+        let brightness_dropped = sample.is_dimmer_than(before);
 
-        let sample = hover_verifier.sample_current_frame(&page.roi.image, &target.slot)?;
-        let brightness_dropped = !moved && sample.is_dimmer_than(before);
-
-        if moved || brightness_dropped {
+        if brightness_dropped {
             debug!(
                 item_id,
                 observation,
-                moved,
-                brightness_dropped,
                 before_score = before.target_score(),
                 after_score = sample.target_score(),
-                "post-click success confirmed by movement or brightness drop"
+                "post-click success confirmed by brightness drop"
             );
-            return Ok(PostClickObservation::Selected {
-                page,
-                after_score: sample.target_score(),
-                moved,
-            });
+            return Ok(PostClickObservation::Selected { page, moved: false });
         }
 
         if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
             && observation >= POST_CLICK_MIN_OBSERVATIONS
         {
+            debug!(
+                item_id,
+                observation,
+                before_score = before.target_score(),
+                after_score = sample.target_score(),
+                "post-click target remained bright"
+            );
             return Ok(PostClickObservation::Unchanged {
-                target,
+                slot,
+                page,
                 after_score: sample.target_score(),
             });
         }
     }
 }
 
+fn track_post_click_slot(
+    current_page: &PageSnapshot,
+    item_kind: ItemKind,
+    clicked_target: &DirectClickTarget,
+    vertical_shift: f32,
+) -> Option<Slot> {
+    if let Some(target) = find_visible_target(&current_page.roi, &clicked_target.item_id, item_kind)
+    {
+        return Some(target.slot);
+    }
+
+    let predicted_y = clicked_target.slot.center_f32().1 + vertical_shift;
+    let slot = current_page
+        .roi
+        .slots
+        .iter()
+        .filter(|slot| {
+            slot.kind.is_selectable_item_for(item_kind) && slot.col == clicked_target.slot.col
+        })
+        .map(|slot| (slot, (slot.center_f32().1 - predicted_y).abs()))
+        .min_by(|left, right| left.1.total_cmp(&right.1))?;
+    (slot.1 <= POST_CLICK_ROW_SNAP_TOLERANCE).then(|| slot.0.clone())
+}
+
 struct PreparedHover {
     target: DirectClickTarget,
     sample: HoverSample,
+    page_slots: Vec<Slot>,
     viewport_repositioned: bool,
 }
 
@@ -511,6 +545,7 @@ fn relocate_and_wait_hover(
                 return Ok(PreparedHover {
                     target: relocated_target,
                     sample,
+                    page_slots: page.roi.slots,
                     viewport_repositioned,
                 });
             }
@@ -542,7 +577,6 @@ fn unchanged_terminal_target(
     item_kind: ItemKind,
     clicked_target: &DirectClickTarget,
     before: &HoverSample,
-    hover_verifier: &HoverVerifier,
 ) -> Result<Option<DirectClickTarget>> {
     let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
     let Ok(page) = navigator.scan_direct_page(frame) else {
@@ -553,7 +587,7 @@ fn unchanged_terminal_target(
     };
     let moved = clicked_target.slot.x.abs_diff(target.slot.x) > TARGET_POSITION_TOLERANCE
         || clicked_target.slot.y.abs_diff(target.slot.y) > TARGET_POSITION_TOLERANCE;
-    let sample = hover_verifier.sample_current_frame(&page.roi.image, &target.slot)?;
+    let sample = HoverVerifier::sample_current_frame(&page.roi.image, &target.slot)?;
     let brightness_dropped = !moved && sample.is_dimmer_than(before);
 
     if moved || brightness_dropped {

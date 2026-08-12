@@ -3,6 +3,7 @@
 
 # Runtime data
 /debug/
+/data/debug/
 /data/app.log
 /data/presets.json
 

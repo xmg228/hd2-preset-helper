@@ -1,5 +1,5 @@
 use crate::item::ItemKind;
-use crate::layout::{ROI_REFERENCE_H, ROI_REFERENCE_W};
+use crate::layout::ROI_REFERENCE_H;
 use crate::vision::{RoiObservation, Slot};
 
 // Explicit page turns start from a clean pre-input page, so only a small
@@ -29,17 +29,43 @@ pub(super) fn compare_page_turn(
     current: &RoiObservation,
     item_kind: ItemKind,
 ) -> PageRelation {
-    if identity_slots(previous, item_kind).next().is_none()
-        || identity_slots(current, item_kind).next().is_none()
+    if identity_slots(&previous.slots, item_kind).next().is_none()
+        || identity_slots(&current.slots, item_kind).next().is_none()
     {
         return PageRelation::Uncertain;
     }
 
-    let x_tolerance = 10.0 * previous.image.width() as f32 / ROI_REFERENCE_W as f32;
+    let Some(median_dy) = common_identity_vertical_shift(&previous.slots, current, item_kind)
+    else {
+        return PageRelation::DifferentViewport;
+    };
+
+    if median_dy.abs() <= PAGE_SHIFT_JITTER_PX {
+        return PageRelation::SameViewport;
+    }
+    if median_dy >= -PAGE_SHIFT_JITTER_PX {
+        return PageRelation::Uncertain;
+    }
+
+    let directed_shift = -median_dy;
+    let expected_full_shift =
+        PAGE_TURN_SHIFT_REFERENCE_PX * previous.image.height() as f32 / ROI_REFERENCE_H as f32;
+    let shift_ratio = directed_shift / expected_full_shift;
+    PageRelation::Shifted(PageShift {
+        directed_shift,
+        shift_ratio,
+    })
+}
+
+pub(super) fn common_identity_vertical_shift(
+    previous_slots: &[Slot],
+    current: &RoiObservation,
+    item_kind: ItemKind,
+) -> Option<f32> {
     let mut used_current = vec![false; current.slots.len()];
     let mut shifts = Vec::new();
 
-    for previous_slot in identity_slots(previous, item_kind) {
+    for previous_slot in identity_slots(previous_slots, item_kind) {
         let Some(previous_classification) = previous_slot.classification.as_ref() else {
             continue;
         };
@@ -59,9 +85,6 @@ pub(super) fn compare_page_turn(
                 }
                 let (current_x, current_y) = slot.center_f32();
                 let dx = current_x - previous_x;
-                if dx.abs() > x_tolerance {
-                    return None;
-                }
                 Some((index, dx.abs(), current_y - previous_y))
             })
             .min_by(|left, right| left.1.total_cmp(&right.1));
@@ -72,34 +95,14 @@ pub(super) fn compare_page_turn(
         }
     }
 
-    if shifts.is_empty() {
-        return PageRelation::DifferentViewport;
-    }
-
-    let median_dy = interpolated_median(&mut shifts).unwrap_or(0.0);
-    if median_dy.abs() <= PAGE_SHIFT_JITTER_PX {
-        return PageRelation::SameViewport;
-    }
-    if median_dy >= -PAGE_SHIFT_JITTER_PX {
-        return PageRelation::Uncertain;
-    }
-
-    let directed_shift = -median_dy;
-    let expected_full_shift =
-        PAGE_TURN_SHIFT_REFERENCE_PX * previous.image.height() as f32 / ROI_REFERENCE_H as f32;
-    let shift_ratio = directed_shift / expected_full_shift;
-    PageRelation::Shifted(PageShift {
-        directed_shift,
-        shift_ratio,
-    })
+    interpolated_median(&mut shifts)
 }
 
 fn identity_slots<'a>(
-    result: &'a RoiObservation,
+    slots: &'a [Slot],
     item_kind: ItemKind,
 ) -> impl Iterator<Item = &'a Slot> + 'a {
-    result
-        .slots
+    slots
         .iter()
         .filter(move |slot| is_identity_slot(slot, item_kind))
 }

@@ -48,6 +48,10 @@ impl CaptureSessionManager {
         }
     }
 
+    pub fn active_capture(&mut self) -> Option<&mut CaptureSource> {
+        self.cached.as_mut()
+    }
+
     pub fn get_or_create(&mut self, target: WindowTarget) -> Result<&mut CaptureSource> {
         let sdr_white_level = self.resolve_sdr_white_level(target);
         if self

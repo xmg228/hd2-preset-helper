@@ -620,6 +620,13 @@
       "category": "supply"
     },
     {
+      "item_id": "meltagun",
+      "display_name": "Meltagun",
+      "kind": "stratagem",
+      "path": "stratagem/supply/meltagun.png",
+      "category": "supply"
+    },
+    {
       "item_id": "one-true-flag",
       "display_name": "One True Flag",
       "kind": "stratagem",

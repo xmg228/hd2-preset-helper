@@ -45,8 +45,8 @@ const V_SEGMENT_SKIP_CENTER_BINS: usize = 2;
 const H_SEGMENT_SAMPLE_STEP: i32 = 1;
 const SEGMENT_MIN_BIN_SCORE: f32 = 0.22;
 
-const MIN_SLOT_SCORE: f32 = 0.24;
-const MIN_HORIZONTAL_EDGE: f32 = 0.22;
+const MIN_SLOT_SCORE: f32 = 0.26;
+const MIN_HORIZONTAL_EDGE: f32 = 0.24;
 const MIN_SIDE: f32 = 0.16;
 
 // Robust frame-luma consistency. A slot contributes 36 border segments:
@@ -96,7 +96,7 @@ struct Profile {
 const LIST_PROFILE: Profile = Profile {
     cols: LIST_COLS,
     y_min: 120,
-    y_max: 720,
+    y_max: 700,
     max_rows: 10,
     min_slots: 1,
 };
