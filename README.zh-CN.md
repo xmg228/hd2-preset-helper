@@ -55,6 +55,18 @@ HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设
 
 如果默认快捷键与其他程序或系统快捷键冲突，可以在 `data/config.toml` 中修改。预设通常直接通过游戏内操作保存，不需要手动编辑 `data/presets.json`。
 
+> 预设标签需要 v0.1.4-rc.1 或更高版本。
+
+可以在 `data/config.toml` 中添加浮窗标签：
+
+```toml
+[presets.labels]
+preset_1 = "Terminids"
+preset_2 = "Automatons"
+```
+
+空标签不会显示；超过当前快捷键数量的标签会保留，以后仍可使用。
+
 ## 故障排查
 
 如果按下预设快捷键后没有反应，请确认：

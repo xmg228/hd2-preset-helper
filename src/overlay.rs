@@ -58,6 +58,7 @@ const BASE_ICON_GAP: i32 = 2;
 const BASE_KEY_W: i32 = 32;
 const BASE_KEY_H: i32 = 18;
 const BASE_KEY_ICON_GAP: i32 = 9;
+const BASE_LABEL_ICON_GAP: i32 = 8;
 const BASE_ACCENT_W: i32 = 3;
 const MAX_PRESET_ICONS: i32 = 5;
 const DONE_HIDE_DELAY: Duration = Duration::from_secs(2);
@@ -102,6 +103,8 @@ struct OverlayMetrics {
     key_x: i32,
     key_w: i32,
     key_h: i32,
+    label_x: i32,
+    label_w: i32,
     icon_x: i32,
     title_y: i32,
     title_h: i32,
@@ -150,9 +153,9 @@ enum OverlayEventPolicy {
 impl OverlayFonts {
     fn create(metrics: OverlayMetrics) -> Self {
         Self {
-            title: create_font(metrics.title_font, FW_SEMIBOLD.0 as i32),
-            body: create_font(metrics.body_font, FW_NORMAL.0 as i32),
-            small: create_font(metrics.small_font, FW_SEMIBOLD.0 as i32),
+            title: create_font(metrics.title_font, FW_SEMIBOLD.0 as i32, "Bahnschrift"),
+            body: create_font(metrics.body_font, FW_NORMAL.0 as i32, "Segoe UI"),
+            small: create_font(metrics.small_font, FW_SEMIBOLD.0 as i32, "Bahnschrift"),
         }
     }
 }
@@ -200,8 +203,8 @@ impl OverlayRenderer {
     }
 }
 
-fn create_font(height: i32, weight: i32) -> HFONT {
-    let face = wide_null("Bahnschrift");
+fn create_font(height: i32, weight: i32, face: &str) -> HFONT {
+    let face = wide_null(face);
     unsafe {
         CreateFontW(
             -height,
@@ -229,13 +232,27 @@ impl OverlayMetrics {
     }
 
     fn with_preset_count(self, preset_count: usize) -> Self {
-        Self::from_scale(self.scale, overlay_row_count(preset_count))
+        Self::from_scale_and_label_width(self.scale, overlay_row_count(preset_count), self.label_w)
     }
 
     fn from_scale(scale: f32, preset_count: usize) -> Self {
+        Self::from_scale_and_label_width(scale, preset_count, 0)
+    }
+
+    fn with_label_width(self, preset_count: usize, label_w: i32) -> Self {
+        Self::from_scale_and_label_width(self.scale, overlay_row_count(preset_count), label_w)
+    }
+
+    fn from_scale_and_label_width(scale: f32, preset_count: usize, label_w: i32) -> Self {
         let preset_count = overlay_row_count(preset_count) as i32;
         let padding = scaled_i32(BASE_PADDING, scale);
-        let window_w = scaled_i32(BASE_WINDOW_W, scale);
+        let label_w = label_w.max(0);
+        let label_icon_gap = if label_w > 0 {
+            scaled_i32(BASE_LABEL_ICON_GAP, scale)
+        } else {
+            0
+        };
+        let window_w = scaled_i32(BASE_WINDOW_W, scale) + label_w + label_icon_gap;
         let title_y = scaled_i32(BASE_TITLE_Y, scale);
         let title_h = scaled_i32(BASE_TITLE_H, scale);
         let row_y = title_y + title_h + scaled_i32(BASE_TITLE_GAP, scale);
@@ -253,8 +270,10 @@ impl OverlayMetrics {
         let icon_gap = scaled_i32(BASE_ICON_GAP, scale);
         let icons_w = MAX_PRESET_ICONS * icon_size + (MAX_PRESET_ICONS - 1) * icon_gap;
         let content_w = key_w + key_icon_gap + icons_w;
+        let content_w = content_w + label_w + label_icon_gap;
         let key_x = (window_w - content_w).max(0) / 2;
-        let icon_x = key_x + key_w + key_icon_gap;
+        let label_x = key_x + key_w + key_icon_gap;
+        let icon_x = label_x + label_w + label_icon_gap;
         Self {
             scale,
             screen_margin: scaled_i32(BASE_SCREEN_MARGIN, scale),
@@ -272,6 +291,8 @@ impl OverlayMetrics {
             key_x,
             key_w,
             key_h: scaled_i32(BASE_KEY_H, scale),
+            label_x,
+            label_w,
             icon_x,
             title_y,
             title_h,
@@ -748,6 +769,25 @@ fn refresh_status_metrics(hwnd: HWND) -> Option<OverlayMetrics> {
             return Some(metrics);
         }
 
+        let measured_label_w = overlay
+            .state
+            .presets
+            .iter()
+            .filter_map(|preset| preset.label.as_deref())
+            .map(|label| measure_text_line_width(hdc, overlay.renderer.fonts.body, label))
+            .max()
+            .unwrap_or(0);
+        let base_window_w = scaled_i32(BASE_WINDOW_W, metrics.scale);
+        let label_icon_gap = scaled_i32(BASE_LABEL_ICON_GAP, metrics.scale);
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(base_window_w);
+        let max_window_w = (screen_w - metrics.screen_margin * 2).max(base_window_w);
+        let max_label_w = (max_window_w - base_window_w - label_icon_gap).max(0);
+        let label_w = if measured_label_w > 0 {
+            (measured_label_w + scaled_i32(2, metrics.scale)).min(max_label_w)
+        } else {
+            0
+        };
+        let metrics = metrics.with_label_width(overlay.state.presets.len(), label_w);
         let text_w = (metrics.row_w - metrics.text_pad_x * 2).max(1);
         let text_h = measure_wrapped_text_height(
             hdc,
@@ -764,6 +804,24 @@ fn refresh_status_metrics(hwnd: HWND) -> Option<OverlayMetrics> {
         overlay.state.metrics = metrics;
         Some(metrics)
     })
+}
+
+fn measure_text_line_width(hdc: HDC, font: HFONT, text: &str) -> i32 {
+    let mut text = wide_null(text);
+    let mut rect = RECT::default();
+
+    unsafe {
+        let _ = SelectObject(hdc, font.into());
+        let len = text.len().saturating_sub(1);
+        DrawTextW(
+            hdc,
+            &mut text[..len],
+            &mut rect,
+            DT_LEFT | DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX,
+        );
+    }
+
+    (rect.right - rect.left).max(0)
 }
 
 fn measure_wrapped_text_height(hdc: HDC, font: HFONT, text: &str, width: i32) -> i32 {
@@ -983,6 +1041,20 @@ fn draw_presets(hdc: HDC, state: &OverlayState, renderer: &OverlayRenderer) {
                 metrics.key_x,
                 centered_y(y, metrics.row_h, metrics.key_h),
             );
+
+            if let Some(label) = preset.label.as_deref() {
+                let label_h = scaled_i32(18, metrics.scale);
+                let _ = SelectObject(hdc, renderer.fonts.body.into());
+                SetTextColor(hdc, rgb(206, 216, 226));
+                draw_text_line(
+                    hdc,
+                    label,
+                    metrics.label_x,
+                    centered_y(y, metrics.row_h, label_h),
+                    metrics.label_w,
+                    label_h,
+                );
+            }
 
             match &preset.status {
                 OverlayPresetStatus::Ready => {

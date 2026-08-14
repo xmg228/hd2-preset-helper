@@ -13,6 +13,7 @@ pub const APP_EVENT_MESSAGE: u32 = WM_APP + 1;
 pub struct OverlayPreset {
     pub key_label: &'static str,
     pub name: String,
+    pub label: Option<String>,
     pub stratagems: Vec<String>,
     pub booster: Option<String>,
     pub status: OverlayPresetStatus,

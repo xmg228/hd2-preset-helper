@@ -24,6 +24,7 @@ mod tray;
 mod vision;
 mod window;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -77,6 +78,7 @@ struct PresetsConfig {
     #[serde(rename = "path")]
     legacy_path: Option<PathBuf>,
     auto_ready_up: bool,
+    labels: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -166,8 +168,12 @@ fn run_preset_hotkey_mode(
         )
     })?;
     let events = if config.overlay.enabled {
-        let presets =
-            overlay_presets_for_bindings(presets_path, &bindings, runtime.icon_catalog().as_ref());
+        let presets = overlay_presets_for_bindings(
+            presets_path,
+            &bindings,
+            &config.presets.labels,
+            runtime.icon_catalog().as_ref(),
+        );
         let events = overlay::spawn_overlay(hotkey_modifiers, Arc::clone(runtime.icon_catalog()))?;
         events.emit(AppEvent::PresetListUpdated { presets });
         events
@@ -337,6 +343,7 @@ fn load_app_config(config_path: &Path) -> Result<(AppConfig, bool)> {
         );
     }
     validate_hotkey_keys(&config.hotkey.keys)?;
+    validate_preset_labels(&config.presets.labels)?;
     Ok((config, reset_action == ConfigResetAction::Notify))
 }
 
@@ -378,9 +385,29 @@ fn validate_hotkey_keys(keys: &[input::Vk]) -> Result<()> {
     Ok(())
 }
 
+fn validate_preset_labels(labels: &BTreeMap<String, String>) -> Result<()> {
+    for (preset, label) in labels {
+        let valid_key = preset
+            .strip_prefix("preset_")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|index| (1..=MAX_PRESET_HOTKEYS).contains(index))
+            .is_some_and(|index| preset == &format!("preset_{index}"));
+        if !valid_key {
+            bail!(
+                "presets.labels key must be preset_1 through preset_{MAX_PRESET_HOTKEYS}, got {preset}"
+            );
+        }
+        if label.chars().any(char::is_control) {
+            bail!("presets.labels.{preset} must not contain control characters");
+        }
+    }
+    Ok(())
+}
+
 fn overlay_presets_for_bindings(
     presets_path: &Path,
     bindings: &[PresetHotkeyBinding],
+    labels: &BTreeMap<String, String>,
     catalog: &IconCatalog,
 ) -> Vec<OverlayPreset> {
     let presets = match load_presets(presets_path) {
@@ -395,7 +422,12 @@ fn overlay_presets_for_bindings(
             return bindings
                 .iter()
                 .map(|binding| {
-                    overlay_preset(binding, None, OverlayPresetStatus::Invalid(error.clone()))
+                    overlay_preset(
+                        binding,
+                        None,
+                        labels,
+                        OverlayPresetStatus::Invalid(error.clone()),
+                    )
                 })
                 .collect();
         }
@@ -405,7 +437,7 @@ fn overlay_presets_for_bindings(
         .iter()
         .map(|binding| {
             let Some(preset) = presets.get(&binding.preset) else {
-                return overlay_preset(binding, None, OverlayPresetStatus::NotSaved);
+                return overlay_preset(binding, None, labels, OverlayPresetStatus::NotSaved);
             };
 
             if let Err(error) = validate_preset(&binding.preset, preset) {
@@ -415,7 +447,7 @@ fn overlay_presets_for_bindings(
                     %error,
                     "invalid overlay preset summary"
                 );
-                return overlay_preset(binding, None, OverlayPresetStatus::Invalid(error));
+                return overlay_preset(binding, None, labels, OverlayPresetStatus::Invalid(error));
             }
 
             let status = invalid_preset_reason(preset, catalog).map_or(
@@ -430,7 +462,7 @@ fn overlay_presets_for_bindings(
                 },
             );
 
-            overlay_preset(binding, Some(preset), status)
+            overlay_preset(binding, Some(preset), labels, status)
         })
         .collect()
 }
@@ -438,6 +470,7 @@ fn overlay_presets_for_bindings(
 fn overlay_preset(
     binding: &PresetHotkeyBinding,
     preset: Option<&Preset>,
+    labels: &BTreeMap<String, String>,
     status: OverlayPresetStatus,
 ) -> OverlayPreset {
     let (stratagems, booster) = preset.map_or_else(
@@ -447,6 +480,11 @@ fn overlay_preset(
     OverlayPreset {
         key_label: binding.hotkey.key.name(),
         name: binding.preset.clone(),
+        label: labels
+            .get(&binding.preset)
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(str::to_owned),
         stratagems,
         booster,
         status,

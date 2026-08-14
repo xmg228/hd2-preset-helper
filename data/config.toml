@@ -2,6 +2,16 @@
 # Press B after applying a preset with a booster.
 auto_ready_up = false
 
+# Optional labels shown beside preset hotkeys in order.
+# Remove the leading # from the labels you want to use.
+[presets.labels]
+# preset_1 = "Terminids 1"
+# preset_2 = "Terminids 2"
+# preset_3 = "Automatons 1"
+# preset_4 = "Automatons 2"
+# preset_5 = "Illuminate 1"
+# preset_6 = "Illuminate 2"
+
 [hotkey]
 # Hold these modifiers to show the overlay.
 # Values: shift, ctrl, alt, win.

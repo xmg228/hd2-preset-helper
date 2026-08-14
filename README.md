@@ -68,6 +68,19 @@ The default keys can be changed in `data/config.toml` if they conflict with
 another application or system shortcut. Presets are normally saved through the
 in-game controls and do not need to be edited manually.
 
+> Preset labels require v0.1.4-rc.1 or later.
+
+Optional overlay labels can be added in `data/config.toml`:
+
+```toml
+[presets.labels]
+preset_1 = "Terminids"
+preset_2 = "Automatons"
+```
+
+Empty labels are not shown. Labels beyond the current number of preset hotkeys are
+kept for later.
+
 ## Troubleshooting
 
 If a preset key does nothing, verify that the app is running in the tray, the
