@@ -8,6 +8,11 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/xmg228/hd2-preset-helper"
 readme = "README.md"
 
+[package.metadata.winresource]
+ProductName = "HD2 Preset Helper"
+FileDescription = "HD2 Preset Helper"
+OriginalFilename = "HD2PresetHelper.exe"
+
 [[bin]]
 name = "HD2PresetHelper"
 path = "src/main.rs"

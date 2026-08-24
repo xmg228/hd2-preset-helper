@@ -20,6 +20,8 @@ HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设
 
 程序启动后会驻留在系统托盘中。需要退出时，右键单击托盘图标并选择 **Exit**。
 
+如需卸载，请先退出程序，然后删除解压出的 `HD2PresetHelper` 文件夹。配置、预设和日志也会随之删除。
+
 ## 快速开始
 
 默认预设快捷键为 `Ctrl+Shift+F7` 至 `Ctrl+Shift+F12`，分别对应预设槽位 1～6。
@@ -100,6 +102,21 @@ cargo build --release --locked
 ```text
 target\release\HD2PresetHelper.exe
 ```
+
+## Code signing policy
+
+Windows 版本的免费代码签名由 [SignPath.io](https://signpath.io/) 提供，证书由
+[SignPath Foundation](https://signpath.org/) 提供。
+
+### 团队角色
+
+- 作者：[xmg228](https://github.com/xmg228)
+- 审核者：[xmg228](https://github.com/xmg228)
+- 批准者：[xmg228](https://github.com/xmg228)
+
+### 隐私政策
+
+除非用户或安装、运行本程序的人员明确请求，否则本程序不会向任何联网系统传输信息。
 
 ## 法律声明
 
