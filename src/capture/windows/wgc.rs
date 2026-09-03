@@ -37,13 +37,9 @@ use half::f16;
 use crate::image_rect::ImageRect;
 use crate::window::{ClientCrop, WindowTarget};
 
-use super::RoiFrame;
-
 const WGC_FRAME_POOL_BUFFER_COUNT: i32 = 2;
 
 pub(super) struct WgcCapture {
-    screen_x: i32,
-    screen_y: i32,
     rebuild_signature: CaptureRebuildSignature,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -139,7 +135,7 @@ impl WgcFrameBus {
         Ok((Self { shared }, token))
     }
 
-    fn sync_generation(&self) -> u64 {
+    fn generation(&self) -> u64 {
         let (state_lock, _) = &*self.shared;
         state_lock
             .lock()
@@ -196,16 +192,17 @@ struct CaptureRebuildSignature {
 }
 
 impl CaptureRebuildSignature {
-    fn from_window_target(target: WindowTarget) -> Result<Self> {
+    fn from_window_target(target: &WindowTarget) -> Result<Self> {
         let crop = target.client_crop_in_frame()?;
         Ok(Self::from_window_target_and_crop(target, crop))
     }
 
-    fn from_window_target_and_crop(target: WindowTarget, crop: ClientCrop) -> Self {
+    fn from_window_target_and_crop(target: &WindowTarget, crop: ClientCrop) -> Self {
+        let (client_w, client_h) = target.client_size();
         Self {
-            hwnd: target.hwnd.0 as isize,
-            client_w: target.client_w,
-            client_h: target.client_h,
+            hwnd: target.native_handle().0 as isize,
+            client_w,
+            client_h,
             crop_x: crop.x,
             crop_y: crop.y,
             crop_w: crop.w,
@@ -215,14 +212,14 @@ impl CaptureRebuildSignature {
 }
 
 impl WgcCapture {
-    pub(super) fn new(target: WindowTarget, sdr_white_level: u32) -> Result<Self> {
+    pub(super) fn new(target: &WindowTarget, sdr_white_level: u32) -> Result<Self> {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
 
         if !GraphicsCaptureSession::IsSupported().context("failed to query WGC support")? {
             bail!("Windows Graphics Capture is not supported on this system");
         }
 
-        let item = wgc_item_for_window(target.hwnd)?;
+        let item = wgc_item_for_window(target.native_handle())?;
         let item_size = item.Size().context("failed to query WGC item size")?;
         if item_size.Width <= 0 || item_size.Height <= 0 {
             bail!(
@@ -244,8 +241,7 @@ impl WgcCapture {
                 item_size.Height
             );
         }
-        let screen_x = target.client_x;
-        let screen_y = target.client_y;
+        let (screen_x, screen_y) = target.client_origin();
         debug!(
             screen_x,
             screen_y,
@@ -291,8 +287,6 @@ impl WgcCapture {
         );
         let f16_to_sdr_u8_lut = build_f16_to_sdr_u8_lut(sdr_white_level);
         Ok(Self {
-            screen_x,
-            screen_y,
             rebuild_signature,
             device,
             context,
@@ -318,7 +312,11 @@ impl WgcCapture {
         unsafe { IsWindow(Some(hwnd)).as_bool() }
     }
 
-    pub(super) fn try_reuse(&mut self, target: WindowTarget, sdr_white_level: Option<u32>) -> bool {
+    pub(super) fn try_reuse(
+        &mut self,
+        target: &WindowTarget,
+        sdr_white_level: Option<u32>,
+    ) -> bool {
         if !self.is_capture_window_alive()
             || CaptureRebuildSignature::from_window_target(target)
                 .map(|signature| signature != self.rebuild_signature)
@@ -329,8 +327,6 @@ impl WgcCapture {
         if let Some(sdr_white_level) = sdr_white_level {
             self.update_sdr_white_level(sdr_white_level);
         }
-        self.screen_x = target.client_x;
-        self.screen_y = target.client_y;
         true
     }
 
@@ -355,11 +351,7 @@ impl WgcCapture {
         (self.client_crop.w, self.client_crop.h)
     }
 
-    pub(super) fn sync_to_latest(&mut self) {
-        self.consumed_generation = self.frame_bus.sync_generation();
-    }
-
-    pub(super) fn capture_latest_region(&mut self, client_roi: ImageRect) -> Result<RoiFrame> {
+    pub(super) fn capture_region(&mut self, client_roi: ImageRect) -> Result<RgbaImage> {
         if client_roi.w == 0 || client_roi.h == 0 {
             bail!("cannot capture an empty WGC client region");
         }
@@ -434,7 +426,7 @@ impl WgcCapture {
         let captured = read_result?;
         self.consumed_generation = generation;
 
-        let generation_after_read = self.frame_bus.sync_generation();
+        let generation_after_read = self.frame_bus.generation();
         let newer_frame_published = generation_after_read > generation;
         debug!(
             target: "hd2_preset_helper::perf",
@@ -458,7 +450,7 @@ impl WgcCapture {
         &mut self,
         frame: &Direct3D11CaptureFrame,
         client_roi: ImageRect,
-    ) -> Result<RoiFrame> {
+    ) -> Result<RgbaImage> {
         let content_size = frame.ContentSize().unwrap_or(self.item_size);
         let surface = frame.Surface().context("failed to get WGC frame surface")?;
         let texture = d3d11_texture_from_surface(&surface)?;
@@ -478,11 +470,7 @@ impl WgcCapture {
             &mut self.texture_read,
         )?;
 
-        Ok(RoiFrame {
-            image,
-            screen_x: self.screen_x + client_roi.x as i32,
-            screen_y: self.screen_y + client_roi.y as i32,
-        })
+        Ok(image)
     }
 }
 

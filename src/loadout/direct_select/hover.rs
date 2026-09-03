@@ -4,10 +4,8 @@ use anyhow::{Result, bail};
 use image::RgbaImage;
 use tracing::{debug, trace};
 
-use crate::capture::CaptureSource;
-use crate::icon_color::luma601_u8;
-use crate::page_sync::capture_latest_roi_frame;
-use crate::vision::{Calibration, Slot};
+use crate::automation::AutomationSession;
+use crate::vision::{Slot, luma601_u8};
 
 const HOVER_TIMEOUT: Duration = Duration::from_millis(700);
 const HOVER_STABLE_DURATION: Duration = Duration::from_millis(15);
@@ -69,8 +67,7 @@ impl HoverVerifier {
 
     pub(super) fn wait_at_current_position(
         &mut self,
-        capture: &mut CaptureSource,
-        calibration: &Calibration,
+        automation: &mut AutomationSession<'_>,
         slots: &[Slot],
         target: &Slot,
     ) -> Result<HoverSample> {
@@ -79,8 +76,8 @@ impl HoverVerifier {
         let mut previous_score = None;
 
         loop {
-            let frame = capture_latest_roi_frame(capture, calibration)?;
-            let sample = self.evaluate(&frame.image, slots, target)?;
+            let image = automation.capture()?;
+            let sample = self.evaluate(&image, slots, target)?;
 
             trace!(
                 target_row = target.row,

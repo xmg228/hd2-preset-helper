@@ -8,12 +8,12 @@ use rayon::prelude::*;
 use tracing::{debug, trace};
 
 use crate::assets::{IconCatalog, icon_image, resize_rgba_box};
-use crate::icon_color::{
+use crate::item::{ItemKind, StratagemCategory};
+
+use super::color::{
     StratagemCategoryCandidates, StratagemColorEvidence, add_stratagem_color_evidence, luma601_u8,
 };
-use crate::item::{ItemKind, StratagemCategory};
-use crate::slot::SlotLayout;
-use crate::vision::{Classification, Slot};
+use super::{Classification, Slot, SlotLayout};
 
 const TEMPLATE_BACKGROUND: f32 = 30.0;
 const ALPHA_MASK_THRESHOLD: u8 = 64;

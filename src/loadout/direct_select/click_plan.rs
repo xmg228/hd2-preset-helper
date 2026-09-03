@@ -6,8 +6,6 @@ pub(super) struct DirectClickTarget {
     pub(super) match_score: f32,
     pub(super) match_margin: f32,
     pub(super) gate_quality: f32,
-    pub(super) x: i32,
-    pub(super) y: i32,
     pub(super) slot: Slot,
 }
 
@@ -38,14 +36,11 @@ pub(super) fn find_visible_target(
             if classification.item_id != item_id {
                 return None;
             }
-            let (x, y) = result.screen_center(slot);
             Some(DirectClickTarget {
                 item_id: classification.item_id.clone(),
                 match_score: classification.match_score,
                 match_margin: classification.match_margin,
                 gate_quality: classification.gate_quality,
-                x,
-                y,
                 slot: slot.clone(),
             })
         })
@@ -65,5 +60,5 @@ fn compare_center_then_x(
     let right_center_y = right.slot.y as f32 + right.slot.h as f32 * 0.5;
     left_center_y
         .total_cmp(&right_center_y)
-        .then_with(|| left.x.cmp(&right.x))
+        .then_with(|| left.slot.x.cmp(&right.slot.x))
 }

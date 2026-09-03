@@ -1,17 +1,22 @@
+mod direct_select;
+mod frame;
+
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use tracing::{debug, debug_span, trace};
 
-use crate::capture::CaptureSource;
-use crate::icon_color;
-use crate::input::{self, HotkeyModifiers, Vk};
+use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::page_sync::{capture_latest_roi_frame, fingerprint_distance};
-use crate::presets::Preset;
-use crate::runtime::RecognizerRuntime;
-use crate::slot::{SlotKind, SlotLayout};
-use crate::vision::{RoiObservation, Slot};
+use crate::preset::Preset;
+use crate::vision::{
+    RecognizerRuntime, RoiObservation, Slot, SlotKind, SlotLayout, icon_likeness, luma601_u8,
+};
+
+pub use direct_select::{apply_booster_from_home, apply_empty_loadout_preset};
+pub use frame::bind_loadout_region;
+
+use self::frame::fingerprint_distance;
 
 const UI_TRANSITION_DELAY: Duration = Duration::from_millis(150);
 const UI_STATE_STABLE_DISTANCE: f32 = 3.0;
@@ -44,11 +49,6 @@ impl UiState {
             Self::Unknown => "unknown",
         }
     }
-}
-
-pub struct PresetHotkeyBinding {
-    pub hotkey: input::HotkeySpec,
-    pub preset: String,
 }
 
 pub fn detect_ui_state(result: &RoiObservation) -> UiState {
@@ -101,15 +101,15 @@ fn collect_home_stratagems(result: &RoiObservation) -> Result<Vec<String>> {
 }
 
 pub fn scan_loadout_home(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     runtime: &RecognizerRuntime,
 ) -> Result<RoiObservation> {
-    let frame = capture_latest_roi_frame(capture, runtime.calibration())?;
-    runtime.recognize(frame, SlotLayout::Home)
+    let image = automation.capture()?;
+    runtime.recognize(image, SlotLayout::Home)
 }
 
 pub fn wait_for_ui_state(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     runtime: &RecognizerRuntime,
     target_state: UiState,
     timeout: Duration,
@@ -136,8 +136,8 @@ pub fn wait_for_ui_state(
 
     loop {
         attempt += 1;
-        let frame = capture_latest_roi_frame(capture, runtime.calibration())?;
-        let result = runtime.detect(frame, expected_layout)?;
+        let image = automation.capture()?;
+        let result = runtime.detect(image, expected_layout)?;
         let current_state = detect_ui_state(&result);
 
         if current_state == target_state {
@@ -261,8 +261,8 @@ fn slot_region_fingerprint(result: &RoiObservation, item_kind: ItemKind) -> Vec<
                     + ((row as f32 + 0.5) * (bottom - top) as f32 / SLOT_FINGERPRINT_GRID as f32)
                         as u32;
                 let [r, g, b, _] = rgba.get_pixel(x, y).0;
-                let luma = icon_color::luma601_u8(r, g, b) as f32;
-                let weight = icon_color::icon_likeness(r, g, b);
+                let luma = luma601_u8(r, g, b) as f32;
+                let weight = icon_likeness(r, g, b);
 
                 weighted_r += r as f32 * weight;
                 weighted_g += g as f32 * weight;
@@ -297,20 +297,6 @@ fn slot_region_fingerprint(result: &RoiObservation, item_kind: ItemKind) -> Vec<
 
 fn quantize_u8(value: f32) -> u8 {
     value.round().clamp(0.0, 255.0) as u8
-}
-
-pub fn preset_hotkeys(modifiers: HotkeyModifiers, keys: &[Vk]) -> Vec<PresetHotkeyBinding> {
-    keys.iter()
-        .enumerate()
-        .map(|(index, key)| PresetHotkeyBinding {
-            hotkey: input::HotkeySpec {
-                id: 1001 + index as i32,
-                modifiers,
-                key: *key,
-            },
-            preset: format!("preset_{}", index + 1),
-        })
-        .collect()
 }
 
 pub fn empty_loadout_entry_slot(result: &RoiObservation) -> Option<&Slot> {

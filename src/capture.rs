@@ -1,60 +1,61 @@
-mod display;
-mod wgc;
+mod session;
+
+#[cfg(target_os = "windows")]
+mod windows;
 
 use anyhow::Result;
 use image::RgbaImage;
 
 use crate::image_rect::ImageRect;
-use crate::window::WindowTarget;
+use crate::window::{ClientPoint, WindowTarget};
 
-pub(crate) use display::{DisplayWhiteLevel, query_sdr_white_level_for_window};
+pub use session::CaptureSessionManager;
 
-pub struct RoiFrame {
-    pub image: RgbaImage,
-    pub screen_x: i32,
-    pub screen_y: i32,
-}
+#[cfg(target_os = "windows")]
+use windows::WindowsCapture as PlatformCapture;
 
 pub struct CaptureSource {
-    backend: CaptureBackend,
+    platform: PlatformCapture,
 }
 
-enum CaptureBackend {
-    Wgc(wgc::WgcCapture),
+pub struct CaptureRegion<'a> {
+    source: &'a mut CaptureSource,
+    rect: ImageRect,
 }
 
 impl CaptureSource {
-    pub fn new_for_window_target(target: WindowTarget, sdr_white_level: u32) -> Result<Self> {
+    pub fn new_for_window_target(target: &WindowTarget) -> Result<Self> {
         Ok(Self {
-            backend: CaptureBackend::Wgc(wgc::WgcCapture::new(target, sdr_white_level)?),
+            platform: PlatformCapture::new(target)?,
         })
     }
 
-    pub fn try_reuse_for_window_target(
-        &mut self,
-        target: WindowTarget,
-        sdr_white_level: Option<u32>,
-    ) -> bool {
-        match &mut self.backend {
-            CaptureBackend::Wgc(capture) => capture.try_reuse(target, sdr_white_level),
-        }
+    pub fn try_reuse_for_window_target(&mut self, target: &WindowTarget) -> bool {
+        self.platform.try_reuse(target)
     }
 
     pub fn output_size(&self) -> (u32, u32) {
-        match &self.backend {
-            CaptureBackend::Wgc(capture) => capture.output_size(),
-        }
+        self.platform.output_size()
     }
 
-    pub fn sync_to_latest(&mut self) {
-        match &mut self.backend {
-            CaptureBackend::Wgc(capture) => capture.sync_to_latest(),
-        }
+    fn capture_region(&mut self, client_roi: ImageRect) -> Result<RgbaImage> {
+        self.platform.capture_region(client_roi)
     }
 
-    pub fn capture_latest_region(&mut self, client_roi: ImageRect) -> Result<RoiFrame> {
-        match &mut self.backend {
-            CaptureBackend::Wgc(capture) => capture.capture_latest_region(client_roi),
+    pub fn region(&mut self, rect: ImageRect) -> CaptureRegion<'_> {
+        CaptureRegion { source: self, rect }
+    }
+}
+
+impl CaptureRegion<'_> {
+    pub fn capture(&mut self) -> Result<RgbaImage> {
+        self.source.capture_region(self.rect)
+    }
+
+    pub fn map_to_client(&self, local: (u32, u32)) -> ClientPoint {
+        ClientPoint {
+            x: self.rect.x + local.0,
+            y: self.rect.y + local.1,
         }
     }
 }

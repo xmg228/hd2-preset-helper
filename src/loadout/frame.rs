@@ -1,19 +1,18 @@
 use anyhow::Result;
 use image::RgbaImage;
 
-use crate::capture::{CaptureSource, RoiFrame};
-use crate::icon_color;
-use crate::vision::{Calibration, resolve_calibration_roi_for_size};
+use crate::capture::{CaptureRegion, CaptureSource};
+use crate::vision::{Calibration, luma601_u8, resolve_calibration_roi_for_size};
 
 const ROI_FINGERPRINT_SAMPLES: u32 = 32;
 
-pub fn capture_latest_roi_frame(
-    capture: &mut CaptureSource,
+pub fn bind_loadout_region<'a>(
+    capture: &'a mut CaptureSource,
     calibration: &Calibration,
-) -> Result<RoiFrame> {
+) -> Result<CaptureRegion<'a>> {
     let (image_w, image_h) = capture.output_size();
     let roi = resolve_calibration_roi_for_size(image_w, image_h, calibration)?;
-    capture.capture_latest_region(roi)
+    Ok(capture.region(roi))
 }
 
 pub fn image_fingerprint(rgba: &RgbaImage) -> Vec<u8> {
@@ -28,7 +27,7 @@ pub fn image_fingerprint(rgba: &RgbaImage) -> Vec<u8> {
             let y = y.min(rgba.height().saturating_sub(1));
 
             let [r, g, b, _] = rgba.get_pixel(x, y).0;
-            let luma = icon_color::luma601_u8(r, g, b);
+            let luma = luma601_u8(r, g, b);
             fingerprint.push(luma);
         }
     }

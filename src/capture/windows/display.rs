@@ -12,14 +12,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::HRESULT;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DisplayWhiteLevel {
-    pub(crate) device: String,
-    pub(crate) advanced_color: bool,
-    pub(crate) value: u32,
-}
-
-pub(crate) fn query_sdr_white_level_for_window(hwnd: HWND) -> Result<DisplayWhiteLevel> {
+pub(super) fn query_sdr_white_level_for_window(hwnd: HWND) -> Result<u32> {
     unsafe {
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         if monitor.is_invalid() {
@@ -70,11 +63,7 @@ pub(crate) fn query_sdr_white_level_for_window(hwnd: HWND) -> Result<DisplayWhit
                 1000
             };
 
-            return Ok(DisplayWhiteLevel {
-                device: monitor_device,
-                advanced_color,
-                value,
-            });
+            return Ok(value);
         }
 
         bail!("no active DisplayConfig path matches target window monitor {monitor_device:?}")

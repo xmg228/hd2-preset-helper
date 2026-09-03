@@ -3,23 +3,49 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use tracing::{debug, info, info_span, warn};
-use windows::Win32::System::Diagnostics::Debug::MessageBeep;
-use windows::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION;
 
 use crate::app_events::{AppEvent, AppEventSink};
-use crate::capture::CaptureSource;
-use crate::capture_session::CaptureSessionManager;
-use crate::direct_select::{apply_booster_from_home, apply_empty_loadout_preset};
+use crate::automation::AutomationSession;
+use crate::capture::CaptureSessionManager;
 use crate::game_window::find_game_window;
 use crate::input;
-use crate::preset_flow::{
-    UiState, collect_current_preset, detect_ui_state, home_booster_needs_warning,
-    scan_loadout_home, wait_for_ui_state,
+use crate::loadout::{
+    UiState, apply_booster_from_home, apply_empty_loadout_preset, bind_loadout_region,
+    collect_current_preset, detect_ui_state, home_booster_needs_warning, scan_loadout_home,
+    wait_for_ui_state,
 };
-use crate::presets::{Preset, invalid_preset_reason, load_preset, save_preset};
-use crate::runtime::RecognizerRuntime;
+use crate::preset::{Preset, invalid_preset_reason, load_preset, save_preset};
+use crate::vision::RecognizerRuntime;
 
 const READY_UP_HOLD_MS: u64 = 45;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresetActionOutcome {
+    Saved,
+    Applied,
+}
+
+pub struct PresetHotkeyBinding {
+    pub hotkey: input::HotkeySpec,
+    pub preset: String,
+}
+
+pub fn preset_hotkeys(
+    modifiers: input::HotkeyModifiers,
+    keys: &[input::Key],
+) -> Vec<PresetHotkeyBinding> {
+    keys.iter()
+        .enumerate()
+        .map(|(index, key)| PresetHotkeyBinding {
+            hotkey: input::HotkeySpec {
+                id: 1001 + index as i32,
+                modifiers,
+                key: *key,
+            },
+            preset: format!("preset_{}", index + 1),
+        })
+        .collect()
+}
 
 pub struct PresetActionConfig<'a> {
     pub presets: &'a Path,
@@ -32,7 +58,7 @@ pub fn handle_preset_hotkey(
     config: &PresetActionConfig<'_>,
     preset_name: &str,
     capture_session: &mut CaptureSessionManager,
-) -> Result<()> {
+) -> Result<PresetActionOutcome> {
     let span = info_span!("preset_action");
     let _guard = span.enter();
 
@@ -43,27 +69,25 @@ pub fn handle_preset_hotkey(
     });
 
     let game_window = find_game_window().context("failed to locate Helldivers window")?;
-    let _automation = input::AutomationScope::new(game_window)?;
-    debug!(
-        client_x = game_window.client_x,
-        client_y = game_window.client_y,
-        client_w = game_window.client_w,
-        client_h = game_window.client_h,
-        "game window ready"
-    );
+    let (client_w, client_h) = game_window.client_size();
+    debug!(client_w, client_h, "game window ready");
 
     let capture_start = Instant::now();
     let capture = capture_session
-        .get_or_create(game_window)
+        .get_or_create(&game_window)
         .context("failed to get capture session")?;
     debug!(
         elapsed = ?capture_start.elapsed(),
         "capture session ready"
     );
+    let region = bind_loadout_region(capture, runtime.calibration())
+        .context("failed to bind loadout capture region")?;
+    let mut automation = AutomationSession::new(region, game_window)
+        .context("failed to start automation session")?;
 
     let (initial_result, ui_state) = {
         let initial_result =
-            scan_loadout_home(capture, runtime).context("failed to scan loadout home")?;
+            scan_loadout_home(&mut automation, runtime).context("failed to scan loadout home")?;
         let ui_state = detect_ui_state(&initial_result);
         debug!(ui_state = %ui_state.label(), "detected loadout UI state");
         config.events.emit(AppEvent::UiStateDetected {
@@ -72,7 +96,7 @@ pub fn handle_preset_hotkey(
         (initial_result, ui_state)
     };
 
-    let (ready_up_after_apply, completion_warning) = match ui_state {
+    let (outcome, ready_up_after_apply, completion_warning) = match ui_state {
         UiState::HomeFilled => {
             let booster_needs_warning = home_booster_needs_warning(&initial_result);
             let preset = collect_current_preset(&initial_result)
@@ -85,7 +109,7 @@ pub fn handle_preset_hotkey(
                 );
                 "Booster not recognized; saved without it".to_string()
             });
-            (false, warning)
+            (PresetActionOutcome::Saved, false, warning)
         }
 
         UiState::HomeMixed => {
@@ -102,10 +126,10 @@ pub fn handle_preset_hotkey(
                 "applying preset from empty home"
             );
             log_preset_contents(&preset);
-            apply_empty_loadout_preset(runtime, capture, config.events, &preset.stratagems)
+            apply_empty_loadout_preset(runtime, &mut automation, config.events, &preset.stratagems)
                 .context("failed to apply stratagems from empty home")?;
-            apply_booster_if_present(runtime, capture, config, &preset)?;
-            (preset.booster.is_some(), None)
+            apply_booster_if_present(runtime, &mut automation, config, &preset)?;
+            (PresetActionOutcome::Applied, preset.booster.is_some(), None)
         }
 
         UiState::List(_) | UiState::Unknown => {
@@ -115,14 +139,14 @@ pub fn handle_preset_hotkey(
 
     if config.auto_ready_up && ready_up_after_apply {
         wait_for_ui_state(
-            capture,
+            &mut automation,
             runtime,
             UiState::HomeFilled,
             Duration::from_millis(1500),
         )
         .context("booster was selected but the loadout home did not stabilize before starting")?;
         debug!("booster preset applied; sending READY UP key");
-        input::tap(input::Vk::B, READY_UP_HOLD_MS)?;
+        automation.tap_key(input::Key::B, READY_UP_HOLD_MS)?;
     }
 
     config.events.emit(AppEvent::PresetDone {
@@ -134,7 +158,7 @@ pub fn handle_preset_hotkey(
         elapsed = ?action_start.elapsed(),
         "preset action completed"
     );
-    Ok(())
+    Ok(outcome)
 }
 
 fn load_named_preset(
@@ -179,10 +203,6 @@ fn save_current_preset(
         "preset saved"
     );
 
-    unsafe {
-        MessageBeep(MB_ICONINFORMATION).ok();
-    }
-
     Ok(())
 }
 
@@ -197,7 +217,7 @@ fn log_preset_contents(preset: &Preset) {
 
 fn apply_booster_if_present(
     runtime: &RecognizerRuntime,
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     config: &PresetActionConfig<'_>,
     preset: &Preset,
 ) -> Result<()> {
@@ -206,7 +226,7 @@ fn apply_booster_if_present(
     };
     apply_booster_from_home(
         runtime,
-        capture,
+        automation,
         config.events,
         std::slice::from_ref(booster),
     )

@@ -1,6 +1,5 @@
 use crate::item::ItemKind;
-use crate::layout::ROI_REFERENCE_H;
-use crate::vision::{RoiObservation, Slot};
+use crate::vision::{ROI_REFERENCE_H, RoiObservation, Slot};
 
 // Explicit page turns start from a clean pre-input page, so only a small
 // geometry jitter allowance is needed to distinguish zero movement.

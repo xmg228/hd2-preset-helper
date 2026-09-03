@@ -7,15 +7,14 @@ use image::{GrayImage, RgbaImage};
 use rayon::prelude::*;
 use tracing::debug;
 
-use crate::icon_color;
 use crate::image_rect::ImageRect;
 use crate::item::ItemKind;
-use crate::layout::{
+use crate::vision::color;
+
+use super::{
     HOME_BOOSTER_X, HOME_COLS, LIST_COLS, ROI_REFERENCE_H, ROI_REFERENCE_H_F32, ROI_REFERENCE_W,
-    ROI_REFERENCE_W_F32, SLOT_SIZE_I32,
+    ROI_REFERENCE_W_F32, SLOT_SIZE_I32, Slot, SlotKind, SlotLayout,
 };
-use crate::slot::{SlotKind, SlotLayout};
-use crate::vision::Slot;
 
 // Window sizes for the three-band luma edge response.
 const H_WIN: i32 = 48;
@@ -817,7 +816,7 @@ fn luma_canonical(rgba: &RgbaImage) -> Result<GrayImage> {
     let (pixels, remainder) = rgba.as_raw().as_chunks::<4>();
     debug_assert!(remainder.is_empty());
     for (pixel, luma) in pixels.iter().zip(&mut raw) {
-        *luma = icon_color::luma601_u8(pixel[0], pixel[1], pixel[2]);
+        *luma = color::luma601_u8(pixel[0], pixel[1], pixel[2]);
     }
 
     let gray = GrayImage::from_raw(rgba.width(), rgba.height(), raw)
@@ -949,7 +948,7 @@ fn home_booster_kind(rgba: &RgbaImage, rect: ImageRect) -> SlotKind {
         mask_pixels += span.end - span.start;
         for local_x in span {
             let [r, g, b, _] = rgba.get_pixel(rect.x + local_x, rect.y + local_y).0;
-            if icon_color::booster_yellow_likeness(r, g, b) >= 0.5 {
+            if color::booster_yellow_likeness(r, g, b) >= 0.5 {
                 yellow_pixels += 1;
             }
         }

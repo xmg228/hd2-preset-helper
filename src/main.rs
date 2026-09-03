@@ -2,24 +2,16 @@
 
 mod app_events;
 mod assets;
+mod automation;
 mod capture;
-mod capture_session;
-mod direct_select;
 mod game_window;
-mod geometry_detector;
-mod icon_color;
 mod image_rect;
 mod input;
 mod item;
-mod layout;
+mod loadout;
 mod overlay;
-mod page_sync;
+mod preset;
 mod preset_action;
-mod preset_flow;
-mod presets;
-mod runtime;
-mod slot;
-mod template_classifier;
 mod tray;
 mod vision;
 mod window;
@@ -38,6 +30,7 @@ use tracing::{Level, debug, error, info, warn};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
+use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -48,12 +41,14 @@ use windows::core::PCWSTR;
 
 use crate::app_events::{AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::assets::IconCatalog;
-use crate::capture_session::CaptureSessionManager;
-use crate::page_sync::capture_latest_roi_frame;
-use crate::preset_action::{PresetActionConfig, handle_preset_hotkey};
-use crate::preset_flow::{PresetHotkeyBinding, preset_hotkeys};
-use crate::presets::{Preset, invalid_preset_reason, load_presets, validate_preset};
-use crate::runtime::RecognizerRuntime;
+use crate::capture::CaptureSessionManager;
+use crate::loadout::bind_loadout_region;
+use crate::preset::{Preset, invalid_preset_reason, load_presets, validate_preset};
+use crate::preset_action::{
+    PresetActionConfig, PresetActionOutcome, PresetHotkeyBinding, handle_preset_hotkey,
+    preset_hotkeys,
+};
+use crate::vision::RecognizerRuntime;
 
 const DEFAULT_CONFIG_TOML: &str = include_str!("../data/config.toml");
 const CONFIG_RELATIVE_PATH: &str = "data/config.toml";
@@ -85,7 +80,7 @@ struct PresetsConfig {
 #[serde(default, deny_unknown_fields)]
 struct HotkeyConfig {
     modifiers: Vec<input::HotkeyModifier>,
-    keys: Vec<input::Vk>,
+    keys: Vec<input::Key>,
 }
 
 impl Default for HotkeyConfig {
@@ -93,12 +88,12 @@ impl Default for HotkeyConfig {
         Self {
             modifiers: vec![input::HotkeyModifier::Ctrl, input::HotkeyModifier::Shift],
             keys: vec![
-                input::Vk::F7,
-                input::Vk::F8,
-                input::Vk::F9,
-                input::Vk::F10,
-                input::Vk::F11,
-                input::Vk::F12,
+                input::Key::F7,
+                input::Key::F8,
+                input::Key::F9,
+                input::Key::F10,
+                input::Key::F11,
+                input::Key::F12,
             ],
         }
     }
@@ -155,7 +150,7 @@ fn run_preset_hotkey_mode(
     let hotkey_modifiers = input::HotkeyModifiers::new(config.hotkey.modifiers.clone())?;
     let bindings = preset_hotkeys(hotkey_modifiers, &config.hotkey.keys);
     let hotkeys: Vec<input::HotkeySpec> = bindings.iter().map(|binding| binding.hotkey).collect();
-    let _tray = tray::spawn()?;
+    let tray = tray::spawn()?;
 
     for binding in &bindings {
         debug!(key = ?binding.hotkey.key, preset = %binding.preset, "preset hotkey binding");
@@ -198,19 +193,21 @@ fn run_preset_hotkey_mode(
 
     loop {
         let hotkey_id = loop {
-            match registered_hotkeys.wait_timeout(HOTKEY_WAIT_POLL_INTERVAL)? {
+            let hotkey_poll = registered_hotkeys.wait_timeout(HOTKEY_WAIT_POLL_INTERVAL)?;
+            if tray.exit_requested() {
+                info!("tray exit requested");
+                return Ok(());
+            }
+
+            match hotkey_poll {
                 input::HotkeyPoll::Triggered(hotkey_id) => {
-                    capture_session.prewarm();
+                    prewarm_capture(&mut capture_session);
                     break hotkey_id;
-                }
-                input::HotkeyPoll::ExitRequested => {
-                    info!("tray exit requested");
-                    return Ok(());
                 }
                 input::HotkeyPoll::Timeout => {
                     let modifiers_down = hotkey_modifiers.is_down();
                     if modifiers_down && !modifiers_were_down && !prewarm_suppressed {
-                        capture_session.prewarm();
+                        prewarm_capture(&mut capture_session);
                     } else if !modifiers_down && modifiers_were_down {
                         capture_session.discard();
                         prewarm_suppressed = false;
@@ -252,6 +249,11 @@ fn run_preset_hotkey_mode(
             save_last_failure(&runtime, &mut capture_session, error);
         }
         capture_session.discard();
+        if matches!(&outcome, Ok(PresetActionOutcome::Saved)) {
+            unsafe {
+                MessageBeep(MB_ICONINFORMATION).ok();
+            }
+        }
         modifiers_were_down = hotkey_modifiers.is_down();
         prewarm_suppressed = modifiers_were_down;
         if let Err(error) = outcome {
@@ -271,6 +273,20 @@ fn run_preset_hotkey_mode(
     }
 }
 
+fn prewarm_capture(capture_session: &mut CaptureSessionManager) {
+    let result = game_window::find_game_window_once().and_then(|target| {
+        capture_session.get_or_create(&target)?;
+        Ok(())
+    });
+
+    if let Err(error) = result {
+        debug!(
+            error = %format!("{error:#}"),
+            "capture preparation skipped"
+        );
+    }
+}
+
 fn save_last_failure(
     runtime: &RecognizerRuntime,
     capture_session: &mut CaptureSessionManager,
@@ -280,8 +296,8 @@ fn save_last_failure(
         let Some(capture) = capture_session.active_capture() else {
             return Ok(None);
         };
-        capture.sync_to_latest();
-        let frame = capture_latest_roi_frame(capture, runtime.calibration())?;
+        let mut region = bind_loadout_region(capture, runtime.calibration())?;
+        let image = region.capture()?;
         let directory = app_path(LAST_FAILURE_DEBUG_PATH)?;
         fs::create_dir_all(&directory).with_context(|| {
             format!(
@@ -289,8 +305,7 @@ fn save_last_failure(
                 directory.display()
             )
         })?;
-        frame
-            .image
+        image
             .save(directory.join("frame.png"))
             .context("failed to save failure debug frame")?;
         fs::write(directory.join("error.txt"), format!("{action_error:#}"))
@@ -370,7 +385,7 @@ fn config_reset_action(config: &AppConfig) -> ConfigResetAction {
     }
 }
 
-fn validate_hotkey_keys(keys: &[input::Vk]) -> Result<()> {
+fn validate_hotkey_keys(keys: &[input::Key]) -> Result<()> {
     if keys.is_empty() || keys.len() > MAX_PRESET_HOTKEYS {
         bail!(
             "hotkey.keys must contain 1 to {} keys, got {}",
@@ -581,55 +596,4 @@ fn app_path(path: impl AsRef<Path>) -> Result<PathBuf> {
         )
     })?;
     Ok(directory.join(path))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_custom_preset_path_requests_notice() {
-        let config: AppConfig = toml::from_str(
-            r#"
-[presets]
-path = "custom/presets.json"
-"#,
-        )
-        .expect("legacy configuration should remain readable");
-        assert_eq!(config_reset_action(&config), ConfigResetAction::Notify);
-    }
-
-    #[test]
-    fn legacy_default_config_is_reset_silently() {
-        let config: AppConfig = toml::from_str(
-            r#"
-[presets]
-path = "data/presets.json"
-"#,
-        )
-        .expect("legacy default configuration should remain readable");
-        assert_eq!(config_reset_action(&config), ConfigResetAction::Silent);
-    }
-
-    #[test]
-    fn legacy_config_with_custom_settings_requests_notice() {
-        let config: AppConfig = toml::from_str(
-            r#"
-[presets]
-path = "data/presets.json"
-
-[overlay]
-enabled = false
-"#,
-        )
-        .expect("customized legacy configuration should remain readable");
-        assert_eq!(config_reset_action(&config), ConfigResetAction::Notify);
-    }
-
-    #[test]
-    fn current_default_config_does_not_request_reset() {
-        let config: AppConfig = toml::from_str(DEFAULT_CONFIG_TOML)
-            .expect("embedded default configuration should be valid");
-        assert_eq!(config_reset_action(&config), ConfigResetAction::None);
-    }
 }

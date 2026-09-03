@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
+use image::RgbaImage;
 use tracing::{debug, debug_span};
 
 use crate::assets::{IconCatalog, default_calibration, default_icon_manifest, parse_json_asset};
-use crate::capture::RoiFrame;
-use crate::slot::SlotLayout;
-use crate::template_classifier::TemplateClassifier;
-use crate::vision::{Calibration, RoiObservation, detect_slot_layout};
+
+use super::classifier::TemplateClassifier;
+use super::{Calibration, RoiObservation, SlotLayout, detect_slot_layout};
 
 const TEMPLATE_THRESHOLD: f32 = 0.70;
 const TEMPLATE_MIN_MARGIN: f32 = 0.035;
@@ -43,11 +43,11 @@ impl RecognizerRuntime {
         &self.icons
     }
 
-    pub fn detect(&self, frame: RoiFrame, expected_layout: SlotLayout) -> Result<RoiObservation> {
+    pub fn detect(&self, image: RgbaImage, expected_layout: SlotLayout) -> Result<RoiObservation> {
         let span = debug_span!("detect_layout");
         let _guard = span.enter();
 
-        detect_slot_layout(frame, expected_layout)
+        detect_slot_layout(image, expected_layout)
     }
 
     pub fn classify(&self, result: &mut RoiObservation) -> Result<()> {
@@ -60,13 +60,13 @@ impl RecognizerRuntime {
 
     pub fn recognize(
         &self,
-        frame: RoiFrame,
+        image: RgbaImage,
         expected_layout: SlotLayout,
     ) -> Result<RoiObservation> {
         let span = debug_span!("recognize_roi");
         let _guard = span.enter();
 
-        let mut result = self.detect(frame, expected_layout)?;
+        let mut result = self.detect(image, expected_layout)?;
         self.classify(&mut result)?;
         Ok(result)
     }

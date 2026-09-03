@@ -10,14 +10,11 @@ use anyhow::{Context, Result, bail};
 use tracing::{debug, debug_span, info_span};
 
 use crate::app_events::{AppEvent, AppEventSink};
-use crate::capture::CaptureSource;
-use crate::input;
+use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::page_sync::capture_latest_roi_frame;
-use crate::preset_flow::{UiState, detect_ui_state, empty_loadout_entry_slot};
-use crate::runtime::RecognizerRuntime;
-use crate::slot::SlotLayout;
-use crate::vision::{RoiObservation, Slot};
+use crate::vision::{RecognizerRuntime, RoiObservation, Slot, SlotLayout};
+
+use super::{UiState, detect_ui_state, empty_loadout_entry_slot};
 
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, open_slot_list, wait_for_home_booster_target};
@@ -37,7 +34,7 @@ const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(600);
 
 pub fn apply_empty_loadout_preset(
     runtime: &RecognizerRuntime,
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
     items: &[String],
 ) -> Result<()> {
@@ -49,23 +46,21 @@ pub fn apply_empty_loadout_preset(
     }
 
     let opened_list = {
-        let frame = capture_latest_roi_frame(capture, runtime.calibration())?;
-        let result = runtime.recognize(frame, SlotLayout::Home)?;
+        let image = automation.capture()?;
+        let result = runtime.recognize(image, SlotLayout::Home)?;
         let Some(entry_slot) = empty_loadout_entry_slot(&result).cloned() else {
             bail!("current screen is not an empty loadout home layout");
         };
 
-        let (click_x, click_y) = result.screen_center(&entry_slot);
         let target = HomeOpenTarget {
             item_kind: ItemKind::Stratagem,
-            click_x,
-            click_y,
+            point: entry_slot.center(),
         };
-        open_slot_list(capture, runtime, target)?
+        open_slot_list(automation, runtime, target)?
     };
     select_items_from_open_list(
         runtime,
-        capture,
+        automation,
         events,
         items,
         ItemKind::Stratagem,
@@ -75,7 +70,7 @@ pub fn apply_empty_loadout_preset(
 
 pub fn apply_booster_from_home(
     runtime: &RecognizerRuntime,
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
     items: &[String],
 ) -> Result<()> {
@@ -86,11 +81,11 @@ pub fn apply_booster_from_home(
         );
     }
 
-    let target = wait_for_home_booster_target(capture, runtime)?;
-    let opened_list = open_slot_list(capture, runtime, target)?;
+    let target = wait_for_home_booster_target(automation, runtime)?;
+    let opened_list = open_slot_list(automation, runtime, target)?;
     select_items_from_open_list(
         runtime,
-        capture,
+        automation,
         events,
         items,
         ItemKind::Booster,
@@ -100,7 +95,7 @@ pub fn apply_booster_from_home(
 
 fn select_items_from_open_list(
     runtime: &RecognizerRuntime,
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
     items: &[String],
     item_kind: ItemKind,
@@ -138,7 +133,7 @@ fn select_items_from_open_list(
             let selected_item_id = target.item_id.clone();
             let final_requested_item = remaining.len() == 1;
             let outcome = select_preset_target(
-                capture,
+                automation,
                 &navigator,
                 target,
                 item_kind,
@@ -196,7 +191,7 @@ fn select_items_from_open_list(
         let wheel_attempt = wheel_attempts + 1;
 
         match navigator.perform_confirmed_semantic_page_turn(
-            capture,
+            automation,
             current_page,
             input,
             wheel_attempt,
@@ -258,7 +253,7 @@ enum TargetSelectionOutcome {
 }
 
 fn select_preset_target(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     navigator: &PageNavigator<'_>,
     initial_target: DirectClickTarget,
     item_kind: ItemKind,
@@ -267,7 +262,7 @@ fn select_preset_target(
 ) -> Result<TargetSelectionOutcome> {
     let item_id = initial_target.item_id.clone();
     let prepared = relocate_and_wait_hover(
-        capture,
+        automation,
         navigator,
         &item_id,
         item_kind,
@@ -281,11 +276,12 @@ fn select_preset_target(
     let mut last_after_score = None;
 
     for attempt in 1..=MAX_TARGET_CLICK_ATTEMPTS {
+        let (x, y) = target.slot.center();
         debug!(
             item_id = %target.item_id,
             attempt,
-            x = target.x,
-            y = target.y,
+            x,
+            y,
             match_score = target.match_score,
             match_margin = target.match_margin,
             gate_quality = target.gate_quality,
@@ -293,15 +289,15 @@ fn select_preset_target(
             "clicking preset item after hover confirmation"
         );
 
-        input::click_current_with_boundary(CLICK_HOLD_MS, || capture.sync_to_latest())?;
-        capture.sync_to_latest();
+        automation.click_current(CLICK_HOLD_MS)?;
         if final_requested_item {
-            if wait_for_terminal_home(capture, navigator, item_kind, POST_CLICK_CONFIRM_TIMEOUT)? {
+            if wait_for_terminal_home(automation, navigator, item_kind, POST_CLICK_CONFIRM_TIMEOUT)?
+            {
                 return Ok(TargetSelectionOutcome::Home);
             }
 
             if let Some(retry_target) = unchanged_terminal_target(
-                capture, navigator, &item_id, item_kind, &target, &before,
+                automation, navigator, &item_id, item_kind, &target, &before,
             )? {
                 debug!(
                     item_id = %item_id,
@@ -312,7 +308,7 @@ fn select_preset_target(
                 continue;
             }
 
-            if wait_for_terminal_home(capture, navigator, item_kind, TERMINAL_SETTLE_TIMEOUT)? {
+            if wait_for_terminal_home(automation, navigator, item_kind, TERMINAL_SETTLE_TIMEOUT)? {
                 return Ok(TargetSelectionOutcome::Home);
             }
             bail!(
@@ -321,7 +317,7 @@ fn select_preset_target(
             );
         }
 
-        match observe_post_click_state(capture, navigator, &target, &before, &before_slots)? {
+        match observe_post_click_state(automation, navigator, &target, &before, &before_slots)? {
             PostClickObservation::Selected { page, moved } => {
                 viewport_repositioned |= moved;
                 debug!(
@@ -340,14 +336,11 @@ fn select_preset_target(
                 page,
                 after_score,
             } => {
-                let (x, y) = page.roi.screen_center(&slot);
                 debug!(
                     item_id = %item_id,
                     attempt,
                     "click left the target at the same position and brightness; retrying in place"
                 );
-                target.x = x;
-                target.y = y;
                 target.slot = slot;
                 before_slots = page.roi.slots;
                 last_after_score = Some(after_score);
@@ -381,7 +374,7 @@ enum PostClickObservation {
 }
 
 fn observe_post_click_state(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     navigator: &PageNavigator<'_>,
     clicked_target: &DirectClickTarget,
     before: &HoverSample,
@@ -398,8 +391,8 @@ fn observe_post_click_state(
 
     loop {
         observation += 1;
-        let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
-        let page = navigator.scan_direct_page(frame)?;
+        let image = automation.capture()?;
+        let page = navigator.scan_direct_page(image)?;
         let vertical_shift = common_identity_vertical_shift(before_slots, &page.roi, item_kind);
         let moved =
             vertical_shift.is_some_and(|shift| shift.abs() > TARGET_POSITION_TOLERANCE as f32);
@@ -496,7 +489,7 @@ struct PreparedHover {
 }
 
 fn relocate_and_wait_hover(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     navigator: &PageNavigator<'_>,
     item_id: &str,
     item_kind: ItemKind,
@@ -507,11 +500,10 @@ fn relocate_and_wait_hover(
     let mut last_hover_error = None;
 
     for relocation in 1..=MAX_HOVER_RELOCATIONS {
-        capture.sync_to_latest();
-        input::move_cursor(target.x, target.y)?;
+        automation.move_cursor(target.slot.center())?;
 
-        let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
-        let page = navigator.scan_direct_page(frame)?;
+        let image = automation.capture()?;
+        let page = navigator.scan_direct_page(image)?;
         let relocated_target = find_visible_target(&page.roi, item_id, item_kind).with_context(|| {
             format!(
                 "target item {item_id} left the visible viewport while relocating its hover position"
@@ -522,13 +514,15 @@ fn relocate_and_wait_hover(
         viewport_repositioned |= moved;
 
         if moved {
+            let (old_x, old_y) = target.slot.center();
+            let (new_x, new_y) = relocated_target.slot.center();
             debug!(
                 item_id,
                 relocation,
-                old_x = target.x,
-                old_y = target.y,
-                new_x = relocated_target.x,
-                new_y = relocated_target.y,
+                old_x,
+                old_y,
+                new_x,
+                new_y,
                 "target moved after cursor placement; relocating again"
             );
             target = relocated_target;
@@ -536,8 +530,7 @@ fn relocate_and_wait_hover(
         }
 
         match hover_verifier.wait_at_current_position(
-            capture,
-            navigator.calibration(),
+            automation,
             &page.roi.slots,
             &relocated_target.slot,
         ) {
@@ -571,15 +564,15 @@ fn relocate_and_wait_hover(
 }
 
 fn unchanged_terminal_target(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     navigator: &PageNavigator<'_>,
     item_id: &str,
     item_kind: ItemKind,
     clicked_target: &DirectClickTarget,
     before: &HoverSample,
 ) -> Result<Option<DirectClickTarget>> {
-    let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
-    let Ok(page) = navigator.scan_direct_page(frame) else {
+    let image = automation.capture()?;
+    let Ok(page) = navigator.scan_direct_page(image) else {
         return Ok(None);
     };
     let Some(target) = find_visible_target(&page.roi, item_id, item_kind) else {
@@ -606,15 +599,15 @@ fn unchanged_terminal_target(
 }
 
 fn wait_for_terminal_home(
-    capture: &mut CaptureSource,
+    automation: &mut AutomationSession<'_>,
     navigator: &PageNavigator<'_>,
     item_kind: ItemKind,
     timeout: Duration,
 ) -> Result<bool> {
     let started = Instant::now();
     loop {
-        let frame = capture_latest_roi_frame(capture, navigator.calibration())?;
-        if let Ok(home) = navigator.detect_home(frame)
+        let image = automation.capture()?;
+        if let Ok(home) = navigator.detect_home(image)
             && detect_ui_state(&home) == UiState::HomeFilled
         {
             debug!(

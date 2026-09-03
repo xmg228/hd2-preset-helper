@@ -1,11 +1,79 @@
+mod classifier;
+mod color;
+mod geometry;
+mod recognizer;
+
 use anyhow::{Result, bail};
 use image::RgbaImage;
 use serde::Deserialize;
 
-use crate::capture::RoiFrame;
-use crate::geometry_detector;
 use crate::image_rect::ImageRect;
-use crate::slot::{SlotKind, SlotLayout};
+use crate::item::ItemKind;
+
+pub use color::{icon_likeness, luma601_u8};
+pub use recognizer::RecognizerRuntime;
+
+const ROI_REFERENCE_W: u32 = 576;
+pub const ROI_REFERENCE_H: u32 = 832;
+const ROI_REFERENCE_W_F32: f32 = 576.0;
+const ROI_REFERENCE_H_F32: f32 = 832.0;
+
+const SLOT_SIZE_I32: i32 = 104;
+
+const LIST_COLS: [i32; 4] = [77, 190, 304, 417];
+const HOME_COLS: [i32; 4] = [11, 124, 237, 350];
+const HOME_BOOSTER_X: i32 = 457;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotKind {
+    Stratagem,
+    StratagemEmpty,
+    Booster,
+    /// Special "no booster" list cell; occupies the grid but has no item template.
+    NoBoosterOption,
+    /// Filled booster slot on the loadout home screen.
+    HomeBooster,
+    /// Empty booster slot on the loadout home screen.
+    HomeBoosterEmpty,
+}
+
+impl SlotKind {
+    pub const fn classification_kind(self) -> Option<ItemKind> {
+        match self {
+            Self::Stratagem => Some(ItemKind::Stratagem),
+            Self::Booster | Self::HomeBooster => Some(ItemKind::Booster),
+            Self::StratagemEmpty | Self::NoBoosterOption | Self::HomeBoosterEmpty => None,
+        }
+    }
+
+    pub const fn is_selectable_item_for(self, item_kind: ItemKind) -> bool {
+        matches!(
+            (item_kind, self),
+            (ItemKind::Stratagem, Self::Stratagem) | (ItemKind::Booster, Self::Booster)
+        )
+    }
+
+    pub const fn is_home_booster(self) -> bool {
+        matches!(self, Self::HomeBooster | Self::HomeBoosterEmpty)
+    }
+}
+
+/// Page-level layout expected by the detector and attached to each observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotLayout {
+    Home,
+    List(ItemKind),
+}
+
+impl SlotLayout {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Home => "home",
+            Self::List(ItemKind::Stratagem) => "stratagem_list",
+            Self::List(ItemKind::Booster) => "booster_list",
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Calibration {
@@ -43,8 +111,6 @@ pub enum RoiAnchor {
 pub struct RoiObservation {
     pub image: RgbaImage,
     pub layout: SlotLayout,
-    pub screen_x: i32,
-    pub screen_y: i32,
     pub slots: Vec<Slot>,
 }
 
@@ -72,16 +138,6 @@ impl Slot {
         (
             self.x as f32 + self.w as f32 * 0.5,
             self.y as f32 + self.h as f32 * 0.5,
-        )
-    }
-}
-
-impl RoiObservation {
-    pub fn screen_center(&self, slot: &Slot) -> (i32, i32) {
-        let (center_x, center_y) = slot.center();
-        (
-            self.screen_x + center_x as i32,
-            self.screen_y + center_y as i32,
         )
     }
 }
@@ -174,21 +230,14 @@ pub fn resolve_calibration_roi_for_size(
     })
 }
 
-pub fn detect_slot_layout(frame: RoiFrame, expected_layout: SlotLayout) -> Result<RoiObservation> {
-    let RoiFrame {
-        image,
-        screen_x,
-        screen_y,
-    } = frame;
+pub fn detect_slot_layout(image: RgbaImage, expected_layout: SlotLayout) -> Result<RoiObservation> {
     if image.width() == 0 || image.height() == 0 {
         bail!("cannot detect slots in an empty ROI image");
     }
-    let slots = geometry_detector::detect(&image, expected_layout)?;
+    let slots = geometry::detect(&image, expected_layout)?;
     Ok(RoiObservation {
         image,
         layout: expected_layout,
-        screen_x,
-        screen_y,
         slots,
     })
 }

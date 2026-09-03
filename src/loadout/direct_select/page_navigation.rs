@@ -1,15 +1,14 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
+use image::RgbaImage;
 use tracing::{debug, debug_span, trace};
 
-use crate::capture::{CaptureSource, RoiFrame};
-use crate::input;
+use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::page_sync::{capture_latest_roi_frame, fingerprint_distance, image_fingerprint};
-use crate::runtime::RecognizerRuntime;
-use crate::slot::SlotLayout;
-use crate::vision::RoiObservation;
+use crate::vision::{RecognizerRuntime, RoiObservation, SlotLayout};
+
+use super::super::frame::{fingerprint_distance, image_fingerprint};
 
 use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
 
@@ -57,17 +56,13 @@ impl<'a> PageNavigator<'a> {
         Self { runtime, item_kind }
     }
 
-    pub(super) fn calibration(&self) -> &crate::vision::Calibration {
-        self.runtime.calibration()
-    }
-
-    pub(super) fn detect_home(&self, frame: RoiFrame) -> Result<RoiObservation> {
-        self.runtime.detect(frame, SlotLayout::Home)
+    pub(super) fn detect_home(&self, image: RgbaImage) -> Result<RoiObservation> {
+        self.runtime.detect(image, SlotLayout::Home)
     }
 
     pub(super) fn perform_confirmed_semantic_page_turn(
         &self,
-        capture: &mut CaptureSource,
+        automation: &mut AutomationSession<'_>,
         current_page: PageSnapshot,
         input: PageTurnInput,
         wheel_attempt: u32,
@@ -75,13 +70,13 @@ impl<'a> PageNavigator<'a> {
         let span = debug_span!("confirmed_semantic_page_turn", wheel_attempt, ?input);
         let _guard = span.enter();
 
-        input::wheel_with_boundary(input.wheel_delta(), || capture.sync_to_latest())?;
-        self.observe_instant_viewport_change(capture, &current_page)
+        automation.scroll(input.wheel_delta())?;
+        self.observe_instant_viewport_change(automation, &current_page)
     }
 
     fn observe_instant_viewport_change(
         &self,
-        capture: &mut CaptureSource,
+        automation: &mut AutomationSession<'_>,
         current_page: &PageSnapshot,
     ) -> Result<PageTurnResult> {
         // Fingerprints trigger classification; semantic anchor displacement
@@ -93,8 +88,8 @@ impl<'a> PageNavigator<'a> {
         let mut semantic_observations = 0usize;
 
         loop {
-            let frame = capture_latest_roi_frame(capture, self.runtime.calibration())?;
-            let signature = image_fingerprint(&frame.image);
+            let image = automation.capture()?;
+            let signature = image_fingerprint(&image);
             let distance = fingerprint_distance(&visual_reference, &signature);
             let elapsed = start.elapsed();
             let decision_time_elapsed = elapsed >= PAGE_TURN_DECISION_TIMEOUT;
@@ -103,7 +98,7 @@ impl<'a> PageNavigator<'a> {
                 continue;
             }
 
-            let candidate = self.scan_direct_page(frame)?;
+            let candidate = self.scan_direct_page(image)?;
             semantic_observations += 1;
             let relation = compare_page_turn(&current_page.roi, &candidate.roi, self.item_kind);
             let elapsed = start.elapsed();
@@ -208,10 +203,10 @@ impl<'a> PageNavigator<'a> {
         }
     }
 
-    pub(super) fn scan_direct_page(&self, frame: RoiFrame) -> Result<PageSnapshot> {
+    pub(super) fn scan_direct_page(&self, image: RgbaImage) -> Result<PageSnapshot> {
         let roi = self
             .runtime
-            .recognize(frame, SlotLayout::List(self.item_kind))?;
+            .recognize(image, SlotLayout::List(self.item_kind))?;
         Ok(Self::finish_direct_page(roi))
     }
 
