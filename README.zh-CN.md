@@ -103,21 +103,6 @@ cargo build --release --locked
 target\release\HD2PresetHelper.exe
 ```
 
-## Code signing policy
-
-Windows 版本的免费代码签名由 [SignPath.io](https://signpath.io/) 提供，证书由
-[SignPath Foundation](https://signpath.org/) 提供。
-
-### 团队角色
-
-- 作者：[xmg228](https://github.com/xmg228)
-- 审核者：[xmg228](https://github.com/xmg228)
-- 批准者：[xmg228](https://github.com/xmg228)
-
-### 隐私政策
-
-除非用户或安装、运行本程序的人员明确请求，否则本程序不会向任何联网系统传输信息。
-
 ## 法律声明
 
 HD2 Preset Helper 是非官方第三方工具，与 Arrowhead Game Studios 或 Sony Interactive Entertainment 没有从属关系，也未获得其认可或背书。

@@ -106,23 +106,6 @@ cargo build --release --locked
 
 The executable is written to `target\release\HD2PresetHelper.exe`.
 
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/).
-
-### Team roles
-
-- Author: [xmg228](https://github.com/xmg228)
-- Reviewer: [xmg228](https://github.com/xmg228)
-- Approver: [xmg228](https://github.com/xmg228)
-
-### Privacy policy
-
-This program will not transfer any information to other networked systems
-unless specifically requested by the user or the person installing or
-operating it.
-
 ## Legal
 
 This is an unofficial third-party utility and is not affiliated with or
