@@ -98,6 +98,10 @@ impl WindowTarget {
     }
 
     fn from_hwnd(hwnd: HWND) -> Result<Self> {
+        if hwnd.0.is_null() {
+            bail!("no foreground window is available");
+        }
+
         let mut client_rect = RECT::default();
         unsafe { GetClientRect(hwnd, &mut client_rect) }
             .map_err(|error| anyhow::anyhow!("failed to get window client rect: {error}"))?;

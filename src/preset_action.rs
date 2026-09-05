@@ -14,6 +14,7 @@ use crate::loadout::{
     collect_current_preset, detect_ui_state, home_booster_needs_warning, scan_loadout_home,
     wait_for_ui_state,
 };
+use crate::permissions;
 use crate::preset::{Preset, invalid_preset_reason, load_preset, save_preset};
 use crate::vision::RecognizerRuntime;
 
@@ -69,6 +70,7 @@ pub fn handle_preset_hotkey(
     });
 
     let game_window = find_game_window().context("failed to locate Helldivers window")?;
+    permissions::ensure_input_access()?;
     let (client_w, client_h) = game_window.client_size();
     debug!(client_w, client_h, "game window ready");
 

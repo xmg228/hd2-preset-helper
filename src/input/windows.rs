@@ -258,7 +258,9 @@ fn mouse_input(flags: MOUSE_EVENT_FLAGS) -> INPUT {
 fn send_single_input(input: INPUT, description: &str) -> Result<()> {
     let sent = unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
     if sent != 1 {
-        bail!("{description} was not fully sent, sent={sent}");
+        bail!(
+            "Windows did not accept {description} (sent={sent}). If Helldivers is running as administrator, run HD2 Preset Helper as administrator too."
+        );
     }
     Ok(())
 }

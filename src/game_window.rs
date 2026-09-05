@@ -10,17 +10,13 @@ const WINDOW_LOOKUP_ATTEMPTS: usize = 10;
 const WINDOW_LOOKUP_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 pub fn find_game_window() -> Result<WindowTarget> {
-    let mut last_error = None;
-    for attempt in 0..WINDOW_LOOKUP_ATTEMPTS {
-        match find_game_window_once() {
-            Ok(window) => return Ok(window),
-            Err(error) => last_error = Some(error),
+    for _ in 1..WINDOW_LOOKUP_ATTEMPTS {
+        if let Ok(window) = find_game_window_once() {
+            return Ok(window);
         }
-        if attempt + 1 < WINDOW_LOOKUP_ATTEMPTS {
-            sleep(WINDOW_LOOKUP_RETRY_DELAY);
-        }
+        sleep(WINDOW_LOOKUP_RETRY_DELAY);
     }
-    Err(last_error.expect("window lookup loop always runs at least once"))
+    find_game_window_once()
 }
 
 pub fn find_game_window_once() -> Result<WindowTarget> {

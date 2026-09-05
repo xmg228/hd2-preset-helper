@@ -1,10 +1,23 @@
-#[cfg(target_os = "windows")]
-mod windows;
+use std::sync::Arc;
 
 use crate::item::ItemKind;
 
-#[cfg(target_os = "windows")]
-pub use windows::{APP_EVENT_MESSAGE, AppEventSink};
+type AppEventHandler = dyn Fn(AppEvent) + Send + Sync;
+
+#[derive(Clone, Default)]
+pub struct AppEventSink(Option<Arc<AppEventHandler>>);
+
+impl AppEventSink {
+    pub fn new(handler: impl Fn(AppEvent) + Send + Sync + 'static) -> Self {
+        Self(Some(Arc::new(handler)))
+    }
+
+    pub fn emit(&self, event: AppEvent) {
+        if let Some(handler) = &self.0 {
+            handler(event);
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct OverlayPreset {

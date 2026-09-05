@@ -10,6 +10,7 @@ mod input;
 mod item;
 mod loadout;
 mod overlay;
+mod permissions;
 mod preset;
 mod preset_action;
 mod tray;
@@ -169,7 +170,7 @@ fn run_preset_hotkey_mode(
             &config.presets.labels,
             runtime.icon_catalog().as_ref(),
         );
-        let events = overlay::spawn_overlay(hotkey_modifiers, Arc::clone(runtime.icon_catalog()))?;
+        let events = overlay::start(hotkey_modifiers, Arc::clone(runtime.icon_catalog()))?;
         events.emit(AppEvent::PresetListUpdated { presets });
         events
     } else {
