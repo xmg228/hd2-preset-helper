@@ -263,6 +263,13 @@
       "category": "offensive"
     },
     {
+      "item_id": "eagle-gas-airstrike",
+      "display_name": "Eagle Gas Airstrike",
+      "kind": "stratagem",
+      "path": "stratagem/offensive/eagle-gas-airstrike.png",
+      "category": "offensive"
+    },
+    {
       "item_id": "eagle-napalm-airstrike",
       "display_name": "Eagle Napalm Airstrike",
       "kind": "stratagem",
