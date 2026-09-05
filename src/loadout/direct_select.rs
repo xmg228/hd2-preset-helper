@@ -1,6 +1,7 @@
 mod click_plan;
 mod home_activation;
 mod hover;
+mod list_map;
 mod page_navigation;
 mod page_relation;
 
@@ -19,6 +20,7 @@ use super::{UiState, detect_ui_state, empty_loadout_entry_slot};
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, open_slot_list, wait_for_home_booster_target};
 use self::hover::{HoverSample, HoverVerifier};
+use self::list_map::{ListMap, NavigationHint};
 use self::page_navigation::{PageNavigator, PageSnapshot, PageTurnInput, PageTurnResult};
 use self::page_relation::common_identity_vertical_shift;
 
@@ -32,11 +34,27 @@ const POST_CLICK_CONFIRM_TIMEOUT: Duration = Duration::from_millis(400);
 const POST_CLICK_MIN_OBSERVATIONS: u32 = 2;
 const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(600);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScrollDirection {
+    Up,
+    Down,
+}
+
+impl ScrollDirection {
+    const fn boundary_label(self) -> &'static str {
+        match self {
+            Self::Up => "top",
+            Self::Down => "bottom",
+        }
+    }
+}
+
 pub fn apply_empty_loadout_preset(
     runtime: &RecognizerRuntime,
     automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
     items: &[String],
+    apply_in_saved_order: bool,
 ) -> Result<()> {
     if items.len() != 4 {
         bail!(
@@ -65,6 +83,7 @@ pub fn apply_empty_loadout_preset(
         items,
         ItemKind::Stratagem,
         opened_list,
+        apply_in_saved_order,
     )
 }
 
@@ -90,6 +109,7 @@ pub fn apply_booster_from_home(
         items,
         ItemKind::Booster,
         opened_list,
+        true,
     )
 }
 
@@ -100,11 +120,13 @@ fn select_items_from_open_list(
     items: &[String],
     item_kind: ItemKind,
     initial_observation: RoiObservation,
+    apply_in_saved_order: bool,
 ) -> Result<()> {
     let span = info_span!(
         "preset_list_selection",
         item_kind = %item_kind.label(),
-        requested_items = items.len()
+        requested_items = items.len(),
+        apply_in_saved_order
     );
     let _guard = span.enter();
     events.emit(AppEvent::ListSelectionStarted {
@@ -116,18 +138,29 @@ fn select_items_from_open_list(
     let mut hover_verifier = HoverVerifier;
     let mut remaining = items.to_vec();
     let mut wheel_attempts = 0u32;
-    let mut end_candidate = false;
+    let mut boundary_candidate = None;
 
     let mut current_page = {
         let span = debug_span!("scan_page", wheel_attempts);
         let _guard = span.enter();
         navigator.prepare_direct_page(initial_observation)?
     };
+    let mut list_map = ListMap::new(&current_page.roi, item_kind);
 
     loop {
-        let page_span = debug_span!("selection_page", wheel_attempts, end_candidate);
+        let page_span = debug_span!(
+            "selection_page",
+            wheel_attempts,
+            remaining_items = remaining.len(),
+            ?boundary_candidate
+        );
         let _page_guard = page_span.enter();
-        if let Some(target) = next_visible_target(&current_page.roi, &remaining, item_kind) {
+        let target = if apply_in_saved_order {
+            find_visible_target(&current_page.roi, &remaining[0], item_kind)
+        } else {
+            next_visible_target(&current_page.roi, &remaining, item_kind)
+        };
+        if let Some(target) = target {
             let span = debug_span!("select_visible_item", item_id = %target.item_id);
             let _guard = span.enter();
             let selected_item_id = target.item_id.clone();
@@ -143,16 +176,23 @@ fn select_items_from_open_list(
             events.emit(AppEvent::ItemSelected {
                 item_id: selected_item_id.clone(),
             });
-            remove_remaining(&mut remaining, &selected_item_id);
+            remaining.retain(|item_id| item_id != &selected_item_id);
             match outcome {
                 TargetSelectionOutcome::List {
                     page,
                     viewport_repositioned,
                 } => {
-                    current_page = page;
-                    if viewport_repositioned {
-                        end_candidate = false;
+                    if !list_map.relocalize(&page.roi, item_kind) {
+                        if viewport_repositioned {
+                            bail!(
+                                "target item {selected_item_id} changed the viewport without a shared landmark for the temporary list map"
+                            );
+                        }
+                        list_map.record_current(&page.roi, item_kind);
                     }
+                    current_page = page;
+                    wheel_attempts = 0;
+                    boundary_candidate = None;
                     debug!(
                         item_id = %selected_item_id,
                         remaining_items = remaining.len(),
@@ -173,75 +213,89 @@ fn select_items_from_open_list(
             }
         }
 
-        if remaining.is_empty() {
-            return Ok(());
-        }
-
+        let item_id = &remaining[0];
         if wheel_attempts >= MAX_WHEEL_INPUTS {
-            break;
+            bail!(
+                "{} preset item {item_id} not found after {} wheel inputs",
+                item_kind.label(),
+                MAX_WHEEL_INPUTS,
+            );
         }
 
+        let hint = list_map.navigation_hint(item_id, &current_page.roi, item_kind);
+        let (direction, recenter) = match hint {
+            NavigationHint::Scroll(direction) => (direction, false),
+            NavigationHint::Recenter(direction) => (direction, true),
+            NavigationHint::ExpectedVisible => {
+                bail!(
+                    "mapped target item {item_id} was not recognized in its expected visible row"
+                );
+            }
+        };
         let span = debug_span!("turn_page");
         let _guard = span.enter();
-        let input = if end_candidate {
-            PageTurnInput::EndProbe
+        let input = if recenter || boundary_candidate == Some(direction) {
+            PageTurnInput::Probe(direction)
         } else {
-            PageTurnInput::Full
+            PageTurnInput::Full(direction)
         };
         let wheel_attempt = wheel_attempts + 1;
 
         match navigator.perform_confirmed_semantic_page_turn(
             automation,
-            current_page,
+            &current_page,
             input,
             wheel_attempt,
         )? {
             PageTurnResult::Moved { page, short } => {
+                list_map.advance(&current_page.roi, &page.roi, item_kind, direction);
                 current_page = page;
                 wheel_attempts = wheel_attempt;
-                end_candidate = matches!(input, PageTurnInput::Full) && short;
-                if end_candidate {
+                boundary_candidate = (input.is_full() && short).then_some(direction);
+                if boundary_candidate.is_some() {
                     debug!(
                         remaining_items = remaining.len(),
-                        "short page turn accepted; list end will be probed after processing this page"
+                        ?direction,
+                        "short page turn accepted; list boundary will be probed after processing this page"
                     );
-                } else if matches!(input, PageTurnInput::EndProbe) {
+                } else if input.is_probe() {
                     debug!(
                         remaining_items = remaining.len(),
-                        "end probe moved the viewport; normal page turns will resume"
+                        ?direction,
+                        "probe moved the viewport; normal page turns will resume"
                     );
                 }
             }
             PageTurnResult::NoMovement(last_page) => {
-                if matches!(input, PageTurnInput::EndProbe) {
+                list_map.record_current(&last_page.roi, item_kind);
+                current_page = last_page;
+                wheel_attempts = wheel_attempt;
+                if input.is_probe() {
+                    let reason = if recenter {
+                        "could not be recognized after recentering"
+                    } else {
+                        "was not found"
+                    };
                     debug!(
                         remaining_items = remaining.len(),
-                        "list end confirmed by a conservative end probe"
+                        ?direction,
+                        "list boundary confirmed by a conservative probe"
                     );
                     bail!(
-                        "{} list end reached with {} preset items still missing: {}",
+                        "target item {item_id} {reason} before the {} of the {} list",
+                        direction.boundary_label(),
                         item_kind.label(),
-                        remaining.len(),
-                        remaining.join(", ")
                     );
                 }
-                wheel_attempts = wheel_attempt;
-                current_page = last_page;
-                end_candidate = true;
+                boundary_candidate = Some(direction);
                 debug!(
                     remaining_items = remaining.len(),
-                    "full page turn produced no movement; scheduling a small end probe"
+                    ?direction,
+                    "full page turn produced no movement; scheduling a small boundary probe"
                 );
             }
         }
     }
-
-    bail!(
-        "{} preset items not found after {} wheel inputs: {}",
-        item_kind.label(),
-        MAX_WHEEL_INPUTS,
-        remaining.join(", ")
-    )
 }
 
 enum TargetSelectionOutcome {
@@ -620,11 +674,5 @@ fn wait_for_terminal_home(
         if started.elapsed() >= timeout {
             return Ok(false);
         }
-    }
-}
-
-fn remove_remaining(remaining: &mut Vec<String>, item_id: &str) {
-    if let Some(index) = remaining.iter().position(|item| item == item_id) {
-        remaining.remove(index);
     }
 }

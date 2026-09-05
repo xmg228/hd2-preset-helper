@@ -10,6 +10,7 @@ use crate::vision::{RecognizerRuntime, RoiObservation, SlotLayout};
 
 use super::super::frame::{fingerprint_distance, image_fingerprint};
 
+use super::ScrollDirection;
 use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
 
 const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(700);
@@ -18,8 +19,8 @@ const PAGE_TURN_HARD_TIMEOUT: Duration = Duration::from_secs(4);
 const PAGE_TURN_MIN_SEMANTIC_OBSERVATIONS: usize = 3;
 const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 3;
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
-const PAGE_WHEEL_DELTA: i32 = -600;
-const PAGE_END_PROBE_DELTA: i32 = -120;
+const PAGE_WHEEL_DELTA: i32 = 600;
+const PAGE_BOUNDARY_PROBE_DELTA: i32 = 120;
 
 pub(super) struct PageSnapshot {
     pub(super) roi: RoiObservation,
@@ -38,15 +39,33 @@ pub(super) enum PageTurnResult {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum PageTurnInput {
-    Full,
-    EndProbe,
+    Full(ScrollDirection),
+    Probe(ScrollDirection),
 }
 
 impl PageTurnInput {
-    fn wheel_delta(self) -> i32 {
+    pub(super) const fn direction(self) -> ScrollDirection {
         match self {
-            Self::Full => PAGE_WHEEL_DELTA,
-            Self::EndProbe => PAGE_END_PROBE_DELTA,
+            Self::Full(direction) | Self::Probe(direction) => direction,
+        }
+    }
+
+    pub(super) const fn is_full(self) -> bool {
+        matches!(self, Self::Full(_))
+    }
+
+    pub(super) const fn is_probe(self) -> bool {
+        matches!(self, Self::Probe(_))
+    }
+
+    fn wheel_delta(self) -> i32 {
+        let magnitude = match self {
+            Self::Full(_) => PAGE_WHEEL_DELTA,
+            Self::Probe(_) => PAGE_BOUNDARY_PROBE_DELTA,
+        };
+        match self.direction() {
+            ScrollDirection::Up => magnitude,
+            ScrollDirection::Down => -magnitude,
         }
     }
 }
@@ -63,7 +82,7 @@ impl<'a> PageNavigator<'a> {
     pub(super) fn perform_confirmed_semantic_page_turn(
         &self,
         automation: &mut AutomationSession<'_>,
-        current_page: PageSnapshot,
+        current_page: &PageSnapshot,
         input: PageTurnInput,
         wheel_attempt: u32,
     ) -> Result<PageTurnResult> {
@@ -71,13 +90,14 @@ impl<'a> PageNavigator<'a> {
         let _guard = span.enter();
 
         automation.scroll(input.wheel_delta())?;
-        self.observe_instant_viewport_change(automation, &current_page)
+        self.observe_instant_viewport_change(automation, current_page, input.direction())
     }
 
     fn observe_instant_viewport_change(
         &self,
         automation: &mut AutomationSession<'_>,
         current_page: &PageSnapshot,
+        direction: ScrollDirection,
     ) -> Result<PageTurnResult> {
         // Fingerprints trigger classification; semantic anchor displacement
         // determines whether the explicit page input moved the viewport.
@@ -100,7 +120,8 @@ impl<'a> PageNavigator<'a> {
 
             let candidate = self.scan_direct_page(image)?;
             semantic_observations += 1;
-            let relation = compare_page_turn(&current_page.roi, &candidate.roi, self.item_kind);
+            let relation =
+                compare_page_turn(&current_page.roi, &candidate.roi, self.item_kind, direction);
             let elapsed = start.elapsed();
             let decision_timed_out = elapsed >= PAGE_TURN_DECISION_TIMEOUT
                 && semantic_observations >= PAGE_TURN_MIN_SEMANTIC_OBSERVATIONS;
@@ -137,6 +158,7 @@ impl<'a> PageNavigator<'a> {
                             &previous_candidate.roi,
                             &candidate.roi,
                             self.item_kind,
+                            direction,
                         );
                         let confirmed = matches!(confirmation, PageRelation::SameViewport);
                         trace!(

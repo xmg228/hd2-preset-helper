@@ -50,6 +50,7 @@ pub fn preset_hotkeys(
 
 pub struct PresetActionConfig<'a> {
     pub presets: &'a Path,
+    pub apply_in_saved_order: bool,
     pub auto_ready_up: bool,
     pub events: &'a AppEventSink,
 }
@@ -128,8 +129,14 @@ pub fn handle_preset_hotkey(
                 "applying preset from empty home"
             );
             log_preset_contents(&preset);
-            apply_empty_loadout_preset(runtime, &mut automation, config.events, &preset.stratagems)
-                .context("failed to apply stratagems from empty home")?;
+            apply_empty_loadout_preset(
+                runtime,
+                &mut automation,
+                config.events,
+                &preset.stratagems,
+                config.apply_in_saved_order,
+            )
+            .context("failed to apply stratagems from empty home")?;
             apply_booster_if_present(runtime, &mut automation, config, &preset)?;
             (PresetActionOutcome::Applied, preset.booster.is_some(), None)
         }

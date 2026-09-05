@@ -1,4 +1,7 @@
 [presets]
+# Apply Stratagems in the order they were saved.
+apply_in_saved_order = false
+
 # Press B after applying a preset with a booster.
 auto_ready_up = false
 

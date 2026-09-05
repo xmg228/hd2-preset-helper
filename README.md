@@ -21,8 +21,8 @@ The program recognizes the game interface through screen capture and completes s
 To update, extract the new `HD2PresetHelper` folder over the existing folder.
 Files in the `data` folder are preserved.
 
-The application runs in the system tray. Right-click its tray icon and select
-**Exit** to close it.
+The application runs in the system tray. Right-click its tray icon to change
+optional behavior or select **Exit** to close it.
 
 To uninstall, exit the application and delete the extracted
 `HD2PresetHelper` folder. This also removes its configuration, presets, and
@@ -71,6 +71,9 @@ runtime files beside the executable:
 The default keys can be changed in `data/config.toml` if they conflict with
 another application or system shortcut. Presets are normally saved through the
 in-game controls and do not need to be edited manually.
+
+Selection order and automatic ready-up can also be toggled from the tray menu.
+Changes are saved to `data/config.toml`.
 
 > Preset labels require v0.1.4-rc.1 or later.
 

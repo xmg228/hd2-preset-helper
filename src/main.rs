@@ -73,6 +73,7 @@ struct AppConfig {
 struct PresetsConfig {
     #[serde(rename = "path")]
     legacy_path: Option<PathBuf>,
+    apply_in_saved_order: bool,
     auto_ready_up: bool,
     labels: BTreeMap<String, String>,
 }
@@ -151,7 +152,10 @@ fn run_preset_hotkey_mode(
     let hotkey_modifiers = input::HotkeyModifiers::new(config.hotkey.modifiers.clone())?;
     let bindings = preset_hotkeys(hotkey_modifiers, &config.hotkey.keys);
     let hotkeys: Vec<input::HotkeySpec> = bindings.iter().map(|binding| binding.hotkey).collect();
-    let tray = tray::spawn()?;
+    let tray = tray::spawn(tray::TraySettings {
+        apply_in_saved_order: config.presets.apply_in_saved_order,
+        auto_ready_up: config.presets.auto_ready_up,
+    })?;
 
     for binding in &bindings {
         debug!(key = ?binding.hotkey.key, preset = %binding.preset, "preset hotkey binding");
@@ -181,10 +185,13 @@ fn run_preset_hotkey_mode(
         config = %config_path.display(),
         hotkey_count = bindings.len(),
         overlay = config.overlay.enabled,
+        apply_in_saved_order = config.presets.apply_in_saved_order,
+        auto_ready_up = config.presets.auto_ready_up,
         "application ready"
     );
-    let action_config = PresetActionConfig {
+    let mut action_config = PresetActionConfig {
         presets: presets_path,
+        apply_in_saved_order: config.presets.apply_in_saved_order,
         auto_ready_up: config.presets.auto_ready_up,
         events: &events,
     };
@@ -195,8 +202,7 @@ fn run_preset_hotkey_mode(
     loop {
         let hotkey_id = loop {
             let hotkey_poll = registered_hotkeys.wait_timeout(HOTKEY_WAIT_POLL_INTERVAL)?;
-            if tray.exit_requested() {
-                info!("tray exit requested");
+            if handle_tray_events(&tray, &mut action_config, config_path) {
                 return Ok(());
             }
 
@@ -272,6 +278,74 @@ fn run_preset_hotkey_mode(
         }
         sleep(Duration::from_millis(200));
     }
+}
+
+fn handle_tray_events(
+    tray: &tray::TrayHandle,
+    action_config: &mut PresetActionConfig<'_>,
+    config_path: &Path,
+) -> bool {
+    while let Some(event) = tray.try_event() {
+        let (key, value) = match event {
+            tray::TrayEvent::ToggleApplyInSavedOrder => {
+                action_config.apply_in_saved_order = !action_config.apply_in_saved_order;
+                ("apply_in_saved_order", action_config.apply_in_saved_order)
+            }
+            tray::TrayEvent::ToggleAutoReadyUp => {
+                action_config.auto_ready_up = !action_config.auto_ready_up;
+                ("auto_ready_up", action_config.auto_ready_up)
+            }
+            tray::TrayEvent::ExitRequested => {
+                info!("tray exit requested");
+                return true;
+            }
+        };
+
+        if let Err(error) = save_preset_setting(config_path, key, value) {
+            warn!(
+                setting = key,
+                value,
+                error = %format!("{error:#}"),
+                "failed to persist tray setting; it remains active for this session"
+            );
+        }
+        info!(setting = key, value, "preset setting changed from tray");
+    }
+    false
+}
+
+fn save_preset_setting(config_path: &Path, key: &str, value: bool) -> Result<()> {
+    let text = fs::read_to_string(config_path)
+        .with_context(|| format!("failed to read {}", config_path.display()))?;
+    let mut document = text
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("failed to parse {}", config_path.display()))?;
+    let defaults = DEFAULT_CONFIG_TOML
+        .parse::<toml_edit::DocumentMut>()
+        .context("failed to parse the embedded default configuration for editing")?;
+
+    if document.get("presets").is_none() {
+        document["presets"] = defaults["presets"].clone();
+    }
+    let default_presets = defaults["presets"]
+        .as_table_like()
+        .context("default presets configuration is not a table")?;
+    let default_key = default_presets
+        .key(key)
+        .with_context(|| format!("unknown preset setting: {key}"))?;
+    let presets = document["presets"]
+        .as_table_like_mut()
+        .context("presets configuration is not a table")?;
+    if let Some(setting) = presets.get_mut(key) {
+        *setting = toml_edit::value(value);
+    } else {
+        presets
+            .entry_format(default_key)
+            .or_insert(toml_edit::value(value));
+    }
+
+    fs::write(config_path, document.to_string())
+        .with_context(|| format!("failed to update {}", config_path.display()))
 }
 
 fn prewarm_capture(capture_session: &mut CaptureSessionManager) {

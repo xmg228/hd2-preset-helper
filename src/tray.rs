@@ -1,7 +1,4 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::Result;
 
@@ -13,20 +10,32 @@ use windows::WindowsTray as PlatformTray;
 
 pub struct TrayHandle {
     _platform: PlatformTray,
-    exit_requested: Arc<AtomicBool>,
+    events: Receiver<TrayEvent>,
 }
 
 impl TrayHandle {
-    pub fn exit_requested(&self) -> bool {
-        self.exit_requested.load(Ordering::Relaxed)
+    pub fn try_event(&self) -> Option<TrayEvent> {
+        self.events.try_recv().ok()
     }
 }
 
-pub fn spawn() -> Result<TrayHandle> {
-    let exit_requested = Arc::new(AtomicBool::new(false));
-    let platform = PlatformTray::spawn(Arc::clone(&exit_requested))?;
+#[derive(Clone, Copy)]
+pub struct TraySettings {
+    pub apply_in_saved_order: bool,
+    pub auto_ready_up: bool,
+}
+
+pub enum TrayEvent {
+    ToggleApplyInSavedOrder,
+    ToggleAutoReadyUp,
+    ExitRequested,
+}
+
+pub fn spawn(settings: TraySettings) -> Result<TrayHandle> {
+    let (event_tx, events) = channel();
+    let platform = PlatformTray::spawn(settings, event_tx)?;
     Ok(TrayHandle {
         _platform: platform,
-        exit_requested,
+        events,
     })
 }

@@ -1,11 +1,12 @@
 use crate::item::ItemKind;
 use crate::vision::{ROI_REFERENCE_H, RoiObservation, Slot};
 
+use super::ScrollDirection;
+
 // Explicit page turns start from a clean pre-input page, so only a small
 // geometry jitter allowance is needed to distinguish zero movement.
 const PAGE_SHIFT_JITTER_PX: f32 = 2.0;
-// A full downward list turn moves content 338 px upward in the 832 px
-// reference ROI.
+// A full list turn moves content about 338 px in the 832 px reference ROI.
 const PAGE_TURN_SHIFT_REFERENCE_PX: f32 = 338.0;
 pub(super) const PAGE_TURN_SHORT_THRESHOLD_RATIO: f32 = 0.80;
 
@@ -27,6 +28,7 @@ pub(super) fn compare_page_turn(
     previous: &RoiObservation,
     current: &RoiObservation,
     item_kind: ItemKind,
+    direction: ScrollDirection,
 ) -> PageRelation {
     if identity_slots(&previous.slots, item_kind).next().is_none()
         || identity_slots(&current.slots, item_kind).next().is_none()
@@ -42,11 +44,14 @@ pub(super) fn compare_page_turn(
     if median_dy.abs() <= PAGE_SHIFT_JITTER_PX {
         return PageRelation::SameViewport;
     }
-    if median_dy >= -PAGE_SHIFT_JITTER_PX {
+    let directed_shift = match direction {
+        ScrollDirection::Down => -median_dy,
+        ScrollDirection::Up => median_dy,
+    };
+    if directed_shift <= PAGE_SHIFT_JITTER_PX {
         return PageRelation::Uncertain;
     }
 
-    let directed_shift = -median_dy;
     let expected_full_shift =
         PAGE_TURN_SHIFT_REFERENCE_PX * previous.image.height() as f32 / ROI_REFERENCE_H as f32;
     let shift_ratio = directed_shift / expected_full_shift;
