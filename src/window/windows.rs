@@ -71,8 +71,8 @@ impl WindowTarget {
 
     pub(crate) fn client_point_to_screen(&self, point: ClientPoint) -> (i32, i32) {
         (
-            self.client_x + point.x as i32,
-            self.client_y + point.y as i32,
+            self.client_x + point.x.round() as i32,
+            self.client_y + point.y.round() as i32,
         )
     }
 

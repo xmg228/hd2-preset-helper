@@ -1,8 +1,4 @@
-use std::{
-    mem::size_of,
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::{mem::size_of, thread::sleep, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use tracing::{trace, warn};
@@ -15,12 +11,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_HOTKEY,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WHEEL_DELTA, WM_HOTKEY,
 };
 
 use crate::window::{ClientPoint, WindowTarget};
 
-use super::Key;
+use super::{HotkeyModifier, HotkeyModifiers, HotkeySpec, Key};
 
 const CLICK_MOVE_SETTLE_DELAY: Duration = Duration::from_millis(30);
 
@@ -91,49 +87,13 @@ impl Key {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HotkeyModifier {
-    Shift,
-    Ctrl,
-    Alt,
-    Win,
-}
-
 impl HotkeyModifier {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Shift => "shift",
-            Self::Ctrl => "ctrl",
-            Self::Alt => "alt",
-            Self::Win => "win",
-        }
-    }
-
     fn hotkey_modifiers(self) -> HOT_KEY_MODIFIERS {
         match self {
             Self::Shift => MOD_SHIFT,
             Self::Ctrl => MOD_CONTROL,
             Self::Alt => MOD_ALT,
             Self::Win => MOD_WIN,
-        }
-    }
-
-    fn display_name(self) -> &'static str {
-        match self {
-            Self::Shift => "Shift",
-            Self::Ctrl => "Ctrl",
-            Self::Alt => "Alt",
-            Self::Win => "Win",
-        }
-    }
-
-    fn release_keys(self) -> &'static [Key] {
-        match self {
-            Self::Shift => &[Key::LShift, Key::RShift],
-            Self::Ctrl => &[Key::LCtrl, Key::RCtrl],
-            Self::Alt => &[Key::LAlt, Key::RAlt],
-            Self::Win => &[Key::LWin, Key::RWin],
         }
     }
 
@@ -147,72 +107,15 @@ impl HotkeyModifier {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct HotkeyModifiers {
-    values: [Option<HotkeyModifier>; 4],
-}
-
 impl HotkeyModifiers {
-    pub fn new(values: Vec<HotkeyModifier>) -> Result<Self> {
-        if values.is_empty() {
-            bail!("hotkey modifiers must not be empty");
-        }
-        if values.len() > 4 {
-            bail!(
-                "hotkey modifiers support at most 4 keys, got {}",
-                values.len()
-            );
-        }
-
-        let mut registration_bits = 0u32;
-        let mut modifiers = Self {
-            values: [None, None, None, None],
-        };
-
-        for (index, modifier) in values.into_iter().enumerate() {
-            let bit = modifier.hotkey_modifiers().0;
-            if registration_bits & bit != 0 {
-                bail!(
-                    "hotkey modifiers cannot contain duplicate {}",
-                    modifier.name()
-                );
-            }
-            registration_bits |= bit;
-            modifiers.values[index] = Some(modifier);
-        }
-
-        Ok(modifiers)
-    }
-
     fn hotkey_modifiers(self) -> HOT_KEY_MODIFIERS {
         self.iter().fold(MOD_NOREPEAT, |modifiers, modifier| {
             modifiers | modifier.hotkey_modifiers()
         })
     }
 
-    fn release_keys(self) -> Vec<Key> {
-        let mut keys = Vec::new();
-        for modifier in self.iter() {
-            keys.extend_from_slice(modifier.release_keys());
-        }
-        keys
-    }
-
     pub(crate) fn is_down(self) -> bool {
         self.iter().all(HotkeyModifier::is_down)
-    }
-
-    fn iter(self) -> impl Iterator<Item = HotkeyModifier> {
-        self.values.into_iter().flatten()
-    }
-
-    fn label_with_key(self, key: Key) -> String {
-        let mut parts = self
-            .iter()
-            .map(HotkeyModifier::display_name)
-            .collect::<Vec<_>>();
-        parts.push(key.name());
-        parts.join(" + ")
     }
 }
 
@@ -304,8 +207,9 @@ impl InputSession {
         Ok(())
     }
 
-    pub fn scroll(&mut self, delta: i32) -> Result<()> {
+    pub fn scroll(&mut self, notches: i32) -> Result<()> {
         self.ensure_target()?;
+        let delta = notches * WHEEL_DELTA as i32;
         let input = INPUT {
             r#type: INPUT_MOUSE,
             Anonymous: INPUT_0 {
@@ -444,24 +348,6 @@ fn normalize_absolute_mouse_coord(value: i32, size: i32) -> i32 {
     ((value as i64 * 65_535) / (size as i64 - 1)) as i32
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct HotkeySpec {
-    pub id: i32,
-    pub modifiers: HotkeyModifiers,
-    pub key: Key,
-}
-
-impl HotkeySpec {
-    fn label(self) -> String {
-        self.modifiers.label_with_key(self.key)
-    }
-}
-
-pub enum HotkeyPoll {
-    Triggered(i32),
-    Timeout,
-}
-
 pub struct RegisteredHotkeys {
     hotkeys: Vec<HotkeySpec>,
 }
@@ -517,21 +403,26 @@ impl RegisteredHotkeys {
         })
     }
 
-    pub fn wait_timeout(&self, timeout: Duration) -> Result<HotkeyPoll> {
-        wait_for_any_hotkey_message_timeout(&self.hotkeys, timeout)
+    pub fn next_trigger(&self) -> Option<i32> {
+        while let Some(id) = take_pending_hotkey() {
+            if self.hotkeys.iter().any(|hotkey| hotkey.id == id) {
+                return Some(id);
+            }
+        }
+        None
     }
 
     pub fn discard_pending(&self) {
         while take_pending_hotkey().is_some() {}
     }
 
-    pub fn wait_released(&self, hotkey_id: i32, timeout: Duration) -> bool {
+    pub fn is_released(&self, hotkey_id: i32) -> bool {
         let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id) else {
             return false;
         };
         let mut release_keys = hotkey.modifiers.release_keys();
         release_keys.push(hotkey.key);
-        wait_keys_released(&release_keys, timeout)
+        release_keys.iter().all(|key| !is_pressed(*key))
     }
 }
 
@@ -545,29 +436,6 @@ impl Drop for RegisteredHotkeys {
     }
 }
 
-fn wait_for_any_hotkey_message_timeout(
-    hotkeys: &[HotkeySpec],
-    timeout: Duration,
-) -> Result<HotkeyPoll> {
-    let start = Instant::now();
-
-    loop {
-        while let Some(hotkey_id) = take_pending_hotkey() {
-            if hotkeys.iter().any(|hotkey| hotkey.id == hotkey_id) {
-                return Ok(HotkeyPoll::Triggered(hotkey_id));
-            }
-        }
-
-        let elapsed = start.elapsed();
-        if elapsed >= timeout {
-            return Ok(HotkeyPoll::Timeout);
-        }
-
-        let remaining = timeout.saturating_sub(elapsed);
-        sleep(remaining.min(Duration::from_millis(20)));
-    }
-}
-
 fn take_pending_hotkey() -> Option<i32> {
     let mut message = MSG::default();
     unsafe {
@@ -575,17 +443,6 @@ fn take_pending_hotkey() -> Option<i32> {
             .as_bool()
             .then_some(message.wParam.0 as i32)
     }
-}
-
-fn wait_keys_released(keys: &[Key], timeout: Duration) -> bool {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if keys.iter().all(|key| !is_pressed(*key)) {
-            return true;
-        }
-        sleep(Duration::from_millis(20));
-    }
-    keys.iter().all(|key| !is_pressed(*key))
 }
 
 fn is_pressed(key: Key) -> bool {

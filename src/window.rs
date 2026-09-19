@@ -1,7 +1,9 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Target-local input coordinates, independent of capture pixels and desktop
+/// coordinates. Preserve fractional scaling until native input conversion.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClientPoint {
-    pub x: u32,
-    pub y: u32,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[cfg(target_os = "windows")]

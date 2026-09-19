@@ -1,4 +1,4 @@
-use std::sync::mpsc::{Sender, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, anyhow};
@@ -9,12 +9,16 @@ use tray_icon::{
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_QUIT,
+    DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_APP, WM_QUIT,
 };
 
-use super::{TrayEvent, TraySettings};
+use super::TrayEvent;
+use crate::preset_action::PresetActionOptions;
+
+const UPDATE_SETTINGS: u32 = WM_APP + 1;
 
 pub(super) struct WindowsTray {
+    settings: Sender<PresetActionOptions>,
     thread_id: u32,
     thread: Option<JoinHandle<()>>,
 }
@@ -29,13 +33,23 @@ impl Drop for WindowsTray {
 }
 
 impl WindowsTray {
-    pub(super) fn spawn(settings: TraySettings, event_tx: Sender<TrayEvent>) -> Result<Self> {
+    pub(super) fn update_settings(&self, settings: PresetActionOptions) {
+        let _ = self.settings.send(settings);
+        let _ =
+            unsafe { PostThreadMessageW(self.thread_id, UPDATE_SETTINGS, WPARAM(0), LPARAM(0)) };
+    }
+
+    pub(super) fn spawn(
+        settings: PresetActionOptions,
+        event_tx: Sender<TrayEvent>,
+    ) -> Result<Self> {
         let (ready_tx, ready_rx) = sync_channel(1);
+        let (settings_tx, settings_rx) = channel();
         let thread = std::thread::Builder::new()
             .name("hd2-preset-helper-tray".to_string())
             .spawn(move || {
                 let tray_thread_id = unsafe { GetCurrentThreadId() };
-                let result = run_tray(tray_thread_id, &ready_tx, settings, event_tx);
+                let result = run_tray(tray_thread_id, &ready_tx, settings, event_tx, settings_rx);
                 if let Err(error) = result {
                     let _ = ready_tx.send(Err(format!("{error:#}")));
                 }
@@ -47,6 +61,7 @@ impl WindowsTray {
             .map_err(|error| anyhow!(error))?;
 
         Ok(Self {
+            settings: settings_tx,
             thread_id,
             thread: Some(thread),
         })
@@ -56,8 +71,9 @@ impl WindowsTray {
 fn run_tray(
     tray_thread_id: u32,
     ready_tx: &SyncSender<std::result::Result<u32, String>>,
-    settings: TraySettings,
+    settings: PresetActionOptions,
     event_tx: Sender<TrayEvent>,
+    settings_rx: Receiver<PresetActionOptions>,
 ) -> Result<()> {
     let apply_order_item = CheckMenuItem::with_id(
         "apply_in_saved_order",
@@ -115,11 +131,7 @@ fn run_tray(
         } else {
             return;
         };
-        let exiting = matches!(tray_event, TrayEvent::ExitRequested);
         let _ = event_tx.send(tray_event);
-        if exiting {
-            let _ = unsafe { PostThreadMessageW(tray_thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
-        }
     }));
 
     ready_tx
@@ -127,12 +139,21 @@ fn run_tray(
         .context("failed to signal tray readiness")?;
 
     let mut message = MSG::default();
-    while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
+    while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
+        if message.message == UPDATE_SETTINGS {
+            if let Some(settings) = settings_rx.try_iter().last() {
+                apply_order_item.set_checked(settings.apply_in_saved_order);
+                auto_ready_item.set_checked(settings.auto_ready_up);
+                save_fallback_when_taken_item.set_checked(settings.save_fallback_when_taken);
+            }
+            continue;
+        }
         unsafe {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
     }
+    MenuEvent::set_event_handler(None::<fn(MenuEvent)>);
     Ok(())
 }
 

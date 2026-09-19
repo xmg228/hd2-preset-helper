@@ -13,7 +13,11 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::{HRESULT, Interface};
 
-use super::super::DisplayColorInfo;
+#[derive(Debug, Clone, Copy)]
+pub(super) struct DisplayColorInfo {
+    pub hdr_active: bool,
+    pub sdr_white_level: u32,
+}
 
 pub(super) fn query_color_info_for_window(hwnd: HWND) -> Result<DisplayColorInfo> {
     unsafe {

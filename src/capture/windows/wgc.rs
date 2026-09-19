@@ -27,7 +27,7 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Resource, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::System::WinRT::Direct3D11::{
@@ -38,9 +38,9 @@ use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 use windows::core::{IInspectable, Interface, factory};
 
-use super::super::Rgba16fConverter;
+use super::ColorNormalizer;
 use crate::image_rect::ImageRect;
-use crate::window::{ClientCrop, WindowTarget};
+use crate::window::{ClientCrop, ClientPoint, WindowTarget};
 
 const WGC_FRAME_POOL_BUFFER_COUNT: i32 = 2;
 #[cfg(feature = "diagnostics")]
@@ -221,6 +221,16 @@ impl CaptureRebuildSignature {
 }
 
 impl WgcCapture {
+    pub(super) fn map_to_client(&self, roi: ImageRect, local: (u32, u32)) -> ClientPoint {
+        // WGC output is cropped to the client area without resampling. ROI and
+        // input therefore share its pixel origin and scale; DWM borders are
+        // already removed by client_crop, not added to input coordinates.
+        ClientPoint {
+            x: f64::from(roi.x) + f64::from(local.0),
+            y: f64::from(roi.y) + f64::from(local.1),
+        }
+    }
+
     pub(super) fn new(target: &WindowTarget) -> Result<Self> {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
 
@@ -334,7 +344,7 @@ impl WgcCapture {
     pub(super) fn capture_region(
         &mut self,
         client_roi: ImageRect,
-        converter: &dyn Rgba16fConverter,
+        converter: &ColorNormalizer,
     ) -> Result<RgbaImage> {
         if client_roi.w == 0 || client_roi.h == 0 {
             bail!("cannot capture an empty WGC client region");
@@ -434,7 +444,7 @@ impl WgcCapture {
         &mut self,
         frame: &Direct3D11CaptureFrame,
         client_roi: ImageRect,
-        converter: &dyn Rgba16fConverter,
+        converter: &ColorNormalizer,
     ) -> Result<RgbaImage> {
         let content_size = frame.ContentSize().unwrap_or(self.item_size);
         let surface = frame.Surface().context("failed to get WGC frame surface")?;
@@ -514,7 +524,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
     content_size: SizeInt32,
     region: ImageRect,
     cache: &mut TextureReadCache,
-    converter: &dyn Rgba16fConverter,
+    converter: &ColorNormalizer,
 ) -> Result<RgbaImage> {
     let t0 = Instant::now();
 
@@ -522,7 +532,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
     unsafe { texture.GetDesc(&mut src_desc) };
 
     let format = src_desc.Format;
-    if format != DXGI_FORMAT_B8G8R8A8_UNORM && format != DXGI_FORMAT_R16G16B16A16_FLOAT {
+    if format != DXGI_FORMAT_R16G16B16A16_FLOAT {
         bail!("unsupported D3D11 texture format: {:?}", format);
     }
 
@@ -619,9 +629,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
     let row_pitch = mapped.RowPitch as usize;
     let source = mapped.pData as *const u8;
     #[cfg(feature = "diagnostics")]
-    let mut f16_dump = (format == DXGI_FORMAT_R16G16B16A16_FLOAT
-        && cache.f16_dump_dir.is_some()
-        && !cache.f16_dumped)
+    let mut f16_dump = (cache.f16_dump_dir.is_some() && !cache.f16_dumped)
         .then(|| Vec::with_capacity(width as usize * height as usize * 8));
 
     let t = Instant::now();
@@ -629,28 +637,12 @@ fn read_d3d11_texture_region_to_rgba_cached(
         let row_ptr = unsafe { source.add(row * row_pitch) };
         let dst_row = &mut rgba[row * width as usize * 4..(row + 1) * width as usize * 4];
 
-        match format {
-            DXGI_FORMAT_B8G8R8A8_UNORM => {
-                let row_bytes = unsafe { std::slice::from_raw_parts(row_ptr, width as usize * 4) };
-                for (src_px, dst_px) in row_bytes.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
-                    dst_px[0] = src_px[2];
-                    dst_px[1] = src_px[1];
-                    dst_px[2] = src_px[0];
-                    dst_px[3] = 255;
-                }
-            }
-
-            DXGI_FORMAT_R16G16B16A16_FLOAT => {
-                let row_bytes = unsafe { std::slice::from_raw_parts(row_ptr, width as usize * 8) };
-                #[cfg(feature = "diagnostics")]
-                if let Some(dump) = &mut f16_dump {
-                    dump.extend_from_slice(row_bytes);
-                }
-                converter.convert_row(row_bytes, dst_row);
-            }
-
-            _ => unreachable!(),
+        let row_bytes = unsafe { std::slice::from_raw_parts(row_ptr, width as usize * 8) };
+        #[cfg(feature = "diagnostics")]
+        if let Some(dump) = &mut f16_dump {
+            dump.extend_from_slice(row_bytes);
         }
+        converter.convert_row(row_bytes, dst_row);
     }
     let t_convert = t.elapsed();
 

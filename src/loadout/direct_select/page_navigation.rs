@@ -20,8 +20,8 @@ const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(250);
 const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
 const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 2;
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
-const PAGE_WHEEL_DELTA: i32 = 600;
-const PAGE_BOUNDARY_PROBE_DELTA: i32 = 120;
+const PAGE_SCROLL_NOTCHES: i32 = 5;
+const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
 
 pub(super) struct PageSnapshot {
     pub(super) roi: RoiObservation,
@@ -78,10 +78,10 @@ impl PageTurnInput {
         matches!(self, Self::Nudge(_))
     }
 
-    fn wheel_delta(self) -> i32 {
+    fn scroll_notches(self) -> i32 {
         let magnitude = match self {
-            Self::Full(_) => PAGE_WHEEL_DELTA,
-            Self::Nudge(_) => PAGE_BOUNDARY_PROBE_DELTA,
+            Self::Full(_) => PAGE_SCROLL_NOTCHES,
+            Self::Nudge(_) => PAGE_BOUNDARY_PROBE_NOTCHES,
         };
         match self.direction() {
             ScrollDirection::Up => magnitude,
@@ -121,7 +121,7 @@ impl PageNavigator {
         let span = debug_span!("confirmed_semantic_page_turn", wheel_attempt, ?input);
         let _guard = span.enter();
 
-        automation.scroll(input.wheel_delta())?;
+        automation.scroll(input.scroll_notches())?;
         self.observe_instant_viewport_change(automation, current_page, input)
     }
 

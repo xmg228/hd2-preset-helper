@@ -7,7 +7,6 @@ use tracing::{debug, info, info_span};
 use crate::app_events::{AppEvent, AppEventSink, PresetCompletion};
 use crate::automation::AutomationSession;
 use crate::capture::CaptureSessionManager;
-use crate::color_normalization::ColorNormalizer;
 use crate::game_settings::read_color_settings;
 use crate::game_window::find_game_window;
 use crate::input;
@@ -34,37 +33,20 @@ pub enum PresetActionOutcome {
     Applied,
 }
 
-pub struct PresetHotkeyBinding {
-    pub hotkey: input::HotkeySpec,
-    pub preset: String,
-}
-
-pub fn preset_hotkeys(
-    modifiers: input::HotkeyModifiers,
-    keys: &[input::Key],
-) -> Vec<PresetHotkeyBinding> {
-    keys.iter()
-        .enumerate()
-        .map(|(index, key)| PresetHotkeyBinding {
-            hotkey: input::HotkeySpec {
-                id: 1001 + index as i32,
-                modifiers,
-                key: *key,
-            },
-            preset: format!("preset_{}", index + 1),
-        })
-        .collect()
+#[derive(Clone, Copy)]
+pub struct PresetActionOptions {
+    pub apply_in_saved_order: bool,
+    pub auto_ready_up: bool,
+    pub save_fallback_when_taken: bool,
 }
 
 pub struct PresetActionConfig<'a> {
     pub presets: &'a Path,
-    pub apply_in_saved_order: bool,
-    pub auto_ready_up: bool,
-    pub save_fallback_when_taken: bool,
+    pub options: PresetActionOptions,
     pub events: &'a AppEventSink,
 }
 
-pub fn handle_preset_hotkey(
+pub fn execute_preset(
     runtime: &RecognizerRuntime,
     config: &PresetActionConfig<'_>,
     preset_name: &str,
@@ -86,7 +68,7 @@ pub fn handle_preset_hotkey(
 
     let capture_start = Instant::now();
     let capture = capture_session
-        .get_or_create(&game_window)
+        .acquire(&game_window)
         .context("failed to get capture session")?;
     debug!(
         elapsed = ?capture_start.elapsed(),
@@ -94,12 +76,10 @@ pub fn handle_preset_hotkey(
     );
     let game_color_settings =
         read_color_settings().context("failed to read Helldivers color settings")?;
-    let color_normalizer = ColorNormalizer::new(game_color_settings, capture.display_color_info())
-        .context("failed to configure UI color normalization")?;
-    let bound_region = bind_loadout_region(capture, runtime.calibration())
+    let bound_region = bind_loadout_region(capture, runtime.calibration(), game_color_settings)
         .context("failed to bind loadout capture region")?;
     let recognizer = runtime.bind(bound_region.geometry);
-    let mut automation = AutomationSession::new(bound_region.region, game_window, color_normalizer)
+    let mut automation = AutomationSession::new(bound_region.region, game_window)
         .context("failed to start automation session")?;
 
     let (initial_result, ui_state) = {
@@ -151,7 +131,7 @@ pub fn handle_preset_hotkey(
                 config.events,
                 config.presets,
                 &preset.stratagems,
-                config.apply_in_saved_order,
+                config.options.apply_in_saved_order,
             )
             .context("failed to apply stratagems from empty home")?;
             let booster =
@@ -159,7 +139,7 @@ pub fn handle_preset_hotkey(
             let (ready_up_after_apply, completion) = match booster {
                 Some(BoosterApplyOutcome::Applied) => (true, PresetCompletion::Complete),
                 Some(BoosterApplyOutcome::Unavailable) => {
-                    if config.save_fallback_when_taken {
+                    if config.options.save_fallback_when_taken {
                         if let Some(path) = learn_fallback_booster(
                             recognizer,
                             &mut automation,
@@ -188,7 +168,7 @@ pub fn handle_preset_hotkey(
         }
     };
 
-    if config.auto_ready_up && ready_up_after_apply {
+    if config.options.auto_ready_up && ready_up_after_apply {
         debug!("booster preset applied; sending READY UP key");
         automation.tap_key(input::Key::B, READY_UP_HOLD_MS)?;
     }

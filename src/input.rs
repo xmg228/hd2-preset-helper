@@ -1,3 +1,5 @@
+use anyhow::{Result, bail};
+
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -76,6 +78,106 @@ impl Key {
 }
 
 #[cfg(target_os = "windows")]
-pub use windows::{
-    HotkeyModifier, HotkeyModifiers, HotkeyPoll, HotkeySpec, InputSession, RegisteredHotkeys,
-};
+pub use windows::{InputSession, RegisteredHotkeys};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HotkeyModifier {
+    Shift,
+    Ctrl,
+    Alt,
+    Win,
+}
+
+impl HotkeyModifier {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Shift => "shift",
+            Self::Ctrl => "ctrl",
+            Self::Alt => "alt",
+            Self::Win => "win",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Shift => "Shift",
+            Self::Ctrl => "Ctrl",
+            Self::Alt => "Alt",
+            Self::Win => "Win",
+        }
+    }
+
+    fn release_keys(self) -> &'static [Key] {
+        match self {
+            Self::Shift => &[Key::LShift, Key::RShift],
+            Self::Ctrl => &[Key::LCtrl, Key::RCtrl],
+            Self::Alt => &[Key::LAlt, Key::RAlt],
+            Self::Win => &[Key::LWin, Key::RWin],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HotkeyModifiers {
+    values: [Option<HotkeyModifier>; 4],
+}
+
+impl HotkeyModifiers {
+    pub fn new(values: Vec<HotkeyModifier>) -> Result<Self> {
+        if values.is_empty() {
+            bail!("hotkey modifiers must not be empty");
+        }
+        if values.len() > 4 {
+            bail!(
+                "hotkey modifiers support at most 4 keys, got {}",
+                values.len()
+            );
+        }
+        let mut modifiers = Self { values: [None; 4] };
+        for (index, modifier) in values.into_iter().enumerate() {
+            if modifiers.iter().any(|existing| existing == modifier) {
+                bail!(
+                    "hotkey modifiers cannot contain duplicate {}",
+                    modifier.name()
+                );
+            }
+            modifiers.values[index] = Some(modifier);
+        }
+        Ok(modifiers)
+    }
+
+    fn release_keys(self) -> Vec<Key> {
+        let mut keys = Vec::new();
+        for modifier in self.iter() {
+            keys.extend_from_slice(modifier.release_keys());
+        }
+        keys
+    }
+
+    fn iter(self) -> impl Iterator<Item = HotkeyModifier> {
+        self.values.into_iter().flatten()
+    }
+
+    fn label_with_key(self, key: Key) -> String {
+        let mut parts = self
+            .iter()
+            .map(HotkeyModifier::display_name)
+            .collect::<Vec<_>>();
+        parts.push(key.name());
+        parts.join(" + ")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HotkeySpec {
+    pub id: i32,
+    pub modifiers: HotkeyModifiers,
+    pub key: Key,
+}
+
+impl HotkeySpec {
+    fn label(self) -> String {
+        self.modifiers.label_with_key(self.key)
+    }
+}

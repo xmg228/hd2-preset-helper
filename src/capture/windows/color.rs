@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use half::f16;
 use tracing::{debug, warn};
 
-use crate::capture::{DisplayColorInfo, Rgba16fConverter};
+use super::display::DisplayColorInfo;
 use crate::game_settings::GameColorSettings;
 
 const REC709_TO_REC2020: [[f32; 3]; 3] = [
@@ -22,7 +22,7 @@ const PQ_MAX_NITS: f32 = 10_000.0;
 const HDR_TONE_LUT_SEGMENTS: usize = 8192;
 const MATCHER_GAMMA: f32 = 0.4545;
 
-pub struct ColorNormalizer {
+pub(in crate::capture) struct ColorNormalizer {
     mode: NormalizationMode,
     #[cfg(feature = "diagnostics")]
     diagnostic_tag: String,
@@ -47,7 +47,7 @@ struct HdrToneLut {
 }
 
 impl ColorNormalizer {
-    pub fn new(settings: GameColorSettings, display: DisplayColorInfo) -> Result<Self> {
+    pub(super) fn new(settings: GameColorSettings, display: DisplayColorInfo) -> Result<Self> {
         ensure!(
             settings.screen_brightness.is_finite(),
             "screen_brightness is not finite"
@@ -109,8 +109,8 @@ impl ColorNormalizer {
     }
 }
 
-impl Rgba16fConverter for ColorNormalizer {
-    fn convert_row(&self, source: &[u8], destination: &mut [u8]) {
+impl ColorNormalizer {
+    pub(super) fn convert_row(&self, source: &[u8], destination: &mut [u8]) {
         debug_assert_eq!(source.len() / 8, destination.len() / 4);
         for (pixel, output) in source.chunks_exact(8).zip(destination.chunks_exact_mut(4)) {
             let rgb = match &self.mode {
@@ -139,7 +139,7 @@ impl Rgba16fConverter for ColorNormalizer {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn diagnostic_tag(&self) -> &str {
+    pub(super) fn diagnostic_tag(&self) -> &str {
         &self.diagnostic_tag
     }
 }

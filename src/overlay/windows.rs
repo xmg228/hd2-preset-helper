@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem::{MaybeUninit, size_of};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -22,24 +21,19 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::Input::{
-    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-    RIDEV_INPUTSINK, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
-    GetSystemMetrics, HWND_TOPMOST, KillTimer, LWA_ALPHA, MSG, PostThreadMessageW, RegisterClassW,
-    SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+    GetMessageW, GetSystemMetrics, HWND_TOPMOST, KillTimer, LWA_ALPHA, MSG, PostThreadMessageW,
+    RegisterClassW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP,
-    WM_INPUT, WM_PAINT, WM_QUIT, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+    WM_PAINT, WM_QUIT, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::PCWSTR;
 
 use super::{OverlayEventPolicy, OverlayModel, OverlayTone, compact_error};
 use crate::app_events::{AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::assets;
-use crate::input::HotkeyModifiers;
 use crate::preset::load_template_image;
 
 const OVERLAY_CLASS: &str = "hd2-preset-helper-overlay";
@@ -376,24 +370,45 @@ impl OverlayContext {
     }
 }
 
-pub(super) fn start(modifiers: HotkeyModifiers, presets_path: &Path) -> Result<AppEventSink> {
+pub struct OverlayHandle {
+    events: AppEventSink,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl OverlayHandle {
+    pub fn events(&self) -> &AppEventSink {
+        &self.events
+    }
+}
+
+impl Drop for OverlayHandle {
+    fn drop(&mut self) {
+        self.events.emit(AppEvent::Shutdown);
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            warn!("overlay thread panicked");
+        }
+    }
+}
+
+pub(super) fn start(presets_path: &Path) -> Result<OverlayHandle> {
     let (sender, receiver) = mpsc::channel();
     let wake_thread = Arc::new(AtomicU32::new(0));
     let overlay_wake_thread = Arc::clone(&wake_thread);
     let presets_path = presets_path.to_path_buf();
 
-    thread::Builder::new()
+    let thread = thread::Builder::new()
         .name("hd2-preset-helper-overlay".to_string())
         .spawn(move || {
-            if let Err(error) = run_overlay(receiver, modifiers, presets_path, &overlay_wake_thread)
-            {
+            if let Err(error) = run_overlay(receiver, presets_path, &overlay_wake_thread) {
                 warn!(error = %format!("{error:#}"), "overlay thread stopped");
             }
             overlay_wake_thread.store(0, Ordering::Release);
         })
         .context("failed to start overlay thread")?;
 
-    Ok(AppEventSink::new(move |event| {
+    let events = AppEventSink::new(move |event| {
         let _ = sender.send(event);
         let thread_id = wake_thread.load(Ordering::Acquire);
         if thread_id != 0 {
@@ -401,12 +416,15 @@ pub(super) fn start(modifiers: HotkeyModifiers, presets_path: &Path) -> Result<A
                 let _ = PostThreadMessageW(thread_id, APP_EVENT_MESSAGE, WPARAM(0), LPARAM(0));
             }
         }
-    }))
+    });
+    Ok(OverlayHandle {
+        events,
+        thread: Some(thread),
+    })
 }
 
 fn run_overlay(
     receiver: Receiver<AppEvent>,
-    modifiers: HotkeyModifiers,
     presets_path: PathBuf,
     wake_thread: &AtomicU32,
 ) -> Result<()> {
@@ -443,7 +461,6 @@ fn run_overlay(
         )
         .context("failed to create overlay window")?;
 
-        register_raw_keyboard(hwnd)?;
         SetLayeredWindowAttributes(hwnd, COLORREF(0), OVERLAY_ALPHA, LWA_ALPHA)
             .context("failed to configure overlay transparency")?;
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -466,24 +483,11 @@ fn run_overlay(
         .context("failed to position overlay window")?;
 
         wake_thread.store(GetCurrentThreadId(), Ordering::Release);
-        run_overlay_loop(hwnd, receiver, modifiers);
+        run_overlay_loop(hwnd, receiver);
+        let _ = DestroyWindow(hwnd);
         OVERLAY.with(|overlay| overlay.borrow_mut().take());
     }
 
-    Ok(())
-}
-
-fn register_raw_keyboard(hwnd: HWND) -> Result<()> {
-    let device = RAWINPUTDEVICE {
-        usUsagePage: 0x01,
-        usUsage: 0x06,
-        dwFlags: RIDEV_INPUTSINK,
-        hwndTarget: hwnd,
-    };
-    unsafe {
-        RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32)
-            .context("failed to register raw keyboard input")?;
-    }
     Ok(())
 }
 
@@ -495,16 +499,16 @@ fn overlay_position(metrics: OverlayMetrics) -> (i32, i32) {
     )
 }
 
-fn run_overlay_loop(hwnd: HWND, receiver: Receiver<AppEvent>, modifiers: HotkeyModifiers) {
+fn run_overlay_loop(hwnd: HWND, receiver: Receiver<AppEvent>) {
     let mut fade_started = None;
     let mut hold_visible = false;
     let mut hide_deadline: Option<Instant> = None;
-    let mut modifier_down = modifiers.is_down();
+    let mut modifier_down = false;
 
     if !drain_app_events(
         hwnd,
         &receiver,
-        modifier_down,
+        &mut modifier_down,
         &mut hold_visible,
         &mut hide_deadline,
         &mut fade_started,
@@ -524,30 +528,12 @@ fn run_overlay_loop(hwnd: HWND, receiver: Receiver<AppEvent>, modifiers: HotkeyM
                 if !drain_app_events(
                     hwnd,
                     &receiver,
-                    modifier_down,
+                    &mut modifier_down,
                     &mut hold_visible,
                     &mut hide_deadline,
                     &mut fade_started,
                 ) {
                     return;
-                }
-            }
-            WM_INPUT => {
-                let previous = modifier_down;
-                if read_raw_keyboard(message.lParam) {
-                    modifier_down = modifiers.is_down();
-                }
-                if modifier_down != previous {
-                    handle_modifier_change(
-                        hwnd,
-                        modifier_down,
-                        hold_visible,
-                        &mut hide_deadline,
-                        &mut fade_started,
-                    );
-                }
-                unsafe {
-                    let _ = DefWindowProcW(hwnd, message.message, message.wParam, message.lParam);
                 }
             }
             WM_TIMER => match message.wParam.0 {
@@ -579,7 +565,7 @@ fn run_overlay_loop(hwnd: HWND, receiver: Receiver<AppEvent>, modifiers: HotkeyM
 fn drain_app_events(
     hwnd: HWND,
     receiver: &Receiver<AppEvent>,
-    modifier_down: bool,
+    modifier_down: &mut bool,
     hold_visible: &mut bool,
     hide_deadline: &mut Option<Instant>,
     fade_started: &mut Option<Instant>,
@@ -587,6 +573,11 @@ fn drain_app_events(
     let mut policy: Option<OverlayEventPolicy> = None;
     loop {
         match receiver.try_recv() {
+            Ok(AppEvent::ModifiersChanged(down)) => {
+                *modifier_down = down;
+                handle_modifier_change(hwnd, down, *hold_visible, hide_deadline, fade_started);
+            }
+            Ok(AppEvent::Shutdown) => return false,
             Ok(event) => {
                 // Apply every queued state update; the latest event controls visibility.
                 if let Some(next) = apply_event(event) {
@@ -609,7 +600,7 @@ fn drain_app_events(
     resize_overlay(hwnd);
     show_overlay(hwnd);
 
-    if !modifier_down && let OverlayEventPolicy::HideAfter(delay) = policy {
+    if !*modifier_down && let OverlayEventPolicy::HideAfter(delay) = policy {
         schedule_hide_timer(hwnd, hide_deadline, delay);
     }
 
@@ -720,26 +711,6 @@ fn update_fade(hwnd: HWND, fade_started: &mut Option<Instant>) {
     unsafe {
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
     }
-}
-
-fn read_raw_keyboard(lparam: LPARAM) -> bool {
-    let mut raw = MaybeUninit::<RAWINPUT>::zeroed();
-    let mut size = size_of::<RAWINPUT>() as u32;
-    let copied = unsafe {
-        GetRawInputData(
-            HRAWINPUT(lparam.0 as *mut _),
-            RID_INPUT,
-            Some(raw.as_mut_ptr().cast()),
-            &mut size,
-            size_of::<RAWINPUTHEADER>() as u32,
-        )
-    };
-    if copied == u32::MAX || copied < size_of::<RAWINPUTHEADER>() as u32 {
-        return false;
-    }
-
-    let raw = unsafe { raw.assume_init() };
-    raw.header.dwType == RIM_TYPEKEYBOARD.0
 }
 
 fn show_overlay(hwnd: HWND) {
@@ -872,7 +843,7 @@ fn apply_event(event: AppEvent) -> Option<OverlayEventPolicy> {
         let mut overlay = overlay.borrow_mut();
         let state = &mut overlay.as_mut()?.state;
 
-        let update = state.model.apply(event);
+        let update = state.model.apply(event)?;
         if update.presets_changed {
             state.metrics = state.metrics.with_preset_count(
                 state.model.presets.len(),

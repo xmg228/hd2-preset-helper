@@ -1,13 +1,19 @@
+mod color;
 mod display;
+mod session;
 mod wgc;
+
+pub use session::CaptureSessionManager;
 
 use anyhow::{Context, Result};
 use image::RgbaImage;
 use tracing::debug;
 
-use super::{DisplayColorInfo, Rgba16fConverter};
+use crate::game_settings::GameColorSettings;
 use crate::image_rect::ImageRect;
-use crate::window::WindowTarget;
+use crate::window::{ClientPoint, WindowTarget};
+pub(super) use color::ColorNormalizer;
+use display::DisplayColorInfo;
 
 pub(super) struct WindowsCapture {
     backend: CaptureBackend,
@@ -45,14 +51,20 @@ impl WindowsCapture {
         }
     }
 
-    pub(super) fn display_color_info(&self) -> DisplayColorInfo {
-        self.display_color_info
+    pub(super) fn map_to_client(&self, roi: ImageRect, local: (u32, u32)) -> ClientPoint {
+        match &self.backend {
+            CaptureBackend::Wgc(capture) => capture.map_to_client(roi, local),
+        }
+    }
+
+    pub(super) fn colors(&self, settings: GameColorSettings) -> Result<ColorNormalizer> {
+        ColorNormalizer::new(settings, self.display_color_info)
     }
 
     pub(super) fn capture_region(
         &mut self,
         client_roi: ImageRect,
-        converter: &dyn Rgba16fConverter,
+        converter: &ColorNormalizer,
     ) -> Result<RgbaImage> {
         match &mut self.backend {
             CaptureBackend::Wgc(capture) => capture.capture_region(client_roi, converter),

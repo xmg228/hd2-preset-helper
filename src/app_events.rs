@@ -2,6 +2,15 @@ use std::sync::Arc;
 
 use crate::item::ItemKind;
 
+pub enum AppCommand {
+    PresetTriggered(i32),
+    ModifiersChanged(bool),
+    ToggleApplyInSavedOrder,
+    ToggleAutoReadyUp,
+    ToggleSaveFallbackWhenTaken,
+    Exit,
+}
+
 type AppEventHandler = dyn Fn(AppEvent) + Send + Sync;
 
 #[derive(Clone, Default)]
@@ -47,6 +56,8 @@ pub enum PresetCompletion {
 
 #[derive(Clone, Debug)]
 pub enum AppEvent {
+    ModifiersChanged(bool),
+    Shutdown,
     PresetListUpdated {
         presets: Vec<OverlayPreset>,
     },

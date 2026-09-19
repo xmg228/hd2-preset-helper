@@ -5,18 +5,17 @@ use anyhow::Result;
 #[cfg(target_os = "windows")]
 use std::path::Path;
 
-#[cfg(target_os = "windows")]
-use crate::app_events::AppEventSink;
 use crate::app_events::{AppEvent, OverlayPreset, OverlayPresetStatus, PresetCompletion};
-#[cfg(target_os = "windows")]
-use crate::input::HotkeyModifiers;
 
 #[cfg(target_os = "windows")]
 mod windows;
 
 #[cfg(target_os = "windows")]
-pub fn start(modifiers: HotkeyModifiers, presets_path: &Path) -> Result<AppEventSink> {
-    windows::start(modifiers, presets_path)
+pub use windows::OverlayHandle;
+
+#[cfg(target_os = "windows")]
+pub fn start(presets_path: &Path) -> Result<OverlayHandle> {
+    windows::start(presets_path)
 }
 
 const DONE_HIDE_DELAY: Duration = Duration::from_secs(2);
@@ -78,8 +77,9 @@ impl OverlayModel {
             .any(|preset| preset.fallback_booster.is_some())
     }
 
-    fn apply(&mut self, event: AppEvent) -> OverlayModelUpdate {
+    fn apply(&mut self, event: AppEvent) -> Option<OverlayModelUpdate> {
         let (policy, presets_changed) = match event {
+            AppEvent::ModifiersChanged(_) | AppEvent::Shutdown => return None,
             AppEvent::PresetListUpdated { presets } => {
                 self.presets = presets;
                 self.set_ready();
@@ -199,10 +199,10 @@ impl OverlayModel {
             }
         };
 
-        OverlayModelUpdate {
+        Some(OverlayModelUpdate {
             policy,
             presets_changed,
-        }
+        })
     }
 }
 
