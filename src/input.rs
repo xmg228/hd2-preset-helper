@@ -150,7 +150,7 @@ impl Key {
 }
 
 #[cfg(target_os = "windows")]
-pub use windows::{InputSession, RegisteredHotkeys};
+pub use windows::{Hotkeys, InputSession};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]

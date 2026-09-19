@@ -30,7 +30,7 @@ modifiers = ["ctrl", "shift"]
 # Values: f1-f12, 0-9 (top row), numpad0-numpad9 (numeric keypad).
 # Choose at least one key, with no duplicates.
 # Keep Num Lock on for numpad digits. Avoid combining them with Shift.
-# Shortcuts are global and may block normal input in other applications.
+# Shortcuts are active only while Helldivers 2 is in the foreground.
 keys = ["f7", "f8", "f9", "f10", "f11", "f12"]
 
 [overlay]

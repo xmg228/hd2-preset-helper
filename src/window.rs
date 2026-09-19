@@ -13,4 +13,4 @@ mod windows;
 pub use windows::WindowTarget;
 
 #[cfg(target_os = "windows")]
-pub(crate) use windows::ClientCrop;
+pub(crate) use windows::{ClientCrop, foreground_title};

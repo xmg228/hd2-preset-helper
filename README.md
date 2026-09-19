@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-HD2 Preset Helper is a lightweight Windows utility for saving and applying loadout presets in Helldivers 2. Each preset can include four Stratagems and an optional Booster, and can be activated with a configurable global hotkey.
+HD2 Preset Helper is a lightweight Windows utility for saving and applying loadout presets in Helldivers 2. Each preset can include four Stratagems and an optional Booster, and can be activated with a configurable hotkey.
 
 The program recognizes the game interface through screen capture and completes selections using standard mouse and keyboard input. It does not modify game files, inject code into the game process, read game memory, or alter network traffic.
 
@@ -77,8 +77,8 @@ modifiers = []
 keys = ["numpad1", "numpad2", "numpad3", "numpad4", "numpad5", "numpad6"]
 ```
 
-Keep Num Lock on and avoid Shift with numpad keys. Shortcuts are global and
-reserve the configured keys even outside the game. Empty modifiers disable
+Keep Num Lock on and avoid Shift with numpad keys. Shortcuts are active only
+while Helldivers 2 is in the foreground. Empty modifiers disable
 hold-to-preview; action status still appears when the overlay is enabled.
 Restart the application after changing hotkeys.
 

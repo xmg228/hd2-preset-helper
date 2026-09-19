@@ -3,11 +3,15 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use crate::window::WindowTarget;
+use crate::window::{self, WindowTarget};
 
 const GAME_WINDOW_TITLE: &str = "HELLDIVERS™ 2";
 const WINDOW_LOOKUP_ATTEMPTS: usize = 10;
 const WINDOW_LOOKUP_RETRY_DELAY: Duration = Duration::from_millis(50);
+
+pub fn is_game_foreground() -> bool {
+    window::foreground_title() == GAME_WINDOW_TITLE
+}
 
 pub fn find_game_window() -> Result<WindowTarget> {
     for _ in 1..WINDOW_LOOKUP_ATTEMPTS {

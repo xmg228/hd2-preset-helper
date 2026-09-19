@@ -20,7 +20,7 @@ use crate::preset::{
     Preset, archive_legacy_preset_file, invalid_preset_reason, load_presets, validate_preset,
 };
 use crate::preset_action::PresetActionOptions;
-use crate::{input, overlay, platform, tray};
+use crate::{game_window, input, overlay, platform, tray};
 use worker::{ActionWorker, Work, WorkerEvent};
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -81,12 +81,7 @@ fn run_preset_hotkey_mode(config: AppConfig, paths: &AppPaths) -> Result<()> {
     let modifiers = input::HotkeyModifiers::new(config.hotkey.modifiers.clone())?;
     let bindings = preset_hotkeys(modifiers, &config.hotkey.keys);
     let specs: Vec<_> = bindings.iter().map(|binding| binding.hotkey).collect();
-    let hotkeys = input::RegisteredHotkeys::register(&specs).with_context(|| {
-        format!(
-            "failed to register hotkeys configured in {}",
-            paths.config.display()
-        )
-    })?;
+    let hotkeys = input::Hotkeys::new(&specs);
     let settings = PresetActionOptions {
         apply_in_saved_order: config.presets.apply_in_saved_order,
         auto_ready_up: config.presets.auto_ready_up,
@@ -133,12 +128,6 @@ fn run_preset_hotkey_mode(config: AppConfig, paths: &AppPaths) -> Result<()> {
         auto_ready_up = settings.auto_ready_up,
         save_fallback_when_taken = settings.save_fallback_when_taken,
         "application ready");
-    app.modifier_down = modifiers.is_down();
-    app.events
-        .emit(AppEvent::ModifiersChanged(app.modifier_down));
-    if app.modifier_down {
-        app.worker.send(Work::Prepare)?;
-    }
     app.run()
 }
 
@@ -156,7 +145,7 @@ struct AppController {
     paths: AppPaths,
     bindings: Vec<PresetHotkeyBinding>,
     modifiers: input::HotkeyModifiers,
-    hotkeys: input::RegisteredHotkeys,
+    hotkeys: input::Hotkeys,
     tray: tray::TrayHandle,
     events: AppEventSink,
     overlay: Option<overlay::OverlayHandle>,
@@ -170,7 +159,15 @@ struct AppController {
 
 impl AppController {
     fn run(&mut self) -> Result<()> {
+        let mut prewarm_requested = false;
         loop {
+            let enabled = !self.exiting && game_window::is_game_foreground();
+            self.hotkeys.set_enabled(enabled).with_context(|| {
+                format!(
+                    "failed to update hotkeys configured in {}",
+                    self.paths.config.display()
+                )
+            })?;
             // Consume triggers before completion: keys pressed during the action cannot
             // turn into a new action just because the worker finished in this iteration.
             while let Some(id) = self.hotkeys.next_trigger() {
@@ -179,6 +176,18 @@ impl AppController {
             let down = self.modifiers.is_down();
             if down != self.modifier_down {
                 self.command(AppCommand::ModifiersChanged(down))?;
+            }
+            let prewarm = enabled && down;
+            if prewarm != prewarm_requested {
+                prewarm_requested = prewarm;
+                // Once triggered, preparation belongs to the action until it finishes.
+                if matches!(self.state, ActionState::Idle) {
+                    self.worker.send(if prewarm {
+                        Work::Prepare
+                    } else {
+                        Work::Discard
+                    })?;
+                }
             }
             while let Some(event) = self.tray.try_event() {
                 self.command(match event {
@@ -216,18 +225,23 @@ impl AppController {
                 deadline,
             } = &self.state
             {
-                if self.hotkeys.is_released(*hotkey_id) {
+                if enabled && self.hotkeys.is_released(*hotkey_id) {
                     self.worker.send(Work::Run {
                         preset: preset.clone(),
                         settings: self.settings,
                     })?;
                     self.state = ActionState::Running;
-                } else if Instant::now() >= *deadline {
-                    warn!(preset = %preset, timeout = ?HOTKEY_RELEASE_TIMEOUT,
-                        "preset action cancelled because the hotkey was not released");
+                } else if !enabled || Instant::now() >= *deadline {
+                    let reason = if enabled {
+                        "hotkey was not released in time"
+                    } else {
+                        "game lost focus"
+                    };
+                    warn!(preset = %preset, reason,
+                        "preset action cancelled while waiting for hotkey release");
                     self.events.emit(AppEvent::PresetCancelled {
                         preset: preset.clone(),
-                        reason: "hotkey was not released in time".into(),
+                        reason: reason.into(),
                     });
                     self.worker.send(Work::Discard)?;
                     self.state = ActionState::Idle;
@@ -266,17 +280,11 @@ impl AppController {
             AppCommand::ModifiersChanged(down) => {
                 self.modifier_down = down;
                 self.events.emit(AppEvent::ModifiersChanged(down));
-                if !self.exiting && matches!(self.state, ActionState::Idle) {
-                    if down {
-                        self.worker.send(Work::Prepare)?;
-                    } else {
-                        self.worker.send(Work::Discard)?;
-                    }
-                }
             }
             AppCommand::Exit => {
                 info!("tray exit requested");
                 self.exiting = true;
+                self.hotkeys.set_enabled(false)?;
                 if matches!(self.state, ActionState::Waiting { .. }) {
                     self.state = ActionState::Idle;
                     self.worker.send(Work::Discard)?;
@@ -316,6 +324,8 @@ impl AppController {
 
 impl Drop for AppController {
     fn drop(&mut self) {
+        // Release shortcuts before waiting for an in-flight action to finish.
+        let _ = self.hotkeys.set_enabled(false);
         self.worker.shutdown();
         drop(self.overlay.take());
     }

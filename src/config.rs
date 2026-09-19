@@ -165,6 +165,11 @@ fn validate_hotkey_keys(keys: &[input::Key]) -> Result<()> {
     if let Some(key) = keys.iter().find(|key| !key.is_preset_key()) {
         bail!("hotkey.keys only supports f1-f12, 0-9 and numpad0-numpad9, got {key:?}");
     }
+    for (index, key) in keys.iter().enumerate() {
+        if keys[..index].contains(key) {
+            bail!("hotkey.keys contains duplicate key: {}", key.name());
+        }
+    }
 
     Ok(())
 }

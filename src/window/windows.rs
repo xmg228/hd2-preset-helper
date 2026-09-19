@@ -137,6 +137,14 @@ impl WindowTarget {
     }
 }
 
+pub(crate) fn foreground_title() -> String {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return String::new();
+    }
+    window_title(hwnd)
+}
+
 fn window_title(hwnd: HWND) -> String {
     let mut buffer = [0u16; 256];
     let copied = unsafe { GetWindowTextW(hwnd, &mut buffer) }.max(0) as usize;

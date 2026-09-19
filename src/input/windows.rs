@@ -389,31 +389,39 @@ fn normalize_absolute_mouse_coord(value: i32, size: i32) -> i32 {
     ((value as i64 * 65_535) / (size as i64 - 1)) as i32
 }
 
-pub struct RegisteredHotkeys {
+pub struct Hotkeys {
     hotkeys: Vec<HotkeySpec>,
+    enabled: bool,
 }
 
-impl RegisteredHotkeys {
-    pub fn register(hotkeys: &[HotkeySpec]) -> Result<Self> {
-        if hotkeys.is_empty() {
-            bail!("no hotkeys to register");
+impl Hotkeys {
+    pub fn new(hotkeys: &[HotkeySpec]) -> Self {
+        Self {
+            hotkeys: hotkeys.to_vec(),
+            enabled: false,
+        }
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) -> Result<()> {
+        if self.enabled == enabled {
+            return Ok(());
+        }
+        if !enabled {
+            for hotkey in &self.hotkeys {
+                unsafe { UnregisterHotKey(None, hotkey.id) }
+                    .with_context(|| format!("failed to unregister {}", hotkey.label()))?;
+            }
+            self.enabled = false;
+            self.discard_pending();
+            return Ok(());
         }
 
-        let mut registered = Vec::with_capacity(hotkeys.len());
-        let mut failures = Vec::new();
-        let mut seen = Vec::with_capacity(hotkeys.len());
-        unsafe {
-            for hotkey in hotkeys {
-                let registration_key = (
-                    hotkey.modifiers.hotkey_modifiers().0,
-                    hotkey.key.virtual_key(),
-                );
-                if seen.contains(&registration_key) {
-                    failures.push(format!("{}: configured more than once", hotkey.label()));
-                    continue;
-                }
-                seen.push(registration_key);
+        self.discard_pending();
 
+        let mut registered = Vec::with_capacity(self.hotkeys.len());
+        let mut failures = Vec::new();
+        unsafe {
+            for hotkey in &self.hotkeys {
                 match RegisterHotKey(
                     None,
                     hotkey.id,
@@ -439,14 +447,13 @@ impl RegisteredHotkeys {
             );
         }
 
-        Ok(Self {
-            hotkeys: registered,
-        })
+        self.enabled = true;
+        Ok(())
     }
 
     pub fn next_trigger(&self) -> Option<i32> {
         while let Some(id) = take_pending_hotkey() {
-            if self.hotkeys.iter().any(|hotkey| hotkey.id == id) {
+            if self.enabled && self.hotkeys.iter().any(|hotkey| hotkey.id == id) {
                 return Some(id);
             }
         }
@@ -467,8 +474,11 @@ impl RegisteredHotkeys {
     }
 }
 
-impl Drop for RegisteredHotkeys {
+impl Drop for Hotkeys {
     fn drop(&mut self) {
+        if !self.enabled {
+            return;
+        }
         unsafe {
             for hotkey in &self.hotkeys {
                 let _ = UnregisterHotKey(None, hotkey.id);
