@@ -50,6 +50,13 @@ fn preset_hotkeys(
 }
 
 pub fn run() -> Result<()> {
+    let Some(_instance) = platform::SingleInstance::try_acquire()? else {
+        platform::show_notice(
+            "HD2 Preset Helper",
+            "HD2 Preset Helper is already running. Check the system tray.",
+        );
+        return Ok(());
+    };
     let paths = AppPaths::resolve()?;
     let _log_guard = init_tracing(&paths.log)?;
     #[cfg(feature = "diagnostics")]
