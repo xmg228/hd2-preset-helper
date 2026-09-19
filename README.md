@@ -68,6 +68,20 @@ The default keys can be changed in `data/config.toml` if they conflict with
 another application or system shortcut. Presets are normally saved through the
 in-game controls and do not need to be edited manually.
 
+Hotkey keys support `f1`–`f12`, `0`–`9` (top row), and `numpad0`–`numpad9`.
+For example, single-key numpad shortcuts can be configured as:
+
+```toml
+[hotkey]
+modifiers = []
+keys = ["numpad1", "numpad2", "numpad3", "numpad4", "numpad5", "numpad6"]
+```
+
+Keep Num Lock on and avoid Shift with numpad keys. Shortcuts are global and
+reserve the configured keys even outside the game. Empty modifiers disable
+hold-to-preview; action status still appears when the overlay is enabled.
+Restart the application after changing hotkeys.
+
 Selection order and automatic ready-up can also be toggled from the tray menu.
 Changes are saved to `data/config.toml`.
 

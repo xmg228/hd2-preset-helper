@@ -8,6 +8,38 @@ mod windows;
 pub enum Key {
     B,
 
+    #[serde(rename = "0")]
+    Digit0,
+    #[serde(rename = "1")]
+    Digit1,
+    #[serde(rename = "2")]
+    Digit2,
+    #[serde(rename = "3")]
+    Digit3,
+    #[serde(rename = "4")]
+    Digit4,
+    #[serde(rename = "5")]
+    Digit5,
+    #[serde(rename = "6")]
+    Digit6,
+    #[serde(rename = "7")]
+    Digit7,
+    #[serde(rename = "8")]
+    Digit8,
+    #[serde(rename = "9")]
+    Digit9,
+
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+
     F1,
     F2,
     F3,
@@ -32,7 +64,7 @@ pub enum Key {
 }
 
 impl Key {
-    pub fn is_function_key(self) -> bool {
+    pub fn is_preset_key(self) -> bool {
         matches!(
             self,
             Self::F1
@@ -47,12 +79,52 @@ impl Key {
                 | Self::F10
                 | Self::F11
                 | Self::F12
+                | Self::Digit0
+                | Self::Digit1
+                | Self::Digit2
+                | Self::Digit3
+                | Self::Digit4
+                | Self::Digit5
+                | Self::Digit6
+                | Self::Digit7
+                | Self::Digit8
+                | Self::Digit9
+                | Self::Numpad0
+                | Self::Numpad1
+                | Self::Numpad2
+                | Self::Numpad3
+                | Self::Numpad4
+                | Self::Numpad5
+                | Self::Numpad6
+                | Self::Numpad7
+                | Self::Numpad8
+                | Self::Numpad9
         )
     }
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Key::B => "B",
+            Key::Digit0 => "0",
+            Key::Digit1 => "1",
+            Key::Digit2 => "2",
+            Key::Digit3 => "3",
+            Key::Digit4 => "4",
+            Key::Digit5 => "5",
+            Key::Digit6 => "6",
+            Key::Digit7 => "7",
+            Key::Digit8 => "8",
+            Key::Digit9 => "9",
+            Key::Numpad0 => "Num0",
+            Key::Numpad1 => "Num1",
+            Key::Numpad2 => "Num2",
+            Key::Numpad3 => "Num3",
+            Key::Numpad4 => "Num4",
+            Key::Numpad5 => "Num5",
+            Key::Numpad6 => "Num6",
+            Key::Numpad7 => "Num7",
+            Key::Numpad8 => "Num8",
+            Key::Numpad9 => "Num9",
             Key::F1 => "F1",
             Key::F2 => "F2",
             Key::F3 => "F3",
@@ -125,9 +197,6 @@ pub struct HotkeyModifiers {
 
 impl HotkeyModifiers {
     pub fn new(values: Vec<HotkeyModifier>) -> Result<Self> {
-        if values.is_empty() {
-            bail!("hotkey modifiers must not be empty");
-        }
         if values.len() > 4 {
             bail!(
                 "hotkey modifiers support at most 4 keys, got {}",

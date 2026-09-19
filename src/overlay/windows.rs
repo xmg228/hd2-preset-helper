@@ -65,7 +65,6 @@ const HOLD_KEY_RELEASE_HIDE_DELAY: Duration = Duration::from_millis(120);
 const OVERLAY_ALPHA: u8 = 220;
 const FADE_DURATION: Duration = Duration::from_millis(180);
 const DEFAULT_OVERLAY_ROWS: usize = 4;
-const MAX_OVERLAY_ROWS: usize = 12;
 const TIMER_HIDE: usize = 1;
 const TIMER_FADE: usize = 2;
 const FADE_TICK_MS: u32 = 16;
@@ -218,12 +217,7 @@ impl OverlayMetrics {
     }
 
     fn with_preset_count(self, preset_count: usize, show_fallback: bool) -> Self {
-        Self::from_scale_and_label_width(
-            self.scale,
-            overlay_row_count(preset_count),
-            self.label_w,
-            show_fallback,
-        )
+        Self::from_scale_and_label_width(self.scale, preset_count, self.label_w, show_fallback)
     }
 
     fn from_scale(scale: f32, preset_count: usize) -> Self {
@@ -231,12 +225,7 @@ impl OverlayMetrics {
     }
 
     fn with_label_width(self, preset_count: usize, label_w: i32, show_fallback: bool) -> Self {
-        Self::from_scale_and_label_width(
-            self.scale,
-            overlay_row_count(preset_count),
-            label_w,
-            show_fallback,
-        )
+        Self::from_scale_and_label_width(self.scale, preset_count, label_w, show_fallback)
     }
 
     fn from_scale_and_label_width(
@@ -245,7 +234,7 @@ impl OverlayMetrics {
         label_w: i32,
         show_fallback: bool,
     ) -> Self {
-        let preset_count = overlay_row_count(preset_count) as i32;
+        let preset_count = preset_count.max(1) as i32;
         let padding = scaled_i32(BASE_PADDING, scale);
         let label_w = label_w.max(0);
         let label_icon_gap = if label_w > 0 {
@@ -316,10 +305,6 @@ impl OverlayMetrics {
         self.window_h = self.status_y + self.status_h + scaled_i32(BASE_BOTTOM_PADDING, self.scale);
         self
     }
-}
-
-fn overlay_row_count(preset_count: usize) -> usize {
-    preset_count.clamp(1, MAX_OVERLAY_ROWS)
 }
 
 impl Default for OverlayMetrics {
@@ -920,9 +905,8 @@ fn paint_overlay(hwnd: HWND) {
 
 fn draw_presets(hdc: HDC, state: &OverlayState, renderer: &OverlayRenderer) {
     unsafe {
-        let visible_count = state.model.presets.len().min(MAX_OVERLAY_ROWS);
         let show_fallback = state.model.shows_fallback_booster();
-        for (index, preset) in state.model.presets.iter().take(visible_count).enumerate() {
+        for (index, preset) in state.model.presets.iter().enumerate() {
             let metrics = state.metrics;
             let y = metrics.row_y + index as i32 * (metrics.row_h + metrics.row_gap);
             let is_active = state.model.active_preset.as_deref() == Some(preset.name.as_str());
@@ -998,7 +982,7 @@ fn draw_presets(hdc: HDC, state: &OverlayState, renderer: &OverlayRenderer) {
                 }
             }
 
-            if index + 1 < visible_count {
+            if index + 1 < state.model.presets.len() {
                 let separator_y = y + metrics.row_h + metrics.row_gap / 2;
                 let separator = RECT {
                     left: metrics.padding,

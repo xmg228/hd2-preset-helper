@@ -1,3 +1,5 @@
+# Restart the application after manually editing this file.
+
 [presets]
 # Apply Stratagems in the order they were saved.
 apply_in_saved_order = false
@@ -8,7 +10,7 @@ auto_ready_up = false
 # If a saved Booster is already in use, save a manually selected one as its fallback.
 save_fallback_when_taken = false
 
-# Optional labels shown beside preset hotkeys in order.
+# Optional labels shown beside each preset's hotkey.
 # Remove the leading # from the labels you want to use.
 [presets.labels]
 # preset_1 = "Terminids 1"
@@ -19,14 +21,18 @@ save_fallback_when_taken = false
 # preset_6 = "Illuminate 2"
 
 [hotkey]
-# Hold these modifiers to show the overlay.
-# Values: shift, ctrl, alt, win.
+# Modifiers shared by all preset shortcuts: shift, ctrl, alt, win.
+# Holding them also shows the overlay when enabled.
+# Use [] for shortcuts without modifiers; hold-to-show is then unavailable.
 modifiers = ["ctrl", "shift"]
 
 # Preset keys, mapped to preset_1..preset_N in order.
-# Values: f1-f12. Use 1-12 keys.
+# Values: f1-f12, 0-9 (top row), numpad0-numpad9 (numeric keypad).
+# Choose at least one key, with no duplicates.
+# Keep Num Lock on for numpad digits. Avoid combining them with Shift.
+# Shortcuts are global and may block normal input in other applications.
 keys = ["f7", "f8", "f9", "f10", "f11", "f12"]
 
 [overlay]
-# Show the preset overlay.
+# Show preset previews and action status.
 enabled = true

@@ -10,7 +10,6 @@ use crate::input;
 const DEFAULT_CONFIG_TOML: &str = include_str!("../data/config.toml");
 // Historical config value, independent of the current platform's data directory.
 const LEGACY_PRESETS_PATH: &str = "data/presets.json";
-const MAX_PRESET_HOTKEYS: usize = 12;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -160,15 +159,11 @@ fn config_reset_action(config: &AppConfig) -> ConfigResetAction {
 }
 
 fn validate_hotkey_keys(keys: &[input::Key]) -> Result<()> {
-    if keys.is_empty() || keys.len() > MAX_PRESET_HOTKEYS {
-        bail!(
-            "hotkey.keys must contain 1 to {} keys, got {}",
-            MAX_PRESET_HOTKEYS,
-            keys.len(),
-        );
+    if keys.is_empty() {
+        bail!("hotkey.keys must contain at least one key");
     }
-    if let Some(key) = keys.iter().find(|key| !key.is_function_key()) {
-        bail!("hotkey.keys only supports f1 through f12, got {key:?}");
+    if let Some(key) = keys.iter().find(|key| !key.is_preset_key()) {
+        bail!("hotkey.keys only supports f1-f12, 0-9 and numpad0-numpad9, got {key:?}");
     }
 
     Ok(())
@@ -179,12 +174,10 @@ fn validate_preset_labels(labels: &BTreeMap<String, String>) -> Result<()> {
         let valid_key = preset
             .strip_prefix("preset_")
             .and_then(|value| value.parse::<usize>().ok())
-            .filter(|index| (1..=MAX_PRESET_HOTKEYS).contains(index))
+            .filter(|index| *index > 0)
             .is_some_and(|index| preset == &format!("preset_{index}"));
         if !valid_key {
-            bail!(
-                "presets.labels key must be preset_1 through preset_{MAX_PRESET_HOTKEYS}, got {preset}"
-            );
+            bail!("presets.labels key must be preset_N with a positive integer N, got {preset}");
         }
         if label.chars().any(char::is_control) {
             bail!("presets.labels.{preset} must not contain control characters");

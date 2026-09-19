@@ -35,6 +35,26 @@ impl Key {
     fn scan_code(self) -> u16 {
         match self {
             Key::B => 0x30,
+            Key::Digit0 => 0x0B,
+            Key::Digit1 => 0x02,
+            Key::Digit2 => 0x03,
+            Key::Digit3 => 0x04,
+            Key::Digit4 => 0x05,
+            Key::Digit5 => 0x06,
+            Key::Digit6 => 0x07,
+            Key::Digit7 => 0x08,
+            Key::Digit8 => 0x09,
+            Key::Digit9 => 0x0A,
+            Key::Numpad0 => 0x52,
+            Key::Numpad1 => 0x4F,
+            Key::Numpad2 => 0x50,
+            Key::Numpad3 => 0x51,
+            Key::Numpad4 => 0x4B,
+            Key::Numpad5 => 0x4C,
+            Key::Numpad6 => 0x4D,
+            Key::Numpad7 => 0x47,
+            Key::Numpad8 => 0x48,
+            Key::Numpad9 => 0x49,
             Key::F1 => 0x3B,
             Key::F2 => 0x3C,
             Key::F3 => 0x3D,
@@ -59,6 +79,26 @@ impl Key {
     fn virtual_key(self) -> u32 {
         match self {
             Key::B => 0x42,
+            Key::Digit0 => 0x30,
+            Key::Digit1 => 0x31,
+            Key::Digit2 => 0x32,
+            Key::Digit3 => 0x33,
+            Key::Digit4 => 0x34,
+            Key::Digit5 => 0x35,
+            Key::Digit6 => 0x36,
+            Key::Digit7 => 0x37,
+            Key::Digit8 => 0x38,
+            Key::Digit9 => 0x39,
+            Key::Numpad0 => 0x60,
+            Key::Numpad1 => 0x61,
+            Key::Numpad2 => 0x62,
+            Key::Numpad3 => 0x63,
+            Key::Numpad4 => 0x64,
+            Key::Numpad5 => 0x65,
+            Key::Numpad6 => 0x66,
+            Key::Numpad7 => 0x67,
+            Key::Numpad8 => 0x68,
+            Key::Numpad9 => 0x69,
             Key::F1 => 0x70,
             Key::F2 => 0x71,
             Key::F3 => 0x72,
@@ -115,7 +155,8 @@ impl HotkeyModifiers {
     }
 
     pub(crate) fn is_down(self) -> bool {
-        self.iter().all(HotkeyModifier::is_down)
+        // No modifiers means no hold-to-preview or capture preparation gesture.
+        self.iter().next().is_some() && self.iter().all(HotkeyModifier::is_down)
     }
 }
 

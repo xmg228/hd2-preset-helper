@@ -54,6 +54,16 @@ HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设
 
 如果默认快捷键与其他程序或系统快捷键冲突，可以在 `data/config.toml` 中修改。预设通常直接通过游戏内操作保存，不需要手动编辑 `data/presets.json`。
 
+快捷键支持 `f1`～`f12`、主键盘上方数字 `0`～`9`，以及小键盘数字 `numpad0`～`numpad9`。例如，使用小键盘单键快捷键：
+
+```toml
+[hotkey]
+modifiers = []
+keys = ["numpad1", "numpad2", "numpad3", "numpad4", "numpad5", "numpad6"]
+```
+
+请开启 Num Lock，并避免将 Shift 与小键盘数字组合使用。快捷键为全局注册，在游戏之外也会占用所配置的按键。修饰键为空时不提供按住预览，启用浮窗时仍会显示执行状态。修改快捷键后需重启程序。
+
 选择顺序和自动准备也可以在托盘菜单中切换，修改会保存到 `data/config.toml`。
 
 可以在 `data/config.toml` 中添加浮窗标签：
