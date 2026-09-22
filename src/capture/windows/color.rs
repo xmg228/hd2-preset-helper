@@ -2,9 +2,9 @@ use std::sync::OnceLock;
 
 use anyhow::{Result, ensure};
 use half::f16;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
-use super::display::DisplayColorInfo;
+use super::{CapturePixelFormat, display::DisplayColorInfo};
 use crate::game_settings::GameColorSettings;
 
 const REC709_TO_REC2020: [[f32; 3]; 3] = [
@@ -29,7 +29,10 @@ pub(in crate::capture) struct ColorNormalizer {
 }
 
 enum NormalizationMode {
-    Sdr {
+    SdrBgra8 {
+        lut: Box<[u8; 256]>,
+    },
+    SdrScRgb {
         lut: Box<[u8; 65536]>,
     },
     HdrIdentityTone {
@@ -47,7 +50,11 @@ struct HdrToneLut {
 }
 
 impl ColorNormalizer {
-    pub(super) fn new(settings: GameColorSettings, display: DisplayColorInfo) -> Result<Self> {
+    pub(super) fn new(
+        settings: GameColorSettings,
+        display: DisplayColorInfo,
+        source_format: CapturePixelFormat,
+    ) -> Result<Self> {
         ensure!(
             settings.screen_brightness.is_finite(),
             "screen_brightness is not finite"
@@ -57,6 +64,14 @@ impl ColorNormalizer {
             "ui_brightness must be finite and greater than zero"
         );
 
+        let expected_format = CapturePixelFormat::for_display(display);
+        ensure!(
+            source_format == expected_format,
+            "capture pixel format {} does not match display color state (expected {})",
+            source_format.label(),
+            expected_format.label()
+        );
+
         let windows_hdr = display.hdr_active;
         let sdr_white_level = display.sdr_white_level;
         let effective_hdr = windows_hdr && settings.hdr_enabled;
@@ -64,9 +79,13 @@ impl ColorNormalizer {
             warn!("game HDR is enabled while display HDR is inactive; using SDR normalization");
         }
 
-        let mode = if !effective_hdr {
-            NormalizationMode::Sdr {
-                lut: build_sdr_lut(display.sdr_white_level, settings.screen_brightness),
+        let mode = if source_format == CapturePixelFormat::Bgra8 {
+            NormalizationMode::SdrBgra8 {
+                lut: build_sdr_bgra8_lut(settings.screen_brightness),
+            }
+        } else if !effective_hdr {
+            NormalizationMode::SdrScRgb {
+                lut: build_sdr_scrgb_lut(display.sdr_white_level, settings.screen_brightness),
             }
         } else if settings.screen_brightness == 1.0 {
             let matrix = scale_matrix(
@@ -82,7 +101,8 @@ impl ColorNormalizer {
             }
         };
 
-        debug!(
+        info!(
+            source_format = source_format.label(),
             windows_hdr,
             game_hdr = settings.hdr_enabled,
             effective_hdr,
@@ -94,7 +114,8 @@ impl ColorNormalizer {
         );
         #[cfg(feature = "diagnostics")]
         let diagnostic_tag = format!(
-            "winhdr{}-gamehdr{}-sdr{}-screen{:.6}-ui{:.6}",
+            "fmt{}-winhdr{}-gamehdr{}-sdr{}-screen{:.6}-ui{:.6}",
+            source_format.label(),
             u8::from(display.hdr_active),
             u8::from(settings.hdr_enabled),
             display.sdr_white_level,
@@ -110,11 +131,25 @@ impl ColorNormalizer {
 }
 
 impl ColorNormalizer {
-    pub(super) fn convert_row(&self, source: &[u8], destination: &mut [u8]) {
+    pub(super) fn convert_bgra8_row(&self, source: &[u8], destination: &mut [u8]) {
+        debug_assert_eq!(source.len(), destination.len());
+        let NormalizationMode::SdrBgra8 { lut } = &self.mode else {
+            unreachable!("BGRA8 capture requires SDR BGRA8 normalization");
+        };
+
+        for (pixel, output) in source.chunks_exact(4).zip(destination.chunks_exact_mut(4)) {
+            output[0] = lut[pixel[2] as usize];
+            output[1] = lut[pixel[1] as usize];
+            output[2] = lut[pixel[0] as usize];
+            output[3] = 255;
+        }
+    }
+
+    pub(super) fn convert_rgba16f_row(&self, source: &[u8], destination: &mut [u8]) {
         debug_assert_eq!(source.len() / 8, destination.len() / 4);
         for (pixel, output) in source.chunks_exact(8).zip(destination.chunks_exact_mut(4)) {
             let rgb = match &self.mode {
-                NormalizationMode::Sdr { lut } => [
+                NormalizationMode::SdrScRgb { lut } => [
                     lut[u16::from_le_bytes([pixel[0], pixel[1]]) as usize],
                     lut[u16::from_le_bytes([pixel[2], pixel[3]]) as usize],
                     lut[u16::from_le_bytes([pixel[4], pixel[5]]) as usize],
@@ -132,6 +167,9 @@ impl ColorNormalizer {
                     let adjusted = mat_vec(*pre_matrix, raw).map(|value| tone.sample(value));
                     mat_vec(*post_matrix, adjusted).map(linear_to_matcher_u8)
                 }
+                NormalizationMode::SdrBgra8 { .. } => {
+                    unreachable!("RGBA16F capture cannot use SDR BGRA8 normalization")
+                }
             };
             output[..3].copy_from_slice(&rgb);
             output[3] = 255;
@@ -147,7 +185,8 @@ impl ColorNormalizer {
 impl NormalizationMode {
     fn label(&self) -> &'static str {
         match self {
-            Self::Sdr { .. } => "sdr",
+            Self::SdrBgra8 { .. } => "sdr_bgra8",
+            Self::SdrScRgb { .. } => "sdr_scrgb",
             Self::HdrIdentityTone { .. } => "hdr_identity_tone",
             Self::HdrAdjustedTone { .. } => "hdr_adjusted_tone",
         }
@@ -177,7 +216,17 @@ impl HdrToneLut {
     }
 }
 
-fn build_sdr_lut(sdr_white_level: u32, screen_brightness: f32) -> Box<[u8; 65536]> {
+fn build_sdr_bgra8_lut(screen_brightness: f32) -> Box<[u8; 256]> {
+    let exponent = 2.0f32.powf(screen_brightness - 1.0);
+    let mut lut = Box::new([0u8; 256]);
+    for (index, output) in lut.iter_mut().enumerate() {
+        let encoded = index as f32 / 255.0;
+        *output = normalized_to_u8(encoded.powf(exponent));
+    }
+    lut
+}
+
+fn build_sdr_scrgb_lut(sdr_white_level: u32, screen_brightness: f32) -> Box<[u8; 65536]> {
     let scale = 1000.0 / sdr_white_level.max(1) as f32;
     let exponent = 2.0f32.powf(screen_brightness - 1.0);
     let mut lut = Box::new([0u8; 65536]);

@@ -27,7 +27,7 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Resource, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::System::WinRT::Direct3D11::{
@@ -38,13 +38,20 @@ use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 use windows::core::{IInspectable, Interface, factory};
 
-use super::ColorNormalizer;
+use super::{CapturePixelFormat, ColorNormalizer};
 use crate::image_rect::ImageRect;
 use crate::window::{ClientCrop, ClientPoint, WindowTarget};
 
 const WGC_FRAME_POOL_BUFFER_COUNT: i32 = 2;
 #[cfg(feature = "diagnostics")]
 const WGC_F16_DUMP_DIR_ENV: &str = "HD2_PRESET_HELPER_WGC_F16_DUMP_DIR";
+
+fn directx_pixel_format(format: CapturePixelFormat) -> DirectXPixelFormat {
+    match format {
+        CapturePixelFormat::Bgra8 => DirectXPixelFormat::B8G8R8A8UIntNormalized,
+        CapturePixelFormat::Rgba16Float => DirectXPixelFormat::R16G16B16A16Float,
+    }
+}
 
 pub(super) struct WgcCapture {
     rebuild_signature: CaptureRebuildSignature,
@@ -231,7 +238,7 @@ impl WgcCapture {
         }
     }
 
-    pub(super) fn new(target: &WindowTarget) -> Result<Self> {
+    pub(super) fn new(target: &WindowTarget, pixel_format: CapturePixelFormat) -> Result<Self> {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
 
         if !GraphicsCaptureSession::IsSupported().context("failed to query WGC support")? {
@@ -268,6 +275,7 @@ impl WgcCapture {
             item_h = item_size.Height,
             output_w = crop.w,
             output_h = crop.h,
+            wgc_format = pixel_format.label(),
             "configured WGC capture target"
         );
 
@@ -275,7 +283,7 @@ impl WgcCapture {
         let direct3d_device = create_direct3d_device_from_d3d11(&device)?;
         let frame_pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &direct3d_device,
-            DirectXPixelFormat::R16G16B16A16Float,
+            directx_pixel_format(pixel_format),
             WGC_FRAME_POOL_BUFFER_COUNT,
             item_size,
         )
@@ -408,7 +416,7 @@ impl WgcCapture {
             .unwrap_or_default();
         // Take ownership of the published frame while holding the mutex, then release the
         // bus immediately. The FrameArrived callback can now publish frame N+1 while the main
-        // thread performs the D3D copy, map and FP16-to-RGBA conversion for frame N.
+        // thread performs the D3D copy, map and native-to-RGBA conversion for frame N.
         let frame = state.latest.take().expect("checked latest WGC frame above");
         state.published_at = None;
         drop(state);
@@ -532,9 +540,11 @@ fn read_d3d11_texture_region_to_rgba_cached(
     unsafe { texture.GetDesc(&mut src_desc) };
 
     let format = src_desc.Format;
-    if format != DXGI_FORMAT_R16G16B16A16_FLOAT {
-        bail!("unsupported D3D11 texture format: {:?}", format);
-    }
+    let (pixel_format, source_bytes_per_pixel) = match format {
+        DXGI_FORMAT_B8G8R8A8_UNORM => (CapturePixelFormat::Bgra8, 4),
+        DXGI_FORMAT_R16G16B16A16_FLOAT => (CapturePixelFormat::Rgba16Float, 8),
+        _ => bail!("unsupported D3D11 texture format: {format:?}"),
+    };
 
     let texture_width = src_desc.Width.max(1);
     let texture_height = src_desc.Height.max(1);
@@ -629,7 +639,9 @@ fn read_d3d11_texture_region_to_rgba_cached(
     let row_pitch = mapped.RowPitch as usize;
     let source = mapped.pData as *const u8;
     #[cfg(feature = "diagnostics")]
-    let mut f16_dump = (cache.f16_dump_dir.is_some() && !cache.f16_dumped)
+    let mut f16_dump = (pixel_format == CapturePixelFormat::Rgba16Float
+        && cache.f16_dump_dir.is_some()
+        && !cache.f16_dumped)
         .then(|| Vec::with_capacity(width as usize * height as usize * 8));
 
     let t = Instant::now();
@@ -637,12 +649,16 @@ fn read_d3d11_texture_region_to_rgba_cached(
         let row_ptr = unsafe { source.add(row * row_pitch) };
         let dst_row = &mut rgba[row * width as usize * 4..(row + 1) * width as usize * 4];
 
-        let row_bytes = unsafe { std::slice::from_raw_parts(row_ptr, width as usize * 8) };
+        let row_bytes =
+            unsafe { std::slice::from_raw_parts(row_ptr, width as usize * source_bytes_per_pixel) };
         #[cfg(feature = "diagnostics")]
         if let Some(dump) = &mut f16_dump {
             dump.extend_from_slice(row_bytes);
         }
-        converter.convert_row(row_bytes, dst_row);
+        match pixel_format {
+            CapturePixelFormat::Bgra8 => converter.convert_bgra8_row(row_bytes, dst_row),
+            CapturePixelFormat::Rgba16Float => converter.convert_rgba16f_row(row_bytes, dst_row),
+        }
     }
     let t_convert = t.elapsed();
 
@@ -684,6 +700,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
         mapping = ?t_map,
         allocation = ?t_alloc,
         conversion = ?t_convert,
+        source_format = pixel_format.label(),
         texture_w = texture_width,
         texture_h = texture_height,
         region_x = region.x,
