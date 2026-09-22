@@ -1,14 +1,11 @@
 use anyhow::{Result, ensure};
 use image::RgbaImage;
 
-use crate::image_rect::ImageRect;
 use crate::item::StratagemCategory;
 
 use super::matcher::SemanticImage;
 use super::{ImageSample, SampleGeometry, Slot};
 
-pub const TEMPLATE_PHYSICAL_SIZE_LOGICAL: f32 = 69.975;
-const SAMPLE_CORE_FRACTION: f32 = 93.0 / 104.0;
 const FIXED_BACKGROUND: [f32; 3] = [44.0 / 255.0; 3];
 const FIXED_WHITE: [f32; 3] = [1.0, 1.0, 238.0 / 255.0];
 const CATEGORIES: [StratagemCategory; 3] = [
@@ -160,7 +157,7 @@ pub fn crop_slot_sample(image: &RgbaImage, slot: &Slot, physical_size: f32) -> R
         "sample physical size must be positive"
     );
 
-    let core = slot_core_rect(slot);
+    let core = slot.core_rect();
     ensure!(
         core.x + core.w <= image.width() && core.y + core.h <= image.height(),
         "sample crop ({},{},{},{}) is outside image {}x{}",
@@ -180,22 +177,6 @@ pub fn crop_slot_sample(image: &RgbaImage, slot: &Slot, physical_size: f32) -> R
             physical_size,
         },
     })
-}
-
-pub(crate) fn slot_core_rect(slot: &Slot) -> ImageRect {
-    let width = (slot.w as f32 * SAMPLE_CORE_FRACTION)
-        .round_ties_even()
-        .max(1.0) as u32;
-    let height = (slot.h as f32 * SAMPLE_CORE_FRACTION)
-        .round_ties_even()
-        .max(1.0) as u32;
-    let (center_x, center_y) = slot.center_f32();
-    ImageRect {
-        x: (center_x - width as f32 * 0.5).round_ties_even().max(0.0) as u32,
-        y: (center_y - height as f32 * 0.5).round_ties_even().max(0.0) as u32,
-        w: width,
-        h: height,
-    }
 }
 
 fn project_triangle(pixel: [f32; 3], base: [f32; 3], white: [f32; 3], class: [f32; 3]) -> [f32; 2] {

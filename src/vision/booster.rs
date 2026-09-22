@@ -2,8 +2,8 @@ use anyhow::{Result, ensure};
 use image::RgbaImage;
 
 use super::matcher::SemanticImage;
-use super::semantic_extractor::{SemanticExtraction, slot_core_rect};
-use super::{ImageSample, SampleGeometry, Slot};
+use super::semantic_extractor::SemanticExtraction;
+use super::{ImageSample, Slot, crop_slot_sample};
 
 pub(super) const INTERIOR_HALF_WIDTH: f32 = 0.425;
 pub(super) const MATCH_THRESHOLD: f64 = 0.35;
@@ -17,20 +17,10 @@ pub(crate) fn crop_sample(
     slot: &Slot,
     physical_size: f32,
 ) -> Result<ImageSample> {
-    ensure!(
-        physical_size.is_finite() && physical_size > 0.0,
-        "booster sample physical size must be positive"
-    );
-    let core = slot_core_rect(slot);
-    ensure!(
-        core.x + core.w <= image.width() && core.y + core.h <= image.height(),
-        "booster sample crop is outside the captured image"
-    );
-
-    let mut image = image::imageops::crop_imm(image, core.x, core.y, core.w, core.h).to_image();
-    let center_x = slot.center_f32().0 - core.x as f32;
-    let center_y = slot.center_f32().1 - core.y as f32;
-    for (x, y, pixel) in image.enumerate_pixels_mut() {
+    let mut sample = crop_slot_sample(image, slot, physical_size)?;
+    let center_x = sample.geometry.center_x;
+    let center_y = sample.geometry.center_y;
+    for (x, y, pixel) in sample.image.enumerate_pixels_mut() {
         let normalized_x = (x as f32 + 0.5 - center_x) / physical_size;
         let normalized_y = (y as f32 + 0.5 - center_y) / physical_size;
         pixel[3] = if interior_contains(normalized_x, normalized_y) {
@@ -40,14 +30,7 @@ pub(crate) fn crop_sample(
         };
     }
 
-    Ok(ImageSample {
-        image,
-        geometry: SampleGeometry {
-            center_x,
-            center_y,
-            physical_size,
-        },
-    })
+    Ok(sample)
 }
 
 pub(super) fn extract(sample: &ImageSample) -> Result<SemanticExtraction> {

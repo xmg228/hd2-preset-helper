@@ -4,7 +4,6 @@ use tracing::debug;
 
 use crate::image_rect::ImageRect;
 
-use super::semantic_extractor::slot_core_rect;
 use super::{RoiObservation, SlotKind, SlotLayout};
 
 const GRAY_MIN: usize = 4;
@@ -63,7 +62,7 @@ fn measure_home_tone(observation: &RoiObservation) -> Result<HomeToneMeasurement
 
     let histograms = slots
         .into_iter()
-        .map(|slot| gray_histogram(&observation.image, slot_core_rect(slot)))
+        .map(|slot| gray_histogram(&observation.image, slot.core_rect()))
         .collect::<Result<Vec<_>>>()?;
     estimate_histograms(histograms)
 }

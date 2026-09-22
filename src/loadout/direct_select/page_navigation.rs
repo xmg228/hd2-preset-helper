@@ -8,7 +8,7 @@ use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::vision::{
     RecognizerSession, RoiObservation, SlotKind, SlotLayout, TemplateClassifier,
-    TemplateMatchCandidate, slot_core_rect,
+    TemplateMatchCandidate,
 };
 
 use super::super::frame::{fingerprint_distance, image_fingerprint};
@@ -268,7 +268,7 @@ impl PageNavigator {
                         && slot.kind == SlotKind::NoBoosterOption)
             })
             .map(|slot| -> Result<_> {
-                let core = slot_core_rect(slot);
+                let core = slot.core_rect();
                 let response = if slot.kind == SlotKind::NoBoosterOption {
                     vec![0; (core.w * core.h) as usize]
                 } else {

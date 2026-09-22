@@ -6,13 +6,10 @@ use image::RgbaImage;
 use rayon::prelude::*;
 use tracing::debug;
 
-use crate::image_rect::ImageRect;
 use crate::item::ItemKind;
 use crate::vision::color;
 
-use super::{HOME_COLS, LIST_COLS, RoiGeometry, Slot, SlotKind, SlotLayout};
-
-const SLOT_SIDE_LOGICAL: f64 = 78.0;
+use super::{HOME_COLS, LIST_COLS, RoiGeometry, SLOT_SIDE_LOGICAL, Slot, SlotKind, SlotLayout};
 const GRID_PITCH_LOGICAL: f64 = 85.0;
 const HOME_BOOSTER_X_LOGICAL: f64 = 343.0;
 const HOME_Y_LOGICAL: f64 = 478.0;
@@ -37,13 +34,11 @@ const HOME_CONTENT_INSET_RATIO: f32 = 14.0 / 78.0;
 const HOME_CONTENT_MEAN_FLOOR: f32 = 0.08;
 const HOME_CONTENT_MIN_RELATIVE_STD: f32 = 0.15;
 
-// Use the central 90% of the calibrated home-booster hex to avoid its border.
-const BOOSTER_HEX_CENTER_X: f32 = 0.5000;
-const BOOSTER_HEX_CENTER_Y: f32 = 0.5048;
-const BOOSTER_HEX_SIDE_LEN: f32 = 0.4250;
-const BOOSTER_CONTENT_SCALE: f32 = 0.90;
-const BOOSTER_RING_INNER_SCALE: f32 = 0.85;
-const BOOSTER_CORE_SCALE: f32 = 0.60;
+// Conservative concentric sampling regions; actual outer shells vary by icon.
+const BOOSTER_HEX_SIDE_LEN: f64 = 0.425;
+const BOOSTER_CONTENT_SCALE: f64 = 0.90;
+const BOOSTER_RING_INNER_SCALE: f64 = 0.85;
+const BOOSTER_CORE_SCALE: f64 = 0.60;
 const HOME_BOOSTER_MIN_YELLOW_RATIO: f32 = 0.35;
 const HOME_BOOSTER_MIN_RING_YELLOW_RATIO: f32 = 0.80;
 const HOME_BOOSTER_MIN_CORE_DARK_RATIO: f32 = 0.10;
@@ -348,15 +343,7 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
         HOME_COLS.len() as u32,
         SlotKind::HomeBoosterEmpty,
     );
-    booster.kind = home_booster_kind(
-        image,
-        ImageRect {
-            x: booster.x,
-            y: booster.y,
-            w: booster.w,
-            h: booster.h,
-        },
-    );
+    booster.kind = home_booster_kind(image, &booster);
     slots.push(booster);
     slots
 }
@@ -1044,6 +1031,7 @@ fn slot_from_native(left: f64, top: f64, side: f64, row: u32, col: u32, kind: Sl
         h: side.round().max(1.0) as u32,
         center_x: (left + side * 0.5) as f32,
         center_y: (top + side * 0.5) as f32,
+        side,
         row,
         col,
         kind,
@@ -1099,9 +1087,22 @@ fn slot_has_content(image: &RgbaImage, slot: &Slot) -> bool {
     std / mean.max(HOME_CONTENT_MEAN_FLOOR) >= HOME_CONTENT_MIN_RELATIVE_STD
 }
 
-fn home_booster_kind(rgba: &RgbaImage, rect: ImageRect) -> SlotKind {
-    let width = rect.w.min(rgba.width().saturating_sub(rect.x));
-    let height = rect.h.min(rgba.height().saturating_sub(rect.y));
+fn home_booster_kind(rgba: &RgbaImage, slot: &Slot) -> SlotKind {
+    const SQRT_3: f64 = 1.732_050_807_568_877_2;
+
+    let (center_x, center_y) = slot.center_f32();
+    let row_span = |y: u32, scale: f64| {
+        let dy = (y as f64 + 0.5 - center_y as f64).abs();
+        let side = slot.side * BOOSTER_HEX_SIDE_LEN * scale;
+        if dy > 0.5 * SQRT_3 * side {
+            return 0..0;
+        }
+        let half_width = side - dy / SQRT_3;
+        let width = rgba.width() as f64;
+        let left = (center_x as f64 - half_width).floor().clamp(0.0, width) as u32;
+        let right = (center_x as f64 + half_width).ceil().clamp(0.0, width) as u32;
+        left..right
+    };
     let mut yellow_pixels = 0u32;
     let mut content_pixels = 0u32;
     let mut ring_yellow_pixels = 0u32;
@@ -1109,22 +1110,22 @@ fn home_booster_kind(rgba: &RgbaImage, rect: ImageRect) -> SlotKind {
     let mut core_dark_pixels = 0u32;
     let mut core_pixels = 0u32;
 
-    for local_y in 0..height {
-        let content = booster_hex_row_span(local_y, width, height, BOOSTER_CONTENT_SCALE);
-        let ring_inner = booster_hex_row_span(local_y, width, height, BOOSTER_RING_INNER_SCALE);
-        let core = booster_hex_row_span(local_y, width, height, BOOSTER_CORE_SCALE);
+    for y in slot.y..slot.y.saturating_add(slot.h).min(rgba.height()) {
+        let content = row_span(y, BOOSTER_CONTENT_SCALE);
+        let ring_inner = row_span(y, BOOSTER_RING_INNER_SCALE);
+        let core = row_span(y, BOOSTER_CORE_SCALE);
         content_pixels += content.end - content.start;
-        for local_x in content {
-            let [r, g, b, _] = rgba.get_pixel(rect.x + local_x, rect.y + local_y).0;
+        for x in content {
+            let [r, g, b, _] = rgba.get_pixel(x, y).0;
             let yellow = color::is_booster_yellow(r, g, b);
             if yellow {
                 yellow_pixels += 1;
             }
-            if !ring_inner.contains(&local_x) {
+            if !ring_inner.contains(&x) {
                 ring_pixels += 1;
                 ring_yellow_pixels += u32::from(yellow);
             }
-            if core.contains(&local_x) {
+            if core.contains(&x) {
                 core_pixels += 1;
                 core_dark_pixels +=
                     u32::from(color::luma601_u8(r, g, b) <= HOME_BOOSTER_MAX_CORE_LUMA);
@@ -1143,25 +1144,4 @@ fn home_booster_kind(rgba: &RgbaImage, rect: ImageRect) -> SlotKind {
     } else {
         SlotKind::HomeBoosterEmpty
     }
-}
-
-fn booster_hex_row_span(local_y: u32, width: u32, height: u32, scale: f32) -> std::ops::Range<u32> {
-    const SQRT_3: f32 = 1.732_050_8;
-
-    let y = (local_y as f32 + 0.5) / height as f32;
-    let dy = (y - BOOSTER_HEX_CENTER_Y).abs();
-    let side_len = BOOSTER_HEX_SIDE_LEN * scale;
-    if dy > 0.5 * SQRT_3 * side_len {
-        return 0..0;
-    }
-
-    let half_width = side_len - dy / SQRT_3;
-    let width = width as f32;
-    let left = ((BOOSTER_HEX_CENTER_X - half_width) * width)
-        .floor()
-        .clamp(0.0, width) as u32;
-    let right = ((BOOSTER_HEX_CENTER_X + half_width) * width)
-        .ceil()
-        .clamp(0.0, width) as u32;
-    left..right
 }

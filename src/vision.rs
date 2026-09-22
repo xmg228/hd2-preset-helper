@@ -28,11 +28,17 @@ pub use diagnostics::save_list_map_image;
 #[cfg(feature = "diagnostics")]
 pub(crate) use home_tone_diagnostics::log_home_tone;
 pub use recognizer::{RecognizerRuntime, RecognizerSession};
-pub(crate) use semantic_extractor::slot_core_rect;
-pub use semantic_extractor::{TEMPLATE_PHYSICAL_SIZE_LOGICAL, crop_slot_sample};
+pub use semantic_extractor::crop_slot_sample;
 pub use template_classifier::{TemplateClassifier, TemplateMatchCandidate};
 
 pub const ROI_REFERENCE_H: u32 = 624;
+
+// Geometry in the 1920x1080 reference UI. The core excludes the slot frame;
+// icon sizes describe texture scale, not the size of the saved crop.
+const SLOT_SIDE_LOGICAL: f64 = 78.0;
+const CORE_INSET_LOGICAL: f64 = 4.0;
+pub(crate) const HOME_ICON_SIZE_LOGICAL: f32 = 70.0;
+const LIST_ICON_SIZE_LOGICAL: f32 = 51.0;
 
 const LIST_COLS: [i32; 4] = [58, 143, 228, 313];
 const HOME_COLS: [i32; 4] = [8, 93, 178, 263];
@@ -140,6 +146,8 @@ pub struct Slot {
     pub h: u32,
     center_x: f32,
     center_y: f32,
+    /// Continuous distance between opposite frame center lines, in native pixels.
+    side: f64,
     pub row: u32,
     pub col: u32,
     pub kind: SlotKind,
@@ -153,6 +161,25 @@ impl Slot {
 
     pub fn center_f32(&self) -> (f32, f32) {
         (self.center_x, self.center_y)
+    }
+
+    /// Fixed integer crop size per UI scale, positioned around the continuous
+    /// center. The sample retains its fractional center relative to this rect.
+    pub(crate) fn core_rect(&self) -> ImageRect {
+        let scale = self.side / SLOT_SIDE_LOGICAL;
+        let side = ((SLOT_SIDE_LOGICAL - 2.0 * CORE_INSET_LOGICAL) * scale)
+            .round_ties_even()
+            .max(1.0) as u32;
+        ImageRect {
+            x: (self.center_x as f64 - side as f64 * 0.5)
+                .round_ties_even()
+                .max(0.0) as u32,
+            y: (self.center_y as f64 - side as f64 * 0.5)
+                .round_ties_even()
+                .max(0.0) as u32,
+            w: side,
+            h: side,
+        }
     }
 }
 

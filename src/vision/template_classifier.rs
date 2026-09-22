@@ -15,9 +15,10 @@ use super::matcher::{
 use super::semantic_extractor::{
     SemanticExtraction, SemanticSource, crop_slot_sample, stratagem_foreground_response,
 };
-use super::{Classification, ImageSample, ItemAvailability, RoiObservation, Slot, SlotLayout};
-
-const CANDIDATE_PHYSICAL_SIZE: f32 = 51.0;
+use super::{
+    Classification, ImageSample, ItemAvailability, LIST_ICON_SIZE_LOGICAL, RoiObservation, Slot,
+    SlotLayout,
+};
 const ENV_PHASES: [f32; 5] = [-0.45, -0.225, 0.0, 0.225, 0.45];
 
 struct PreparedTemplateEntry {
@@ -129,7 +130,7 @@ impl TemplateClassifier {
             .iter()
             .find(|slot| slot.kind.is_selectable_item_for(item_kind))
             .with_context(|| format!("{} list contains no candidate slot", item_kind.label()))?;
-        let candidate_physical_size = CANDIDATE_PHYSICAL_SIZE * current_ui_scale;
+        let candidate_physical_size = LIST_ICON_SIZE_LOGICAL * current_ui_scale;
         let candidate_geometry = crop_sample(
             item_kind,
             &initial_page.image,

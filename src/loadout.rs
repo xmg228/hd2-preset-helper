@@ -10,7 +10,7 @@ use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::preset::CapturedPreset;
 use crate::vision::{
-    RecognizerSession, RoiObservation, Slot, SlotKind, SlotLayout, TEMPLATE_PHYSICAL_SIZE_LOGICAL,
+    HOME_ICON_SIZE_LOGICAL, RecognizerSession, RoiObservation, Slot, SlotKind, SlotLayout,
     crop_booster_sample, crop_slot_sample, icon_likeness, luma601_u8,
 };
 
@@ -96,7 +96,7 @@ fn collect_home_stratagems(
         if slot.kind != SlotKind::Stratagem {
             bail!("home stratagem slot {col} is empty");
         }
-        let physical_size = TEMPLATE_PHYSICAL_SIZE_LOGICAL * stratagem_template_scale;
+        let physical_size = HOME_ICON_SIZE_LOGICAL * stratagem_template_scale;
         items.push(crop_slot_sample(&result.image, slot, physical_size)?);
     }
 
@@ -349,7 +349,7 @@ pub fn collect_home_booster(
     if slot.kind == SlotKind::HomeBoosterEmpty {
         return Ok(None);
     }
-    let physical_size = TEMPLATE_PHYSICAL_SIZE_LOGICAL * template_scale;
+    let physical_size = HOME_ICON_SIZE_LOGICAL * template_scale;
     crop_booster_sample(&result.image, slot, physical_size).map(Some)
 }
 
