@@ -83,7 +83,8 @@ hold-to-preview; action status still appears when the overlay is enabled.
 Restart the application after changing hotkeys.
 
 Selection order and automatic ready-up can also be toggled from the tray menu.
-Changes are saved to `data/config.toml`.
+
+Use **Overlay monitor** in the tray menu to follow the game or choose a fixed display.
 
 Optional overlay labels can be added in `data/config.toml`:
 

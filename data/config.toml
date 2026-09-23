@@ -36,3 +36,7 @@ keys = ["f7", "f8", "f9", "f10", "f11", "f12"]
 [overlay]
 # Show preset previews and action status.
 enabled = true
+
+# "auto" follows the game, or uses the primary display when the game is not in front.
+# To use a fixed display, select it from the tray's Overlay monitor menu.
+monitor = "auto"

@@ -15,6 +15,10 @@ pub struct TrayHandle {
 }
 
 impl TrayHandle {
+    pub fn update_monitor(&self, monitor: String) {
+        self.platform.update_monitor(monitor);
+    }
+
     pub fn update_settings(&self, settings: PresetActionOptions) {
         self.platform.update_settings(settings);
     }
@@ -28,11 +32,12 @@ pub enum TrayEvent {
     ToggleApplyInSavedOrder,
     ToggleAutoReadyUp,
     ToggleSaveFallbackWhenTaken,
+    SetOverlayMonitor(String),
     ExitRequested,
 }
 
-pub fn spawn(settings: PresetActionOptions) -> Result<TrayHandle> {
+pub fn spawn(settings: PresetActionOptions, monitor: String) -> Result<TrayHandle> {
     let (event_tx, events) = channel();
-    let platform = PlatformTray::spawn(settings, event_tx)?;
+    let platform = PlatformTray::spawn(settings, monitor, event_tx)?;
     Ok(TrayHandle { platform, events })
 }

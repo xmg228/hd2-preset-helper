@@ -1,3 +1,5 @@
+pub mod monitors;
+
 use anyhow::{Context, Result};
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;

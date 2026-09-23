@@ -8,6 +8,7 @@ pub enum AppCommand {
     ToggleApplyInSavedOrder,
     ToggleAutoReadyUp,
     ToggleSaveFallbackWhenTaken,
+    SetOverlayMonitor(String),
     Exit,
 }
 
@@ -57,6 +58,7 @@ pub enum PresetCompletion {
 #[derive(Clone, Debug)]
 pub enum AppEvent {
     ModifiersChanged(bool),
+    OverlayMonitorChanged(String),
     Shutdown,
     PresetListUpdated {
         presets: Vec<OverlayPreset>,

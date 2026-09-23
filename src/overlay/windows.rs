@@ -23,21 +23,25 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetMessageW, GetSystemMetrics, HWND_TOPMOST, KillTimer, LWA_ALPHA, MSG, PostThreadMessageW,
-    RegisterClassW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-    SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP,
-    WM_PAINT, WM_QUIT, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+    GetMessageW, HWND_TOPMOST, KillTimer, LWA_ALPHA, MSG, PostMessageW, PostThreadMessageW,
+    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SetLayeredWindowAttributes,
+    SetTimer, SetWindowPos, ShowWindow, TranslateMessage, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED,
+    WM_PAINT, WM_QUIT, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::PCWSTR;
 
 use super::{OverlayEventPolicy, OverlayModel, OverlayTone, compact_error};
 use crate::app_events::{AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::assets;
+use crate::config::AUTO_MONITOR;
+use crate::game_window;
+use crate::platform::monitors;
 use crate::preset::load_template_image;
 
 const OVERLAY_CLASS: &str = "hd2-preset-helper-overlay";
 const APP_EVENT_MESSAGE: u32 = WM_APP + 1;
+const REFRESH_MONITOR_MESSAGE: u32 = WM_APP + 2;
 const BASE_SCREEN_MARGIN: i32 = 24;
 const BASE_WINDOW_W: i32 = 224;
 const BASE_PADDING: i32 = 16;
@@ -74,6 +78,8 @@ struct OverlayState {
     presets_path: PathBuf,
     icons: HashMap<String, Option<IconBitmap>>,
     metrics: OverlayMetrics,
+    monitor: String,
+    screen_bounds: RECT,
 }
 
 #[derive(Clone, Copy)]
@@ -328,12 +334,14 @@ fn centered_y(top: i32, outer_h: i32, inner_h: i32) -> i32 {
 }
 
 impl OverlayState {
-    fn new(presets_path: PathBuf) -> Self {
+    fn new(presets_path: PathBuf, monitor: String, screen_bounds: RECT) -> Self {
         Self {
             model: OverlayModel::new(),
             presets_path,
             icons: HashMap::new(),
             metrics: OverlayMetrics::default(),
+            monitor,
+            screen_bounds,
         }
     }
 
@@ -348,8 +356,8 @@ impl OverlayState {
 }
 
 impl OverlayContext {
-    fn new(presets_path: PathBuf) -> Self {
-        let state = OverlayState::new(presets_path);
+    fn new(presets_path: PathBuf, monitor: String, screen_bounds: RECT) -> Self {
+        let state = OverlayState::new(presets_path, monitor, screen_bounds);
         let renderer = OverlayRenderer::create(state.metrics);
         Self { state, renderer }
     }
@@ -377,7 +385,7 @@ impl Drop for OverlayHandle {
     }
 }
 
-pub(super) fn start(presets_path: &Path) -> Result<OverlayHandle> {
+pub(super) fn start(presets_path: &Path, monitor: String) -> Result<OverlayHandle> {
     let (sender, receiver) = mpsc::channel();
     let wake_thread = Arc::new(AtomicU32::new(0));
     let overlay_wake_thread = Arc::clone(&wake_thread);
@@ -386,7 +394,7 @@ pub(super) fn start(presets_path: &Path) -> Result<OverlayHandle> {
     let thread = thread::Builder::new()
         .name("hd2-preset-helper-overlay".to_string())
         .spawn(move || {
-            if let Err(error) = run_overlay(receiver, presets_path, &overlay_wake_thread) {
+            if let Err(error) = run_overlay(receiver, presets_path, monitor, &overlay_wake_thread) {
                 warn!(error = %format!("{error:#}"), "overlay thread stopped");
             }
             overlay_wake_thread.store(0, Ordering::Release);
@@ -411,11 +419,15 @@ pub(super) fn start(presets_path: &Path) -> Result<OverlayHandle> {
 fn run_overlay(
     receiver: Receiver<AppEvent>,
     presets_path: PathBuf,
+    monitor: String,
     wake_thread: &AtomicU32,
 ) -> Result<()> {
-    OVERLAY.with(|overlay| *overlay.borrow_mut() = Some(OverlayContext::new(presets_path)));
+    let screen_bounds = resolve_overlay_bounds(&monitor)?;
+    OVERLAY.with(|overlay| {
+        *overlay.borrow_mut() = Some(OverlayContext::new(presets_path, monitor, screen_bounds))
+    });
     let initial_metrics = OverlayMetrics::default();
-    let initial_position = overlay_position(initial_metrics);
+    let initial_position = overlay_position(initial_metrics, screen_bounds);
 
     let class_name = wide_null(OVERLAY_CLASS);
     let window_title = wide_null("HD2 Preset Helper");
@@ -449,23 +461,7 @@ fn run_overlay(
         SetLayeredWindowAttributes(hwnd, COLORREF(0), OVERLAY_ALPHA, LWA_ALPHA)
             .context("failed to configure overlay transparency")?;
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        let metrics = OverlayMetrics::from_dpi(GetDpiForWindow(hwnd));
-        let position = overlay_position(metrics);
-        OVERLAY.with(|overlay| {
-            if let Some(overlay) = overlay.borrow_mut().as_mut() {
-                overlay.state.set_metrics(metrics);
-            }
-        });
-        SetWindowPos(
-            hwnd,
-            Some(HWND_TOPMOST),
-            position.0,
-            position.1,
-            metrics.window_w,
-            metrics.window_h,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-        .context("failed to position overlay window")?;
+        resize_overlay(hwnd);
 
         wake_thread.store(GetCurrentThreadId(), Ordering::Release);
         run_overlay_loop(hwnd, receiver);
@@ -476,12 +472,38 @@ fn run_overlay(
     Ok(())
 }
 
-fn overlay_position(metrics: OverlayMetrics) -> (i32, i32) {
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(metrics.window_w);
+fn overlay_position(metrics: OverlayMetrics, screen: RECT) -> (i32, i32) {
     (
-        screen_w - metrics.window_w - metrics.screen_margin,
-        metrics.screen_margin,
+        (screen.right - metrics.window_w - metrics.screen_margin).max(screen.left),
+        screen.top + metrics.screen_margin,
     )
+}
+
+fn resolve_overlay_bounds(monitor: &str) -> Result<RECT> {
+    let game = game_window::find_game_window_once().ok();
+    monitors::resolve_bounds(
+        (monitor != AUTO_MONITOR).then_some(monitor),
+        game.as_ref().map(|window| window.native_handle()),
+    )
+}
+
+fn refresh_monitor(hwnd: HWND) {
+    let selection = OVERLAY.with(|overlay| {
+        overlay
+            .borrow()
+            .as_ref()
+            .map(|overlay| overlay.state.monitor.clone())
+    });
+    let Some(selection) = selection else { return };
+    match resolve_overlay_bounds(&selection) {
+        Ok(bounds) => OVERLAY.with(|overlay| {
+            if let Some(overlay) = overlay.borrow_mut().as_mut() {
+                overlay.state.screen_bounds = bounds;
+            }
+        }),
+        Err(error) => warn!(%error, "failed to resolve overlay monitor"),
+    }
+    resize_overlay(hwnd);
 }
 
 fn run_overlay_loop(hwnd: HWND, receiver: Receiver<AppEvent>) {
@@ -563,6 +585,14 @@ fn drain_app_events(
                 handle_modifier_change(hwnd, down, *hold_visible, hide_deadline, fade_started);
             }
             Ok(AppEvent::Shutdown) => return false,
+            Ok(AppEvent::OverlayMonitorChanged(monitor)) => {
+                OVERLAY.with(|overlay| {
+                    if let Some(overlay) = overlay.borrow_mut().as_mut() {
+                        overlay.state.monitor = monitor;
+                    }
+                });
+                refresh_monitor(hwnd);
+            }
             Ok(event) => {
                 // Apply every queued state update; the latest event controls visibility.
                 if let Some(next) = apply_event(event) {
@@ -582,7 +612,6 @@ fn drain_app_events(
     cancel_hide_timer(hwnd, hide_deadline);
     cancel_timer(hwnd, TIMER_FADE);
     *fade_started = None;
-    resize_overlay(hwnd);
     show_overlay(hwnd);
 
     if !*modifier_down && let OverlayEventPolicy::HideAfter(delay) = policy {
@@ -603,7 +632,6 @@ fn handle_modifier_change(
         cancel_hide_timer(hwnd, hide_deadline);
         cancel_timer(hwnd, TIMER_FADE);
         *fade_started = None;
-        resize_overlay(hwnd);
         show_overlay(hwnd);
     } else if !hold_visible {
         schedule_hide_timer(hwnd, hide_deadline, HOLD_KEY_RELEASE_HIDE_DELAY);
@@ -699,6 +727,7 @@ fn update_fade(hwnd: HWND, fade_started: &mut Option<Instant>) {
 }
 
 fn show_overlay(hwnd: HWND) {
+    refresh_monitor(hwnd);
     unsafe {
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), OVERLAY_ALPHA, LWA_ALPHA);
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -710,7 +739,15 @@ fn resize_overlay(hwnd: HWND) {
     let Some(metrics) = refresh_status_metrics(hwnd) else {
         return;
     };
-    let position = overlay_position(metrics);
+    let Some(screen) = OVERLAY.with(|overlay| {
+        overlay
+            .borrow()
+            .as_ref()
+            .map(|overlay| overlay.state.screen_bounds)
+    }) else {
+        return;
+    };
+    let position = overlay_position(metrics, screen);
 
     unsafe {
         let _ = SetWindowPos(
@@ -720,8 +757,9 @@ fn resize_overlay(hwnd: HWND) {
             position.1,
             metrics.window_w,
             metrics.window_h,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            SWP_NOACTIVATE,
         );
+        let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }
 
@@ -729,6 +767,10 @@ fn refresh_status_metrics(hwnd: HWND) -> Option<OverlayMetrics> {
     OVERLAY.with(|overlay| {
         let mut overlay = overlay.borrow_mut();
         let overlay = overlay.as_mut()?;
+        let metrics = OverlayMetrics::from_dpi(unsafe { GetDpiForWindow(hwnd) });
+        if metrics.scale != overlay.state.metrics.scale {
+            overlay.state.set_metrics(metrics);
+        }
         overlay.renderer.sync(overlay.state.metrics);
 
         let metrics = overlay.state.metrics;
@@ -754,7 +796,8 @@ fn refresh_status_metrics(hwnd: HWND) -> Option<OverlayMetrics> {
         };
         let base_window_w = scaled_i32(BASE_WINDOW_W, metrics.scale) + fallback_w;
         let label_icon_gap = scaled_i32(BASE_LABEL_ICON_GAP, metrics.scale);
-        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(base_window_w);
+        let screen = overlay.state.screen_bounds;
+        let screen_w = (screen.right - screen.left).max(base_window_w);
         let max_window_w = (screen_w - metrics.screen_margin * 2).max(base_window_w);
         let max_label_w = (max_window_w - base_window_w - label_icon_gap).max(0);
         let label_w = if measured_label_w > 0 {
@@ -848,6 +891,17 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
+        WM_DPICHANGED | WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
+            // Finish the current cross-monitor move before laying out at the new DPI.
+            unsafe {
+                let _ = PostMessageW(Some(hwnd), REFRESH_MONITOR_MESSAGE, WPARAM(0), LPARAM(0));
+            }
+            LRESULT(0)
+        }
+        REFRESH_MONITOR_MESSAGE => {
+            refresh_monitor(hwnd);
+            LRESULT(0)
+        }
         WM_PAINT => {
             paint_overlay(hwnd);
             LRESULT(0)

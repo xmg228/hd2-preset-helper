@@ -15,7 +15,7 @@ use tracing_subscriber::prelude::*;
 
 use crate::app_events::{AppCommand, AppEvent, AppEventSink, OverlayPreset, OverlayPresetStatus};
 use crate::app_paths::AppPaths;
-use crate::config::{AppConfig, load_app_config, save_preset_setting};
+use crate::config::{AppConfig, load_app_config, save_setting};
 use crate::preset::{
     Preset, archive_legacy_preset_file, invalid_preset_reason, load_presets, validate_preset,
 };
@@ -94,10 +94,13 @@ fn run_preset_hotkey_mode(config: AppConfig, paths: &AppPaths) -> Result<()> {
         auto_ready_up: config.presets.auto_ready_up,
         save_fallback_when_taken: config.presets.save_fallback_when_taken,
     };
-    let tray = tray::spawn(settings)?;
+    let tray = tray::spawn(settings, config.overlay.monitor.clone())?;
     let worker = ActionWorker::start(paths.clone())?;
     let overlay = if config.overlay.enabled {
-        Some(overlay::start(&paths.presets)?)
+        Some(overlay::start(
+            &paths.presets,
+            config.overlay.monitor.clone(),
+        )?)
     } else {
         None
     };
@@ -203,6 +206,9 @@ impl AppController {
                     tray::TrayEvent::ToggleSaveFallbackWhenTaken => {
                         AppCommand::ToggleSaveFallbackWhenTaken
                     }
+                    tray::TrayEvent::SetOverlayMonitor(monitor) => {
+                        AppCommand::SetOverlayMonitor(monitor)
+                    }
                     tray::TrayEvent::ExitRequested => AppCommand::Exit,
                 })?;
             }
@@ -297,6 +303,18 @@ impl AppController {
                     self.worker.send(Work::Discard)?;
                 }
             }
+            AppCommand::SetOverlayMonitor(monitor) => {
+                self.tray.update_monitor(monitor.clone());
+                self.events
+                    .emit(AppEvent::OverlayMonitorChanged(monitor.clone()));
+                if let Err(error) =
+                    save_setting(&self.paths.config, "overlay", "monitor", monitor.as_str())
+                {
+                    warn!(error = %format!("{error:#}"),
+                        "failed to persist overlay monitor; it remains active for this session");
+                }
+                info!(monitor, "overlay monitor changed from tray");
+            }
             toggle => {
                 let (key, value) = match toggle {
                     AppCommand::ToggleApplyInSavedOrder => {
@@ -318,7 +336,7 @@ impl AppController {
                     _ => unreachable!(),
                 };
                 self.tray.update_settings(self.settings);
-                if let Err(error) = save_preset_setting(&self.paths.config, key, value) {
+                if let Err(error) = save_setting(&self.paths.config, "presets", key, value) {
                     warn!(setting = key, value, error = %format!("{error:#}"),
                         "failed to persist tray setting; it remains active for this session");
                 }

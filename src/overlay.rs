@@ -14,8 +14,8 @@ mod windows;
 pub use windows::OverlayHandle;
 
 #[cfg(target_os = "windows")]
-pub fn start(presets_path: &Path) -> Result<OverlayHandle> {
-    windows::start(presets_path)
+pub fn start(presets_path: &Path, monitor: String) -> Result<OverlayHandle> {
+    windows::start(presets_path, monitor)
 }
 
 const DONE_HIDE_DELAY: Duration = Duration::from_secs(2);
@@ -79,7 +79,9 @@ impl OverlayModel {
 
     fn apply(&mut self, event: AppEvent) -> Option<OverlayModelUpdate> {
         let (policy, presets_changed) = match event {
-            AppEvent::ModifiersChanged(_) | AppEvent::Shutdown => return None,
+            AppEvent::ModifiersChanged(_)
+            | AppEvent::OverlayMonitorChanged(_)
+            | AppEvent::Shutdown => return None,
             AppEvent::PresetListUpdated { presets } => {
                 self.presets = presets;
                 self.set_ready();

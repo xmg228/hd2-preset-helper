@@ -10,6 +10,7 @@ use crate::input;
 const DEFAULT_CONFIG_TOML: &str = include_str!("../data/config.toml");
 // Historical config value, independent of the current platform's data directory.
 const LEGACY_PRESETS_PATH: &str = "data/presets.json";
+pub const AUTO_MONITOR: &str = "auto";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -57,15 +58,24 @@ impl Default for HotkeyConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct OverlaySettings {
     pub enabled: bool,
+    pub monitor: String,
 }
 
 impl Default for OverlaySettings {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            monitor: AUTO_MONITOR.to_string(),
+        }
     }
 }
 
-pub fn save_preset_setting(config_path: &Path, key: &str, value: bool) -> Result<()> {
+pub fn save_setting(
+    config_path: &Path,
+    section: &str,
+    key: &str,
+    value: impl Into<toml_edit::Value>,
+) -> Result<()> {
     let text = fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
     let mut document = text
@@ -75,22 +85,22 @@ pub fn save_preset_setting(config_path: &Path, key: &str, value: bool) -> Result
         .parse::<toml_edit::DocumentMut>()
         .context("failed to parse the embedded default configuration for editing")?;
 
-    if document.get("presets").is_none() {
-        document["presets"] = defaults["presets"].clone();
+    if document.get(section).is_none() {
+        document[section] = defaults[section].clone();
     }
-    let default_presets = defaults["presets"]
+    let default_section = defaults[section]
         .as_table_like()
-        .context("default presets configuration is not a table")?;
-    let default_key = default_presets
+        .context("default configuration section is not a table")?;
+    let default_key = default_section
         .key(key)
-        .with_context(|| format!("unknown preset setting: {key}"))?;
-    let presets = document["presets"]
+        .with_context(|| format!("unknown setting: {section}.{key}"))?;
+    let table = document[section]
         .as_table_like_mut()
-        .context("presets configuration is not a table")?;
-    if let Some(setting) = presets.get_mut(key) {
+        .with_context(|| format!("{section} configuration is not a table"))?;
+    if let Some(setting) = table.get_mut(key) {
         *setting = toml_edit::value(value);
     } else {
-        presets
+        table
             .entry_format(default_key)
             .or_insert(toml_edit::value(value));
     }
