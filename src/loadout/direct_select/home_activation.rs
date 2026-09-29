@@ -1,18 +1,21 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
-use tracing::{debug, debug_span};
+use anyhow::{Context, Result, bail};
+use tracing::{debug, debug_span, warn};
 
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::vision::{RecognizerSession, RoiObservation};
 
-use super::super::{UiState, home_booster_slot};
+use super::super::home::{
+    UiState, detect_ui_state, home_booster_slot, scan_loadout_home, wait_for_stable_ui_state,
+};
 
 use super::CLICK_HOLD_MS;
 
 const LIST_OPEN_TIMEOUT: Duration = Duration::from_millis(1500);
-const LIST_OPEN_INITIAL_DELAY: Duration = Duration::from_millis(150);
+const LIST_OPEN_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_OPEN_CLICK_ATTEMPTS: u32 = 3;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HomeOpenTarget {
@@ -28,6 +31,8 @@ pub(super) fn open_slot_list(
     let span = debug_span!("open_slot_list", item_kind = %target.item_kind.label());
     let _guard = span.enter();
     let target_state = UiState::List(target.item_kind);
+    let started = Instant::now();
+    let mut click_attempts = 1;
 
     debug!(
         x = target.point.0,
@@ -36,17 +41,47 @@ pub(super) fn open_slot_list(
         "opening home list with a direct mouse click"
     );
     automation.click(target.point, CLICK_HOLD_MS)?;
-    std::thread::sleep(LIST_OPEN_INITIAL_DELAY);
 
-    let observation = super::super::wait_for_stable_ui_state(
-        automation,
-        recognizer,
-        target_state,
-        LIST_OPEN_TIMEOUT,
-    )?
-    .with_context(|| format!("timed out waiting for {} UI state", target_state.label()))?;
+    loop {
+        let remaining = LIST_OPEN_TIMEOUT.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            bail!(
+                "timed out waiting for {} after {click_attempts} home slot click attempts",
+                target_state.label()
+            );
+        }
+        let wait = if click_attempts < MAX_OPEN_CLICK_ATTEMPTS {
+            remaining.min(LIST_OPEN_RETRY_INTERVAL)
+        } else {
+            remaining
+        };
+        if let Some(observation) =
+            wait_for_stable_ui_state(automation, recognizer, target_state, wait)?
+        {
+            debug!(
+                item_kind = %target.item_kind.label(),
+                click_attempts,
+                elapsed = ?started.elapsed(),
+                "home list opened"
+            );
+            return Ok(observation);
+        }
 
-    Ok(observation)
+        // Never retry on an unconfirmed transition or an already-open list.
+        if click_attempts < MAX_OPEN_CLICK_ATTEMPTS {
+            let home = scan_loadout_home(automation, recognizer)?;
+            if detect_ui_state(&home) != UiState::Unknown && started.elapsed() < LIST_OPEN_TIMEOUT {
+                click_attempts += 1;
+                warn!(
+                    item_kind = %target.item_kind.label(),
+                    click_attempts,
+                    elapsed = ?started.elapsed(),
+                    "still on loadout home; retrying list entry click"
+                );
+                automation.click(target.point, CLICK_HOLD_MS)?;
+            }
+        }
+    }
 }
 
 pub(super) fn home_booster_target(observation: &RoiObservation) -> Result<HomeOpenTarget> {

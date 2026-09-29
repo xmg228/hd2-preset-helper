@@ -1,0 +1,14 @@
+export component AppTray inherits SystemTrayIcon {
+    in property <image> tray-icon;
+    icon: tray-icon;
+    tooltip: "HD2 Preset Helper";
+    callback open-panel();
+    callback exit();
+    clicked => { root.open-panel(); }
+    Menu {
+        MenuItem {
+            title: "Exit";
+            activated => { root.exit(); }
+        }
+    }
+}

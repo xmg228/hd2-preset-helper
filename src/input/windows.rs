@@ -4,19 +4,22 @@ use anyhow::{Context, Result, bail};
 use tracing::{trace, warn};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-    MOD_SHIFT, MOD_WIN, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT,
-    RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC,
+    MAPVK_VSC_TO_VK_EX, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSE_EVENT_FLAGS,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MapVirtualKeyW, SendInput, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WHEEL_DELTA, WM_HOTKEY,
+    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    WHEEL_DELTA,
 };
 
 use crate::window::{ClientPoint, WindowTarget};
 
-use super::{HotkeyModifier, HotkeyModifiers, HotkeySpec, Key};
+use super::{HotkeyModifier, HotkeyModifiers, Key};
+
+mod hotkeys;
+pub use hotkeys::Hotkeys;
 
 const CLICK_MOVE_SETTLE_DELAY: Duration = Duration::from_millis(30);
 
@@ -34,7 +37,50 @@ pub struct InputSession {
 impl Key {
     fn scan_code(self) -> u16 {
         match self {
+            Key::A => 0x1E,
             Key::B => 0x30,
+            Key::D => 0x20,
+            Key::E => 0x12,
+            Key::F => 0x21,
+            Key::G => 0x22,
+            Key::H => 0x23,
+            Key::I => 0x17,
+            Key::J => 0x24,
+            Key::K => 0x25,
+            Key::L => 0x26,
+            Key::M => 0x32,
+            Key::N => 0x31,
+            Key::O => 0x18,
+            Key::P => 0x19,
+            Key::Q => 0x10,
+            Key::R => 0x13,
+            Key::S => 0x1F,
+            Key::T => 0x14,
+            Key::U => 0x16,
+            Key::V => 0x2F,
+            Key::W => 0x11,
+            Key::X => 0x2D,
+            Key::Y => 0x15,
+            Key::Up => 0x48,
+            Key::Down => 0x50,
+            Key::Left => 0x4B,
+            Key::Right => 0x4D,
+            Key::Z => 0x2C,
+            Key::C => 0x2E,
+            Key::Space => 0x39,
+            Key::Escape => 0x01,
+            Key::Minus => 0x0C,
+            Key::Equal => 0x0D,
+            Key::BracketLeft => 0x1A,
+            Key::BracketRight => 0x1B,
+            Key::Backslash => 0x2B,
+            Key::Semicolon => 0x27,
+            Key::Quote => 0x28,
+            Key::Backquote => 0x29,
+            Key::Comma => 0x33,
+            Key::Period => 0x34,
+            Key::Slash => 0x35,
+            Key::IntlBackslash => 0x56,
             Key::Digit0 => 0x0B,
             Key::Digit1 => 0x02,
             Key::Digit2 => 0x03,
@@ -73,12 +119,74 @@ impl Key {
             Key::LAlt | Key::RAlt => 0x38,
             Key::LWin => 0x5B,
             Key::RWin => 0x5C,
+            _ => unsafe { MapVirtualKeyW(self.virtual_key(), MAPVK_VK_TO_VSC) as u16 },
         }
     }
 
     fn virtual_key(self) -> u32 {
         match self {
+            Key::A => 0x41,
             Key::B => 0x42,
+            Key::D => 0x44,
+            Key::E => 0x45,
+            Key::F => 0x46,
+            Key::G => 0x47,
+            Key::H => 0x48,
+            Key::I => 0x49,
+            Key::J => 0x4A,
+            Key::K => 0x4B,
+            Key::L => 0x4C,
+            Key::M => 0x4D,
+            Key::N => 0x4E,
+            Key::O => 0x4F,
+            Key::P => 0x50,
+            Key::Q => 0x51,
+            Key::R => 0x52,
+            Key::S => 0x53,
+            Key::T => 0x54,
+            Key::U => 0x55,
+            Key::V => 0x56,
+            Key::W => 0x57,
+            Key::X => 0x58,
+            Key::Y => 0x59,
+            Key::Up => 0x26,
+            Key::Down => 0x28,
+            Key::Left => 0x25,
+            Key::Right => 0x27,
+            Key::Z => 0x5A,
+            Key::C => 0x43,
+            Key::Space => 0x20,
+            Key::Escape => 0x1B,
+            Key::Tab => 0x09,
+            Key::Enter => 0x0D,
+            Key::Backspace => 0x08,
+            Key::Insert => 0x2D,
+            Key::Delete => 0x2E,
+            Key::Home => 0x24,
+            Key::End => 0x23,
+            Key::PageUp => 0x21,
+            Key::PageDown => 0x22,
+            Key::CapsLock => 0x14,
+            Key::NumLock => 0x90,
+            Key::ScrollLock => 0x91,
+            Key::PrintScreen => 0x2C,
+            Key::Pause => 0x13,
+            Key::Menu => 0x5D,
+            // Punctuation names denote physical keys; OEM virtual keys vary by layout.
+            Key::Minus
+            | Key::Equal
+            | Key::BracketLeft
+            | Key::BracketRight
+            | Key::Backslash
+            | Key::Semicolon
+            | Key::Quote
+            | Key::Backquote
+            | Key::Comma
+            | Key::Period
+            | Key::Slash
+            | Key::IntlBackslash => unsafe {
+                MapVirtualKeyW(self.scan_code() as u32, MAPVK_VSC_TO_VK_EX)
+            },
             Key::Digit0 => 0x30,
             Key::Digit1 => 0x31,
             Key::Digit2 => 0x32,
@@ -99,6 +207,11 @@ impl Key {
             Key::Numpad7 => 0x67,
             Key::Numpad8 => 0x68,
             Key::Numpad9 => 0x69,
+            Key::NumpadAdd => 0x6B,
+            Key::NumpadSubtract => 0x6D,
+            Key::NumpadMultiply => 0x6A,
+            Key::NumpadDivide => 0x6F,
+            Key::NumpadDecimal => 0x6E,
             Key::F1 => 0x70,
             Key::F2 => 0x71,
             Key::F3 => 0x72,
@@ -111,6 +224,18 @@ impl Key {
             Key::F10 => 0x79,
             Key::F11 => 0x7A,
             Key::F12 => 0x7B,
+            Key::F13 => 0x7C,
+            Key::F14 => 0x7D,
+            Key::F15 => 0x7E,
+            Key::F16 => 0x7F,
+            Key::F17 => 0x80,
+            Key::F18 => 0x81,
+            Key::F19 => 0x82,
+            Key::F20 => 0x83,
+            Key::F21 => 0x84,
+            Key::F22 => 0x85,
+            Key::F23 => 0x86,
+            Key::F24 => 0x87,
             Key::LCtrl => 0xA2,
             Key::RCtrl => 0xA3,
             Key::LShift => 0xA0,
@@ -123,7 +248,27 @@ impl Key {
     }
 
     fn is_extended(self) -> bool {
-        matches!(self, Key::RCtrl | Key::RAlt | Key::LWin | Key::RWin)
+        matches!(
+            self,
+            Key::RCtrl
+                | Key::RAlt
+                | Key::LWin
+                | Key::RWin
+                | Key::Up
+                | Key::Down
+                | Key::Left
+                | Key::Right
+                | Key::Insert
+                | Key::Delete
+                | Key::Home
+                | Key::End
+                | Key::PageUp
+                | Key::PageDown
+                | Key::NumpadDivide
+                | Key::NumLock
+                | Key::PrintScreen
+                | Key::Menu
+        )
     }
 }
 
@@ -155,13 +300,18 @@ impl HotkeyModifiers {
     }
 
     pub(crate) fn is_down(self) -> bool {
-        // No modifiers means no hold-to-preview or capture preparation gesture.
+        // Bare keys cannot start capture preparation before the trigger is pressed.
         self.iter().next().is_some() && self.iter().all(HotkeyModifier::is_down)
     }
 }
 
 fn keyboard_input(key: Key, up: bool) -> INPUT {
-    let mut flags = KEYEVENTF_SCANCODE;
+    // Pause has a special multi-byte scan sequence; let Windows generate it.
+    let mut flags = if key == Key::Pause {
+        Default::default()
+    } else {
+        KEYEVENTF_SCANCODE
+    };
     if up {
         flags |= KEYEVENTF_KEYUP;
     }
@@ -173,8 +323,16 @@ fn keyboard_input(key: Key, up: bool) -> INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0),
-                wScan: key.scan_code(),
+                wVk: VIRTUAL_KEY(if key == Key::Pause {
+                    key.virtual_key() as u16
+                } else {
+                    0
+                }),
+                wScan: if key == Key::Pause {
+                    0
+                } else {
+                    key.scan_code()
+                },
                 dwFlags: flags,
                 time: 0,
                 dwExtraInfo: 0,
@@ -389,113 +547,14 @@ fn normalize_absolute_mouse_coord(value: i32, size: i32) -> i32 {
     ((value as i64 * 65_535) / (size as i64 - 1)) as i32
 }
 
-pub struct Hotkeys {
-    hotkeys: Vec<HotkeySpec>,
-    enabled: bool,
-}
-
-impl Hotkeys {
-    pub fn new(hotkeys: &[HotkeySpec]) -> Self {
-        Self {
-            hotkeys: hotkeys.to_vec(),
-            enabled: false,
-        }
-    }
-
-    pub fn set_enabled(&mut self, enabled: bool) -> Result<()> {
-        if self.enabled == enabled {
-            return Ok(());
-        }
-        if !enabled {
-            for hotkey in &self.hotkeys {
-                unsafe { UnregisterHotKey(None, hotkey.id) }
-                    .with_context(|| format!("failed to unregister {}", hotkey.label()))?;
-            }
-            self.enabled = false;
-            self.discard_pending();
-            return Ok(());
-        }
-
-        self.discard_pending();
-
-        let mut registered = Vec::with_capacity(self.hotkeys.len());
-        let mut failures = Vec::new();
-        unsafe {
-            for hotkey in &self.hotkeys {
-                match RegisterHotKey(
-                    None,
-                    hotkey.id,
-                    hotkey.modifiers.hotkey_modifiers(),
-                    hotkey.key.virtual_key(),
-                ) {
-                    Ok(()) => registered.push(*hotkey),
-                    Err(error) => failures.push(format!("{}: {error}", hotkey.label())),
-                }
-            }
-
-            if !failures.is_empty() {
-                for hotkey in &registered {
-                    let _ = UnregisterHotKey(None, hotkey.id);
-                }
-            }
-        }
-
-        if !failures.is_empty() {
-            bail!(
-                "the following hotkeys could not be registered:\n- {}\n\nChange them in the configuration file",
-                failures.join("\n- ")
-            );
-        }
-
-        self.enabled = true;
-        Ok(())
-    }
-
-    pub fn next_trigger(&self) -> Option<i32> {
-        while let Some(id) = take_pending_hotkey() {
-            if self.enabled && self.hotkeys.iter().any(|hotkey| hotkey.id == id) {
-                return Some(id);
-            }
-        }
-        None
-    }
-
-    pub fn discard_pending(&self) {
-        while take_pending_hotkey().is_some() {}
-    }
-
-    pub fn is_released(&self, hotkey_id: i32) -> bool {
-        let Some(hotkey) = self.hotkeys.iter().find(|hotkey| hotkey.id == hotkey_id) else {
-            return false;
-        };
-        let mut release_keys = hotkey.modifiers.release_keys();
-        release_keys.push(hotkey.key);
-        release_keys.iter().all(|key| !is_pressed(*key))
-    }
-}
-
-impl Drop for Hotkeys {
-    fn drop(&mut self) {
-        if !self.enabled {
-            return;
-        }
-        unsafe {
-            for hotkey in &self.hotkeys {
-                let _ = UnregisterHotKey(None, hotkey.id);
-            }
-        }
-    }
-}
-
-fn take_pending_hotkey() -> Option<i32> {
-    let mut message = MSG::default();
-    unsafe {
-        PeekMessageW(&mut message, None, WM_HOTKEY, WM_HOTKEY, PM_REMOVE)
-            .as_bool()
-            .then_some(message.wParam.0 as i32)
-    }
-}
-
 fn is_pressed(key: Key) -> bool {
     unsafe { GetAsyncKeyState(key.virtual_key() as i32) < 0 }
+}
+
+/// Observe physical input only; never synthesize releases of the user's keys.
+pub(crate) fn activation_released() -> bool {
+    // Panel activation keys (including Ctrl+S), left button and modifiers.
+    [0x01, 0x0D, 0x20, 0x53, 0x10, 0x11, 0x12, 0x5B, 0x5C]
+        .iter()
+        .all(|&key| unsafe { GetAsyncKeyState(key) >= 0 })
 }

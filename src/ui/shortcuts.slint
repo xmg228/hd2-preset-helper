@@ -1,0 +1,70 @@
+import { ScrollView } from "std-widgets.slint";
+import { PanelButton } from "controls.slint";
+
+export struct ShortcutRow { name: string, title: string, binding: string }
+
+component BindingRow inherits Rectangle {
+    in property <ShortcutRow> item;
+    in property <bool> recording;
+    in property <bool> enabled: true;
+    callback record();
+    callback clear();
+    height: 40px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: root.item.title; color: #e9e9e4; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+        Rectangle {
+            width: 218px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: root.recording ? #e9d778 : #424846;
+            background: root.recording ? #302e22 : #202526;
+            PanelButton {
+                text: root.recording ? "Press keys…" : root.item.binding == "" ? "Unassigned" : root.item.binding;
+                enabled: root.enabled;
+                clicked => { root.record(); }
+            }
+        }
+        PanelButton {
+            width: 28px;
+            text: "×";
+            accessible-label: "Clear shortcut";
+            enabled: root.enabled && root.item.binding != "";
+            clicked => { root.clear(); }
+        }
+    }
+}
+
+export component ShortcutEditor inherits VerticalLayout {
+    in property <bool> enabled;
+    in property <[ShortcutRow]> rows;
+    in-out property <int> recording: -1;
+    callback clear(int);
+    spacing: 10px;
+    Text { text: "Click a shortcut and press your keys. Esc cancels recording."; color: #a6adaa; font-size: 12px; wrap: word-wrap; }
+    BindingRow {
+        item: root.rows[0];
+        recording: root.recording == 0;
+        enabled: root.enabled;
+        record => { root.recording = 0; }
+        clear => { root.clear(0); }
+    }
+    Text { text: "The panel shortcut works globally; preset shortcuts work in the game or panel."; color: #a6adaa; font-size: 11px; wrap: word-wrap; }
+    Rectangle { height: 1px; background: #383d3b; }
+    ScrollView {
+        enabled: root.enabled;
+        content-width: self.visible-width - 8px;
+        VerticalLayout {
+            alignment: start;
+            spacing: 6px;
+            for index in max(0, root.rows.length - 1): BindingRow {
+                item: root.rows[index + 1];
+                recording: root.recording == index + 1;
+                enabled: root.enabled;
+                record => { root.recording = index + 1; }
+                clear => { root.clear(index + 1); }
+            }
+        }
+    }
+    Text { text: "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."; color: #8c9398; font-size: 11px; wrap: word-wrap; }
+}

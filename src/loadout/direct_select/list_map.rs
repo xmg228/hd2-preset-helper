@@ -125,6 +125,7 @@ pub(super) struct PostClickPlacement {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum NavigationHint {
+    Unmapped,
     Scroll(ScrollDirection),
     ExpectedVisible,
 }
@@ -644,7 +645,7 @@ impl ListMap {
 
     pub(super) fn navigation_hint(&self, item_id: &str) -> NavigationHint {
         let Some(&target_id) = self.items.get(item_id) else {
-            return NavigationHint::Scroll(ScrollDirection::Down);
+            return NavigationHint::Unmapped;
         };
         if self
             .current

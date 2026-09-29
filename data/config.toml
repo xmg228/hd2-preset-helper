@@ -1,7 +1,19 @@
 # Restart the application after manually editing this file.
 
+[ui]
+# Toggle the panel from the game or desktop. Set to "" to use the tray only.
+panel_shortcut = "Ctrl + Shift + Space"
+
+# "auto" follows the game, or uses the primary display when the game is not in front.
+# To use a fixed display, select it in Settings > General.
+monitor = "auto"
+
 [presets]
-# Apply Stratagems in the order they were saved.
+# Shared scope for saving and applying, remembered by the panel.
+# Unchecked sections stay unchanged. Applying skips unsaved sections.
+scope = { stratagems = true, equipment = true }
+
+# Apply Stratagems in saved order when all four slots start empty.
 apply_in_saved_order = false
 
 # Press B after applying a preset with a booster.
@@ -10,33 +22,36 @@ auto_ready_up = false
 # If a saved Booster is already in use, save a manually selected one as its fallback.
 save_fallback_when_taken = false
 
-# Optional labels shown beside each preset's hotkey.
-# Remove the leading # from the labels you want to use.
-[presets.labels]
-# preset_1 = "Terminids 1"
-# preset_2 = "Terminids 2"
-# preset_3 = "Automatons 1"
-# preset_4 = "Automatons 2"
-# preset_5 = "Illuminate 1"
-# preset_6 = "Illuminate 2"
+# Each table below defines one preset slot. Use + New preset in the panel to add more.
+# To keep no slots, leave an empty [presets.slots] table; omitting it uses six defaults.
+# Keep preset_N IDs stable: they link to saved content, not the display name.
+# Empty labels use the default name; empty or omitted shortcuts mean unassigned.
+# Shortcuts apply the selected sections while Helldivers or the panel is in front.
+# Panel navigation keys and Ctrl+S take priority in the panel; actions pause shortcuts.
+# Single keys are supported: "1" is the top row, "Num1" is the numeric keypad.
+# Other examples: "Home", "Ctrl + PageUp", "Shift + Equal", "NumAdd", "F13".
+# Esc is reserved for cancel/close; modifier-only shortcuts are not supported.
+# Keep Num Lock on for numpad digits; avoid combining them with Shift.
+[presets.slots.preset_1]
+label = "" # e.g. "Terminids 1"
+shortcut = "Ctrl + Shift + F7"
 
-[hotkey]
-# Modifiers shared by all preset shortcuts: shift, ctrl, alt, win.
-# Holding them also shows the overlay when enabled.
-# Use [] for shortcuts without modifiers; hold-to-show is then unavailable.
-modifiers = ["ctrl", "shift"]
+[presets.slots.preset_2]
+label = ""
+shortcut = "Ctrl + Shift + F8"
 
-# Preset keys, mapped to preset_1..preset_N in order.
-# Values: f1-f12, 0-9 (top row), numpad0-numpad9 (numeric keypad).
-# Choose at least one key, with no duplicates.
-# Keep Num Lock on for numpad digits. Avoid combining them with Shift.
-# Shortcuts are active only while Helldivers 2 is in the foreground.
-keys = ["f7", "f8", "f9", "f10", "f11", "f12"]
+[presets.slots.preset_3]
+label = ""
+shortcut = "Ctrl + Shift + F9"
 
-[overlay]
-# Show preset previews and action status.
-enabled = true
+[presets.slots.preset_4]
+label = ""
+shortcut = "Ctrl + Shift + F10"
 
-# "auto" follows the game, or uses the primary display when the game is not in front.
-# To use a fixed display, select it from the tray's Overlay monitor menu.
-monitor = "auto"
+[presets.slots.preset_5]
+label = ""
+shortcut = "Ctrl + Shift + F11"
+
+[presets.slots.preset_6]
+label = ""
+shortcut = "Ctrl + Shift + F12"

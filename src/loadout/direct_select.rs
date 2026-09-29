@@ -8,18 +8,18 @@ mod page_relation;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use tracing::{debug, debug_span, info, info_span, warn};
 
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::preset::{LocalTemplate, load_template_sample};
+use crate::preset::stratagems::{LocalTemplate, load_template_sample};
 use crate::vision::{
-    ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotLayout, TemplateClassifier,
+    ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind, TemplateClassifier,
 };
 
-use super::{UiState, empty_loadout_entry_slot, wait_for_stable_ui_state};
+use super::home::{UiState, find_home_row, home_booster_slot, wait_for_stable_ui_state};
 
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, home_booster_target, open_slot_list};
@@ -49,7 +49,7 @@ enum ListSelectionOutcome {
 
 #[derive(Clone, Copy)]
 enum ListSelectionMode {
-    All { in_saved_order: bool },
+    Stratagems { count: usize, in_saved_order: bool },
     FirstAvailable,
 }
 
@@ -75,34 +75,22 @@ impl ScrollDirection {
     }
 }
 
-pub fn apply_empty_loadout_preset(
+pub fn apply_stratagems_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
+    mut home: RoiObservation,
     presets_path: &Path,
     templates: &[LocalTemplate],
     apply_in_saved_order: bool,
 ) -> Result<RoiObservation> {
     if templates.len() != 4 {
         bail!(
-            "empty loadout preset application requires exactly 4 stratagems, got {}",
+            "stratagem preset application requires exactly 4 stratagems, got {}",
             templates.len()
         );
     }
 
-    let opened_list = {
-        let image = automation.capture()?;
-        let result = recognizer.detect(image, SlotLayout::Home)?;
-        let Some(entry_slot) = empty_loadout_entry_slot(&result).cloned() else {
-            bail!("current screen is not an empty loadout home layout");
-        };
-
-        let target = HomeOpenTarget {
-            item_kind: ItemKind::Stratagem,
-            point: entry_slot.center(),
-        };
-        open_slot_list(automation, recognizer, target)?
-    };
     let sources = templates
         .iter()
         .map(|template| {
@@ -110,29 +98,108 @@ pub fn apply_empty_loadout_preset(
                 .map(|sample| (template.path.clone(), sample))
         })
         .collect::<Result<Vec<_>>>()?;
-    let classifier = TemplateClassifier::new(
-        ItemKind::Stratagem,
-        sources,
-        recognizer.ui_scale(),
-        &opened_list,
-    )?;
-    let item_ids = templates
-        .iter()
-        .map(|template| template.path.clone())
-        .collect::<Vec<_>>();
-    match select_items_from_open_list(
-        PageNavigator::new(recognizer, ItemKind::Stratagem, classifier),
-        automation,
-        events,
-        &item_ids,
-        opened_list,
-        ListSelectionMode::All {
-            in_saved_order: apply_in_saved_order,
-        },
-    )? {
-        ListSelectionOutcome::Applied(home) => Ok(home),
-        ListSelectionOutcome::Unavailable => {
-            unreachable!("stratagem candidates do not have an unavailable state")
+    let mut home_classifier = None;
+    let mut previous_missing = templates.len() + 1;
+    loop {
+        let (slots, _) = find_home_row(&home).context("missing home loadout row")?;
+        let empty_count = slots
+            .iter()
+            .filter(|slot| slot.kind == SlotKind::StratagemEmpty)
+            .count();
+        if empty_count < 4 {
+            if home_classifier.is_none() {
+                home_classifier = Some(TemplateClassifier::new(
+                    ItemKind::Stratagem,
+                    &sources,
+                    recognizer.ui_scale(),
+                    &home,
+                )?);
+            }
+            home_classifier
+                .as_ref()
+                .unwrap()
+                .classify_batch(&mut home)?;
+        }
+        let (slots, _) = find_home_row(&home).context("missing home loadout row")?;
+        let equipped = slots
+            .iter()
+            .filter_map(|slot| slot.classification.as_ref())
+            .map(|classification| classification.item_id.as_str())
+            .collect::<Vec<_>>();
+        ensure!(
+            equipped
+                .iter()
+                .enumerate()
+                .all(|(index, id)| !equipped[..index].contains(id)),
+            "equipped Stratagem identities are ambiguous; clear the slots and try again"
+        );
+        let missing = sources
+            .iter()
+            .filter(|(id, _)| !equipped.contains(&id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            info!("all preset Stratagems are already equipped");
+            return Ok(home);
+        }
+        ensure!(
+            missing.len() < previous_missing,
+            "Stratagem replacement made no confirmed progress; clear the slots and try again"
+        );
+        previous_missing = missing.len();
+
+        // Replace an incorrect item first, then fill the empties in the same
+        // list visit. Once full, each further replacement returns home.
+        let entry = slots
+            .iter()
+            .find(|slot| slot.kind == SlotKind::Stratagem && slot.classification.is_none())
+            .or_else(|| {
+                slots
+                    .iter()
+                    .find(|slot| slot.kind == SlotKind::StratagemEmpty)
+            })
+            .context("no home slot available for a missing Stratagem")?;
+        let count = empty_count + usize::from(entry.kind == SlotKind::Stratagem);
+        info!(
+            kept = equipped.len(),
+            missing = missing.len(),
+            entry_col = entry.col,
+            selections_until_full = count,
+            "applying missing Stratagems"
+        );
+        let opened_list = open_slot_list(
+            automation,
+            recognizer,
+            HomeOpenTarget {
+                item_kind: ItemKind::Stratagem,
+                point: entry.center(),
+            },
+        )?;
+        let classifier = TemplateClassifier::new(
+            ItemKind::Stratagem,
+            &sources,
+            recognizer.ui_scale(),
+            &opened_list,
+        )?;
+        home = match select_items_from_open_list(
+            PageNavigator::new(recognizer, ItemKind::Stratagem, classifier),
+            automation,
+            events,
+            &missing,
+            opened_list,
+            ListSelectionMode::Stratagems {
+                count,
+                in_saved_order: apply_in_saved_order && empty_count == 4,
+            },
+            empty_count == 4,
+        )? {
+            ListSelectionOutcome::Applied(home) => home,
+            ListSelectionOutcome::Unavailable => {
+                unreachable!("stratagem candidates do not have an unavailable state")
+            }
+        };
+        if count == missing.len() {
+            return Ok(home);
         }
     }
 }
@@ -141,13 +208,11 @@ pub fn apply_booster_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
-    home: &RoiObservation,
+    mut home: RoiObservation,
     presets_path: &Path,
     template: &LocalTemplate,
     fallback: Option<&LocalTemplate>,
 ) -> Result<BoosterApplyOutcome> {
-    let target = home_booster_target(home)?;
-    let opened_list = open_slot_list(automation, recognizer, target)?;
     let templates = std::iter::once(template)
         .chain(fallback)
         .collect::<Vec<_>>();
@@ -158,9 +223,27 @@ pub fn apply_booster_from_home(
                 .map(|sample| (template.path.clone(), sample))
         })
         .collect::<Result<Vec<_>>>()?;
+    if home_booster_slot(&home).is_some_and(|slot| slot.kind == SlotKind::HomeBooster) {
+        TemplateClassifier::new(ItemKind::Booster, &sources, recognizer.ui_scale(), &home)?
+            .classify_batch(&mut home)?;
+        if let Some(equipped) = home_booster_slot(&home)
+            .and_then(|slot| slot.classification.as_ref())
+            .filter(|matched| matched.item_id == template.path)
+        {
+            info!(
+                item_id = %equipped.item_id,
+                match_error = equipped.match_error,
+                "preferred booster is already equipped; skipping list entry"
+            );
+            return Ok(BoosterApplyOutcome::Applied);
+        }
+    }
+
+    let target = home_booster_target(&home)?;
+    let opened_list = open_slot_list(automation, recognizer, target)?;
     let classifier = TemplateClassifier::new(
         ItemKind::Booster,
-        sources,
+        &sources,
         recognizer.ui_scale(),
         &opened_list,
     )?;
@@ -175,6 +258,9 @@ pub fn apply_booster_from_home(
         &item_ids,
         opened_list,
         ListSelectionMode::FirstAvailable,
+        home.slots
+            .iter()
+            .any(|slot| slot.kind == SlotKind::HomeBoosterEmpty),
     )? {
         ListSelectionOutcome::Applied(_) => Ok(BoosterApplyOutcome::Applied),
         ListSelectionOutcome::Unavailable => Ok(BoosterApplyOutcome::Unavailable),
@@ -188,19 +274,21 @@ fn select_items_from_open_list(
     items: &[String],
     initial_observation: RoiObservation,
     mode: ListSelectionMode,
+    starts_at_top: bool,
 ) -> Result<ListSelectionOutcome> {
     let item_kind = navigator.item_kind();
     let requested_items = match mode {
-        ListSelectionMode::All { .. } => items.len(),
+        ListSelectionMode::Stratagems { count, .. } => count,
         ListSelectionMode::FirstAvailable => 1,
     };
     let span = info_span!(
         "preset_list_selection",
         item_kind = %item_kind.label(),
         requested_items,
+        starts_at_top,
         mode = match mode {
-            ListSelectionMode::All { in_saved_order: true } => "all_in_saved_order",
-            ListSelectionMode::All { in_saved_order: false } => "all_visible_first",
+            ListSelectionMode::Stratagems { in_saved_order: true, .. } => "saved_order",
+            ListSelectionMode::Stratagems { in_saved_order: false, .. } => "visible_first",
             ListSelectionMode::FirstAvailable => "first_available",
         }
     );
@@ -211,9 +299,13 @@ fn select_items_from_open_list(
     });
 
     let mut remaining = items.to_vec();
+    let mut selections_left = requested_items;
     let mut wheel_attempts = 0u32;
     let mut boundary_candidate = None;
-    let mut full_scan_complete = false;
+    // Replacing an equipped item can open the list anywhere. Unknown targets
+    // are searched downward first, then upward; mapped targets navigate directly.
+    let mut top_reached = starts_at_top;
+    let mut bottom_reached = false;
 
     let mut current_page = {
         let span = debug_span!("scan_page", wheel_attempts);
@@ -232,8 +324,9 @@ fn select_items_from_open_list(
         let _page_guard = page_span.enter();
         let target = if matches!(
             mode,
-            ListSelectionMode::All {
-                in_saved_order: false
+            ListSelectionMode::Stratagems {
+                in_saved_order: false,
+                ..
             }
         ) {
             next_visible_target(&current_page.roi, &remaining, item_kind, |slot| {
@@ -256,6 +349,9 @@ fn select_items_from_open_list(
                 })
         };
         if let Some(target) = target {
+            events.emit(AppEvent::ItemSelectionStarted {
+                item_id: target.item_id.clone(),
+            });
             if let ItemAvailability::Unavailable { brightness_ratio } = target.availability {
                 info!(
                     item_id = %target.item_id,
@@ -288,8 +384,7 @@ fn select_items_from_open_list(
             let _guard = span.enter();
             let selected_item_id = target.item_id.clone();
             let selected_slot = target.slot.clone();
-            let final_requested_item =
-                matches!(mode, ListSelectionMode::FirstAvailable) || remaining.len() == 1;
+            let final_requested_item = selections_left == 1;
             let outcome = select_preset_target(
                 automation,
                 &navigator,
@@ -300,6 +395,7 @@ fn select_items_from_open_list(
                 final_requested_item,
             )?;
             events.emit(AppEvent::ItemSelected);
+            selections_left -= 1;
             remaining.retain(|item_id| item_id != &selected_item_id);
             list_map.mark_selected(&selected_slot);
             match outcome {
@@ -323,16 +419,15 @@ fn select_items_from_open_list(
                         remaining_items = remaining.len(),
                         "final item selection confirmed after returning home"
                     );
-                    debug_assert!(
-                        matches!(mode, ListSelectionMode::FirstAvailable) || remaining.is_empty()
-                    );
+                    debug_assert_eq!(selections_left, 0);
                     return Ok(ListSelectionOutcome::Applied(home));
                 }
             }
         }
 
         let item_id = &remaining[0];
-        if full_scan_complete
+        if top_reached
+            && bottom_reached
             && !list_map.contains_item(item_id)
             && let Some(score) = list_map.activate_best_candidate(item_id)
         {
@@ -352,6 +447,13 @@ fn select_items_from_open_list(
 
         let hint = list_map.navigation_hint(item_id);
         let direction = match hint {
+            NavigationHint::Unmapped => {
+                if bottom_reached {
+                    ScrollDirection::Up
+                } else {
+                    ScrollDirection::Down
+                }
+            }
             NavigationHint::Scroll(direction) => direction,
             NavigationHint::ExpectedVisible => {
                 bail!(
@@ -438,14 +540,28 @@ fn select_items_from_open_list(
                 current_page = last_page;
                 wheel_attempts = wheel_attempt;
                 if input.is_nudge() {
-                    full_scan_complete |= direction == ScrollDirection::Down;
-                    if let Some(score) = list_map.activate_best_candidate(item_id) {
+                    match direction {
+                        ScrollDirection::Up => top_reached = true,
+                        ScrollDirection::Down => bottom_reached = true,
+                    }
+                    boundary_candidate = None;
+                    if !(top_reached && bottom_reached) && !list_map.contains_item(item_id) {
+                        info!(
+                            ?direction,
+                            "list boundary confirmed; searching the other side before enabling fallback"
+                        );
+                        wheel_attempts = 0;
+                        continue;
+                    }
+                    if top_reached
+                        && bottom_reached
+                        && let Some(score) = list_map.activate_best_candidate(item_id)
+                    {
                         warn!(
                             item_id,
                             score,
                             "no candidate passed the threshold; using the best observed slot"
                         );
-                        boundary_candidate = None;
                         continue;
                     }
                     debug!(

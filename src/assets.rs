@@ -2,9 +2,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow, ensure};
-use fast_image_resize as fir;
-use fir::{ResizeAlg, ResizeOptions, Resizer};
+use anyhow::{Context, Result, ensure};
 use image::codecs::png::PngDecoder;
 use image::{ColorType, ImageDecoder, RgbaImage};
 use serde::de::DeserializeOwned;
@@ -51,19 +49,4 @@ pub(crate) fn decode_rgba8(bytes: &[u8]) -> Result<RgbaImage> {
         .read_image(image.as_mut())
         .context("failed to decode RGBA8 PNG")?;
     Ok(image)
-}
-
-pub fn resize_rgba_box(source: &RgbaImage, width: u32, height: u32) -> Result<RgbaImage> {
-    if source.width() == width && source.height() == height {
-        return Ok(source.clone());
-    }
-
-    let mut destination = RgbaImage::new(width, height);
-    let options = ResizeOptions::new()
-        .resize_alg(ResizeAlg::Convolution(fir::FilterType::Box))
-        .use_alpha(true);
-    Resizer::new()
-        .resize(source, &mut destination, &options)
-        .map_err(|error| anyhow!("failed to resize icon: {error}"))?;
-    Ok(destination)
 }

@@ -16,8 +16,8 @@ use super::semantic_extractor::{
     SemanticExtraction, SemanticSource, crop_slot_sample, stratagem_foreground_response,
 };
 use super::{
-    Classification, ImageSample, ItemAvailability, LIST_ICON_SIZE_LOGICAL, RoiObservation, Slot,
-    SlotLayout,
+    Classification, HOME_ICON_SIZE_LOGICAL, ImageSample, ItemAvailability, LIST_ICON_SIZE_LOGICAL,
+    RoiObservation, Slot, SlotKind, SlotLayout,
 };
 const ENV_PHASES: [f32; 5] = [-0.45, -0.225, 0.0, 0.225, 0.45];
 
@@ -36,9 +36,10 @@ struct TemplateSource {
     reference_yellow_luma: Option<f32>,
 }
 
-/// Classifies selectable list slots against templates captured with a preset.
+/// Classifies home or list slots against templates captured with a preset.
 pub struct TemplateClassifier {
     item_kind: ItemKind,
+    layout: SlotLayout,
     templates: Vec<PreparedTemplateEntry>,
     categories: Vec<StratagemCategory>,
     candidate_physical_size: f32,
@@ -66,7 +67,7 @@ struct SlotMatchOutcome {
 impl TemplateClassifier {
     pub fn new(
         item_kind: ItemKind,
-        sources: Vec<(String, ImageSample)>,
+        sources: &[(String, ImageSample)],
         current_ui_scale: f32,
         initial_page: &RoiObservation,
     ) -> Result<Self> {
@@ -76,18 +77,19 @@ impl TemplateClassifier {
             "current UI scale must be positive"
         );
         ensure!(
-            initial_page.layout == SlotLayout::List(item_kind),
-            "template classifier requires an open {} list",
+            initial_page.layout == SlotLayout::List(item_kind)
+                || initial_page.layout == SlotLayout::Home,
+            "template classifier cannot identify {} slots in this layout",
             item_kind.label()
         );
 
         let load_start = Instant::now();
         let sources = sources
-            .into_iter()
+            .iter()
             .map(|(item_id, sample)| {
                 let (category, semantic, reference_yellow_luma) = match item_kind {
                     ItemKind::Stratagem => {
-                        let source = SemanticSource::prepare(&sample).with_context(|| {
+                        let source = SemanticSource::prepare(sample).with_context(|| {
                             format!("failed to prepare local template {item_id}")
                         })?;
                         let category = source
@@ -100,7 +102,7 @@ impl TemplateClassifier {
                         (Some(category), semantic, None)
                     }
                     ItemKind::Booster => {
-                        let extraction = booster::extract(&sample).with_context(|| {
+                        let extraction = booster::extract(sample).with_context(|| {
                             format!("failed to extract local template {item_id}")
                         })?;
                         let reference_yellow_luma = booster::yellow_luma(&extraction);
@@ -108,7 +110,7 @@ impl TemplateClassifier {
                     }
                 };
                 Ok(TemplateSource {
-                    item_id,
+                    item_id: item_id.clone(),
                     category,
                     semantic,
                     physical_size: sample.geometry.physical_size,
@@ -128,9 +130,12 @@ impl TemplateClassifier {
         let sample_slot = initial_page
             .slots
             .iter()
-            .find(|slot| slot.kind.is_selectable_item_for(item_kind))
-            .with_context(|| format!("{} list contains no candidate slot", item_kind.label()))?;
-        let candidate_physical_size = LIST_ICON_SIZE_LOGICAL * current_ui_scale;
+            .find(|slot| is_candidate_slot(slot, item_kind))
+            .with_context(|| format!("{} page contains no candidate slot", item_kind.label()))?;
+        let candidate_physical_size = match initial_page.layout {
+            SlotLayout::Home => HOME_ICON_SIZE_LOGICAL,
+            SlotLayout::List(_) => LIST_ICON_SIZE_LOGICAL,
+        } * current_ui_scale;
         let candidate_geometry = crop_sample(
             item_kind,
             &initial_page.image,
@@ -211,6 +216,7 @@ impl TemplateClassifier {
 
         Ok(Self {
             item_kind,
+            layout: initial_page.layout,
             templates: prepared,
             categories,
             candidate_physical_size,
@@ -241,7 +247,7 @@ impl TemplateClassifier {
 
     pub fn classify_batch(&self, page: &mut RoiObservation) -> Result<Vec<TemplateMatchCandidate>> {
         ensure!(
-            page.layout == SlotLayout::List(self.item_kind),
+            page.layout == self.layout,
             "local {} matcher cannot classify another layout",
             self.item_kind.label()
         );
@@ -250,7 +256,7 @@ impl TemplateClassifier {
         let results = page
             .slots
             .par_iter_mut()
-            .filter(|slot| slot.kind.is_selectable_item_for(self.item_kind))
+            .filter(|slot| is_candidate_slot(slot, self.item_kind))
             .map(|slot| self.classify_slot(screenshot, slot))
             .collect::<Result<Vec<_>>>()?;
         let accepted = results.iter().filter(|result| result.accepted).count();
@@ -391,6 +397,11 @@ impl TemplateClassifier {
             diagnostics,
         })
     }
+}
+
+fn is_candidate_slot(slot: &Slot, item_kind: ItemKind) -> bool {
+    slot.kind.is_selectable_item_for(item_kind)
+        || (item_kind == ItemKind::Booster && slot.kind == SlotKind::HomeBooster)
 }
 
 fn item_availability(

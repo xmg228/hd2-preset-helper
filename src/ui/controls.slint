@@ -1,0 +1,140 @@
+export component PanelButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> accent;
+    in property <bool> filled;
+    in property <bool> enabled: true;
+    callback clicked();
+    border-radius: 4px;
+    border-width: filled || keys.has-focus ? 1px : 0px;
+    border-color: keys.has-focus ? #cdbf84 : #383d3b;
+    background: accent ? (enabled ? #e9d778 : #303534)
+        : touch.has-hover && enabled ? #303536 : filled ? #242829 : transparent;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    forward-focus: keys;
+    Text {
+        text: root.text;
+        color: !root.enabled ? #8c9398 : root.accent ? #181b1c : #c5cac7;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!event.repeat) { root.clicked(); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { keys.focus(); root.clicked(); }
+    }
+}
+
+export component IconButton inherits Rectangle {
+    in property <string> label;
+    in property <string> path;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: #cdbf84;
+    background: touch.has-hover && enabled ? #303536 : transparent;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    forward-focus: keys;
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.path;
+        fill: transparent;
+        stroke: root.enabled ? #a6adaa : #69716d;
+        stroke-width: 1.5px;
+    }
+    Tooltip { text: @markdown("\{root.label}"); }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!event.repeat) { root.clicked(); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { keys.focus(); root.clicked(); }
+    }
+}
+
+export component DeletePresetDialog inherits Rectangle {
+    in property <string> preset-title;
+    in property <bool> enabled;
+    callback confirm();
+    callback cancel();
+    public function focus-dialog() { cancel-button.focus(); }
+    background: #1d2122;
+    border-color: #464c49;
+    border-width: 1px;
+    border-radius: 8px;
+    TouchArea { }
+    FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.cancel(); return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            padding: 22px;
+            spacing: 16px;
+            Text { text: "Delete preset?"; color: #e9e9e4; font-size: 21px; }
+            Text { text: root.preset-title; color: #e9e9e4; font-size: 15px; overflow: elide; }
+            Text {
+                text: "Its saved content and shortcut will be deleted. This cannot be undone.";
+                color: #a6adaa;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+            HorizontalLayout {
+                height: 32px;
+                alignment: end;
+                spacing: 10px;
+                cancel-button := PanelButton { width: 86px; text: "Cancel"; filled: true; enabled: root.enabled; clicked => { root.cancel(); } }
+                PanelButton { width: 86px; text: "Delete"; accent: true; enabled: root.enabled; clicked => { root.confirm(); } }
+            }
+        }
+    }
+}
+
+export component NameImage inherits Rectangle {
+    in property <image> source;
+    in property <color> colorize: #e9e9e4;
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    clip: true;
+    Image {
+        x: 0px;
+        y: 0px;
+        source: root.source;
+        height: parent.height;
+        width: self.height * root.source.width / max(1, root.source.height);
+        colorize: root.colorize;
+    }
+}

@@ -11,26 +11,37 @@ use crate::app_events::{AppEvent, AppEventSink};
 use crate::app_paths::AppPaths;
 use crate::capture::CaptureSessionManager;
 use crate::game_settings::read_color_settings;
-use crate::game_window;
-use crate::loadout::bind_loadout_region;
+use crate::image_rect::ImageRect;
 use crate::preset_action::{
-    PresetActionConfig, PresetActionOptions, PresetActionOutcome, execute_preset,
+    PresetActionContext, PresetActionOptions, PresetActionOutcome, PresetCommand, execute_preset,
 };
 use crate::vision::RecognizerRuntime;
+use crate::window::{WindowIdentity, WindowTarget};
 
 pub(super) enum Work {
-    Prepare,
+    Prepare(WindowIdentity),
     Discard,
+    LoadPreviews,
     Run {
         preset: String,
+        command: PresetCommand,
         settings: PresetActionOptions,
+        target: WindowIdentity,
     },
     Shutdown,
 }
 
 pub(super) enum WorkerEvent {
     Progress(AppEvent),
-    Finished { saved: bool },
+    Finished {
+        saved: bool,
+    },
+    PreviewsLoaded(
+        std::result::Result<
+            std::collections::BTreeMap<String, crate::preset::preview::PresetPreview>,
+            String,
+        >,
+    ),
 }
 
 pub(super) struct ActionWorker {
@@ -60,31 +71,40 @@ impl ActionWorker {
                     let _ = progress.send(WorkerEvent::Progress(event));
                 });
                 let mut capture_session = CaptureSessionManager::new();
+                let cache_path = paths.presets.with_file_name("equipment-cache.json");
+                let mut equipment_cache = crate::loadout::equipment::EquipmentCache::load(&cache_path);
                 while let Ok(mut command) = receiver.recv() {
                     // Only the latest pending preparation hint matters. A Run or
                     // Shutdown command is a boundary and is never coalesced away.
-                    while matches!(command, Work::Prepare | Work::Discard) {
+                    while matches!(command, Work::Prepare(_) | Work::Discard) {
                         match receiver.try_recv() {
                             Ok(next) => command = next,
                             Err(_) => break,
                         }
                     }
                     match command {
-                        Work::Prepare => prepare_capture(&mut capture_session),
+                        Work::Prepare(target) => prepare_capture(&mut capture_session, target),
                         Work::Discard => capture_session.cancel_prepare(),
+                        Work::LoadPreviews => {
+                            let previews = crate::preset::preview::load(&paths.presets)
+                                .map_err(|error| format!("{error:#}"));
+                            if event_tx.send(WorkerEvent::PreviewsLoaded(previews)).is_err() { break; }
+                        }
                         Work::Shutdown => break,
-                        Work::Run { preset, settings } => {
-                            let config = PresetActionConfig {
+                        Work::Run { preset, command, settings, target } => {
+                            let mut context = PresetActionContext {
                                 presets: &paths.presets,
                                 options: settings,
                                 events: &sink,
+                                equipment_cache: &mut equipment_cache,
                             };
                             let start = Instant::now();
-                            let outcome = execute_preset(&runtime, &config, &preset, &mut capture_session);
+                            let outcome = execute_preset(&runtime, &mut context, &preset, command, &mut capture_session, target);
                             if let Err(error) = &outcome {
-                                save_last_failure(&runtime, &mut capture_session, &paths.last_failure, error);
+                                save_last_failure(&mut capture_session, &paths.last_failure, error);
                             }
                             capture_session.finish_action();
+                            equipment_cache.save_if_changed(&cache_path);
                             let saved = matches!(&outcome, Ok(PresetActionOutcome::Saved));
                             if let Err(error) = outcome {
                                 let error = format!("{error:#}");
@@ -129,9 +149,10 @@ impl Drop for ActionWorker {
     }
 }
 
-fn prepare_capture(capture_session: &mut CaptureSessionManager) {
+fn prepare_capture(capture_session: &mut CaptureSessionManager, identity: WindowIdentity) {
+    // Opening the panel can change foreground before the worker consumes this hint.
     let result =
-        game_window::find_game_window_once().and_then(|target| capture_session.prepare(&target));
+        WindowTarget::from_identity(identity).and_then(|target| capture_session.prepare(&target));
 
     if let Err(error) = result {
         debug!(
@@ -142,7 +163,6 @@ fn prepare_capture(capture_session: &mut CaptureSessionManager) {
 }
 
 fn save_last_failure(
-    runtime: &RecognizerRuntime,
     capture_session: &mut CaptureSessionManager,
     directory: &Path,
     action_error: &anyhow::Error,
@@ -151,8 +171,9 @@ fn save_last_failure(
         let Some(capture) = capture_session.active_capture() else {
             return Ok(None);
         };
-        let mut region =
-            bind_loadout_region(capture, runtime.calibration(), read_color_settings()?)?.region;
+        // Include either loadout page; the equipment name is outside the Stratagem ROI.
+        let (w, h) = capture.output_size();
+        let mut region = capture.region(ImageRect { x: 0, y: 0, w, h }, read_color_settings()?)?;
         let image = region.capture()?;
         fs::create_dir_all(directory).with_context(|| {
             format!(

@@ -1,0 +1,728 @@
+import { ScrollView } from "std-widgets.slint";
+import { PanelButton, IconButton, DeletePresetDialog, NameImage } from "controls.slint";
+import { ShortcutRow, SettingsDialog, MonitorChoice } from "settings.slint";
+export { ShortcutRow, MonitorChoice }
+export { AppTray } from "tray.slint";
+export { ActionStatus } from "status.slint";
+
+export struct PreviewRow { label: string, picture: image }
+export struct PreviewSection { items: [PreviewRow], message: string, ready: bool, saved: bool }
+export struct PresetRow {
+    name: string,
+    label: string,
+    title: string,
+    shortcut: string,
+    stratagems: PreviewSection,
+    equipment: PreviewSection,
+}
+
+component SelectableSection inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+    vertical-stretch: 0;
+    border-radius: 5px;
+    border-width: 1px;
+    border-color: keys.has-focus ? #a6adaa : transparent;
+    background: touch.has-hover && enabled ? #222627 : transparent;
+    accessible-role: checkbox;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-action-default => { if (root.enabled) { root.toggled(); } }
+    forward-focus: keys;
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 24px;
+            alignment: start;
+            spacing: 8px;
+            Text {
+                text: root.text;
+                color: root.enabled ? #e9e9e4 : #8c9398;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-stretch: 0;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                border-width: 1px;
+                border-color: touch.has-hover && root.enabled ? #e9d778
+                    : root.checked ? (root.enabled ? #bdb078 : #59605d) : #69716d;
+                background: root.checked ? (root.enabled ? #cdbf84 : #59605d) : transparent;
+                if (root.checked): Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: 18;
+                    viewbox-height: 18;
+                    commands: "M 4 9 L 7.5 12.5 L 14 5.5";
+                    fill: transparent;
+                    stroke: #181b1c;
+                    stroke-width: 2px;
+                }
+            }
+        }
+        @children
+    }
+    keys := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space) { root.toggled(); return accept; }
+            return reject;
+        }
+    }
+}
+
+component NamePreview inherits Rectangle {
+    in property <PreviewRow> item;
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    min-height: 38px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.item.label; color: #a6adaa; font-size: 11px; height: 15px; }
+        NameImage {
+            source: root.item.picture;
+            height: 21px;
+        }
+    }
+}
+
+component StratagemPreview inherits Rectangle {
+    in property <[PreviewRow]> items;
+    in property <length> icon-size: 40px;
+    in property <bool> compact;
+    min-height: icon-size;
+    HorizontalLayout {
+        y: (parent.height - self.height) / 2;
+        height: root.icon-size;
+        alignment: start;
+        spacing: root.compact ? 5px : 8px;
+        for item[index] in root.items: HorizontalLayout {
+            spacing: root.compact ? 5px : 12px;
+            if (index == 4 && !root.compact): Rectangle { width: 1px; background: #383d3b; }
+            if (!root.compact || index < 5): Image {
+                source: item.picture;
+                width: root.icon-size;
+                height: root.icon-size;
+                image-fit: contain;
+                Tooltip { text: @markdown("\{item.label}"); }
+            }
+        }
+    }
+}
+
+export component PresetPanel inherits Window {
+    title: "HD2 Preset Helper";
+    always-on-top: true;
+    no-frame: true;
+    resize-border-width: 0px;
+    out property <length> ideal-width: 900px;
+    out property <length> ideal-height: 620px;
+    in property <length> available-width: ideal-width;
+    in property <length> available-height: ideal-height;
+    preferred-width: min(ideal-width, available-width);
+    min-width: self.preferred-width;
+    max-width: self.preferred-width;
+    preferred-height: min(ideal-height, available-height);
+    min-height: self.preferred-height;
+    max-height: self.preferred-height;
+    background: transparent;
+    default-font-family: "Segoe UI";
+    default-font-size: 14px;
+
+    in property <[PresetRow]> presets;
+    in property <string> status;
+    in property <bool> pending;
+    in property <bool> loading: true;
+    in property <[string]> panel-shortcut-keys;
+    in-out property <bool> settings-open;
+    in-out property <bool> delete-open;
+    in property <[ShortcutRow]> shortcut-rows;
+    in property <[MonitorChoice]> monitor-choices;
+    in property <[string]> monitor-labels;
+    in-out property <int> selected-monitor;
+    in-out property <bool> draft-apply-in-saved-order;
+    in-out property <bool> draft-auto-ready-up;
+    in-out property <bool> draft-save-fallback-when-taken;
+    in-out property <int> recording-shortcut: -1;
+    in property <string> settings-error;
+    in property <bool> settings-saving;
+    in-out property <int> current-index: 0;
+    in property <bool> scope-stratagems: true;
+    in property <bool> scope-equipment: true;
+    private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
+    private property <bool> include-equipment: scope-equipment && current.equipment.saved;
+    out property <bool> editing-name: editing-preset != "";
+    out property <bool> save-available: presets.length > 0 && interactive
+        && (scope-stratagems || scope-equipment);
+    out property <bool> available: save-available
+        && (include-stratagems || include-equipment)
+        && (!include-stratagems || current.stratagems.ready)
+        && (!include-equipment || current.equipment.ready);
+    private property <PresetRow> current: presets[current-index];
+    private property <int> hovered-index: -1;
+    private property <PresetRow> preview: presets[!editing-name && hovered-index >= 0 ? hovered-index : current-index];
+    private property <bool> interactive: !pending && !loading && !settings-open && !delete-open;
+    private property <string> editing-preset;
+    private property <string> name-draft;
+    private property <bool> apply-key-down;
+    private property <length> row-height: 68px;
+    private property <length> row-spacing: 4px;
+    changed current-index => { root.finish-rename(true); root.reveal-current(); }
+    callback request-action(int, bool);
+    callback request-scope(bool, bool);
+    callback request-rename(string, string);
+    callback request-delete(string);
+    callback edit-settings();
+    callback save-settings();
+    callback clear-shortcut(int);
+    callback add-preset();
+    callback dismiss();
+    public function focus-list() { root.hovered-index = -1; keyboard.focus(); }
+    public function focus-settings() { root.hovered-index = -1; settings.focus-dialog(); }
+    function begin-delete() {
+        if (!root.interactive || root.presets.length == 0) { return; }
+        root.finish-rename(true);
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        root.delete-open = true;
+        delete-dialog.focus-dialog();
+    }
+    function begin-rename() {
+        if (!root.interactive || root.presets.length == 0 || root.editing-name) { return; }
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        root.name-draft = root.current.label;
+        root.editing-preset = root.current.name;
+        name-input.scroll-offset = 0px;
+        name-input.focus();
+        name-input.select-all();
+    }
+    public function finish-rename(save: bool) {
+        if (!root.editing-name) { return; }
+        let preset = root.editing-preset;
+        root.editing-preset = "";
+        if (save) { root.request-rename(preset, root.name-draft); }
+    }
+    function reveal-current() {
+        let top = root.current-index * (root.row-height + root.row-spacing);
+        if (top + preset-list.content-y < 0px) {
+            preset-list.content-y = -top;
+        } else if (top + root.row-height + preset-list.content-y > preset-list.visible-height) {
+            preset-list.content-y = preset-list.visible-height - top - root.row-height;
+        }
+    }
+    function apply-current() {
+        if (root.available) {
+            root.finish-rename(true);
+            root.request-action(root.current-index, false);
+        }
+    }
+    function save-current() {
+        if (root.save-available) {
+            root.finish-rename(true);
+            root.request-action(root.current-index, true);
+        }
+    }
+
+    Rectangle {
+        background: #181b1cd1;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #ffffff20;
+    }
+    keyboard := FocusScope {
+        enabled: !root.settings-open && !root.delete-open;
+        key-pressed(event) => {
+            if (root.editing-name) { return reject; }
+            if (event.text == Key.Escape) { root.dismiss(); return accept; }
+            if (!root.interactive) { return reject; }
+            if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
+                && (event.text == "s" || event.text == "S")) {
+                if (!event.repeat) { root.save-current(); }
+                return accept;
+            }
+            if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
+            let up = event.text == Key.UpArrow || event.text == "w" || event.text == "W";
+            let down = event.text == Key.DownArrow || event.text == "s" || event.text == "S";
+            if (up || down) {
+                root.hovered-index = -1;
+                root.current-index = clamp(root.current-index + (down ? 1 : -1), 0, max(0, root.presets.length - 1));
+                return accept;
+            }
+            if (event.text == Key.Return) { root.apply-key-down = true; return accept; }
+            return reject;
+        }
+        key-released(event) => {
+            if (event.text == Key.Return) {
+                // Editing may end on key-down; its key-up must not apply a preset.
+                let apply = root.apply-key-down;
+                root.apply-key-down = false;
+                if (apply && !root.editing-name && root.interactive) { root.apply-current(); }
+                return accept;
+            }
+            return reject;
+        }
+        VerticalLayout {
+            padding: 18px;
+            spacing: 12px;
+            HorizontalLayout {
+                height: 32px;
+                spacing: 12px;
+                WindowMoveArea {
+                    horizontal-stretch: 1;
+                    Text {
+                        width: parent.width;
+                        text: "HD2 Preset Helper";
+                        color: #e9e9e4;
+                        vertical-alignment: center;
+                    }
+                }
+                IconButton {
+                    label: "Settings";
+                    path: "M 10 2 L 14 2 L 14.6 5 L 17.2 6.5 L 20 5.5 L 22 9 L 19.6 11 L 19.6 13 L 22 15 L 20 18.5 L 17.2 17.5 L 14.6 19 L 14 22 L 10 22 L 9.4 19 L 6.8 17.5 L 4 18.5 L 2 15 L 4.4 13 L 4.4 11 L 2 9 L 4 5.5 L 6.8 6.5 L 9.4 5 Z M 15.5 12 A 3.5 3.5 0 1 1 8.5 12 A 3.5 3.5 0 1 1 15.5 12 Z";
+                    enabled: root.interactive;
+                    clicked => { root.finish-rename(true); root.edit-settings(); }
+                }
+                VerticalLayout {
+                    width: 28px;
+                    spacing: 0px;
+                    PanelButton {
+                        height: 20px;
+                        text: "—";
+                        accessible-label: "Hide panel";
+                        Tooltip { text: @markdown("Hide panel · Esc in this panel"); }
+                        clicked => { root.dismiss(); }
+                    }
+                    Text { text: "Esc"; color: #a6adaa; font-size: 9px; height: 12px; horizontal-alignment: center; }
+                }
+            }
+            Rectangle { height: 1px; background: #383d3b; }
+            HorizontalLayout {
+                min-height: 0px;
+                vertical-stretch: 1;
+                spacing: 18px;
+                VerticalLayout {
+                    width: 210px;
+                    spacing: 8px;
+                    preset-list := ScrollView {
+                        min-height: 0px;
+                        width: 210px;
+                        content-width: self.visible-width - 8px;
+                        changed visible-height => { root.reveal-current(); }
+                        changed content-height => { root.reveal-current(); }
+                        VerticalLayout {
+                            alignment: start;
+                            spacing: root.row-spacing;
+                            for preset[index] in root.presets: Rectangle {
+                                height: root.row-height;
+                                background: index == root.current-index ? #302e22 : touch.has-hover ? #2d3032 : transparent;
+                                border-width: 1px;
+                                border-color: index == root.current-index ? #e9d778 : transparent;
+                                border-radius: 5px;
+                                accessible-role: button;
+                                accessible-label: preset.title;
+                                accessible-description: preset.stratagems.message + " " + preset.equipment.message;
+                                accessible-enabled: root.interactive;
+                                accessible-action-default => { root.current-index = index; }
+                                VerticalLayout {
+                                    padding: 5px;
+                                    spacing: 2px;
+                                    alignment: start;
+                                    HorizontalLayout {
+                                        height: 18px;
+                                        spacing: 8px;
+                                        Text { text: preset.title; color: #e9e9e4; overflow: elide; horizontal-stretch: 1; }
+                                        Text {
+                                            text: preset.shortcut;
+                                            max-width: 112px;
+                                            color: #a6adaa;
+                                            font-size: 10px;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            Tooltip { text: @markdown("\{preset.shortcut}"); }
+                                        }
+                                    }
+                                    if (preset.stratagems.ready): StratagemPreview {
+                                        height: 18px;
+                                        icon-size: 18px;
+                                        compact: true;
+                                        items: preset.stratagems.items;
+                                        opacity: root.scope-stratagems ? 1 : 0.65;
+                                    }
+                                    if (preset.equipment.ready): NameImage {
+                                        source: preset.equipment.items[3].picture;
+                                        height: 14px;
+                                        colorize: #c5cac7;
+                                        opacity: root.scope-equipment ? 1 : 0.65;
+                                    }
+                                    if (!preset.stratagems.ready && !preset.equipment.ready): Text {
+                                        text: preset.stratagems.saved || preset.equipment.saved ? "Preview unavailable" : "Not saved";
+                                        color: #a6adaa;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+                                touch := TouchArea {
+                                    enabled: root.interactive;
+                                    changed has-hover => {
+                                        if (self.has-hover) { root.hovered-index = index; }
+                                        else if (root.hovered-index == index) { root.hovered-index = -1; }
+                                    }
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                    }
+                                    clicked => { root.current-index = index; keyboard.focus(); }
+                                    double-clicked => { root.apply-current(); }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 30px;
+                        spacing: 8px;
+                        PanelButton {
+                            horizontal-stretch: 1;
+                            text: "+ New preset";
+                            filled: true;
+                            enabled: root.interactive;
+                            clicked => { root.finish-rename(true); root.add-preset(); }
+                        }
+                        Text {
+                            text: "↑↓ / W S";
+                            color: #a6adaa;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            Tooltip { text: @markdown("Select a preset"); }
+                        }
+                    }
+                }
+                Rectangle { width: 1px; background: #383d3b; }
+                ScrollView {
+                    min-width: 0px;
+                    min-height: 0px;
+                    horizontal-stretch: 1;
+                    content-width: max(360px, self.visible-width - 8px);
+                    VerticalLayout {
+                        padding-top: 6px;
+                        spacing: 16px;
+                        alignment: start;
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                Rectangle {
+                                    x: -6px;
+                                    width: parent.width + 12px;
+                                    height: parent.height;
+                                    border-radius: 3px;
+                                    background: root.editing-name ? #222627 : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                }
+                                Rectangle {
+                                    x: -6px;
+                                    y: parent.height - 1px;
+                                    width: parent.width + 12px;
+                                    height: 1px;
+                                    background: root.editing-name ? #cdbf84 : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                }
+                                name-title := Text {
+                                    x: 0px;
+                                    width: min(self.preferred-width, parent.width - 72px);
+                                    height: parent.height;
+                                    visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
+                                    text: root.presets.length > 0 ? root.preview.title : "No presets";
+                                    color: root.editing-name ? #8c9398 : #e9e9e4;
+                                    font-size: 21px;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    x: 0px;
+                                    visible: root.editing-name;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    clip: true;
+                                    ContextMenuArea {
+                                        Menu {
+                                            MenuItem { title: "Cut"; activated => { name-input.cut(); } }
+                                            MenuItem { title: "Copy"; activated => { name-input.copy(); } }
+                                            MenuItem { title: "Paste"; activated => { name-input.paste(); } }
+                                            MenuItem { title: "Select all"; activated => { name-input.select-all(); } }
+                                        }
+                                        name-input := TextInput {
+                                            property <length> scroll-offset;
+                                            x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                            width: max(parent.width, self.preferred-width);
+                                            height: parent.height;
+                                            enabled: root.interactive;
+                                            single-line: true;
+                                            text <=> root.name-draft;
+                                            color: #e9e9e4;
+                                            font-size: name-title.font-size;
+                                            vertical-alignment: center;
+                                            selection-background-color: #786c38;
+                                            selection-foreground-color: #fff8d4;
+                                            accessible-label: "Preset name";
+                                            cursor-position-changed(position) => {
+                                                if (position.x + self.x < 0px) {
+                                                    self.scroll-offset = -position.x;
+                                                } else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                                    self.scroll-offset = parent.width - self.text-cursor-width - position.x;
+                                                }
+                                            }
+                                            accepted => { root.finish-rename(true); keyboard.focus(); }
+                                            changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
+                                            key-pressed(event) => {
+                                                if (event.text == Key.Escape) {
+                                                    root.finish-rename(false);
+                                                    keyboard.focus();
+                                                    return accept;
+                                                }
+                                                return reject;
+                                            }
+                                        }
+                                    }
+                                }
+                                IconButton {
+                                    x: name-title.width + 8px;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    label: "Rename preset";
+                                    path: "M 4 16 L 15 5 L 19 9 L 8 20 L 3 21 Z M 13 7 L 17 11";
+                                    clicked => { root.begin-rename(); }
+                                }
+                                IconButton {
+                                    x: name-title.width + 40px;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    label: "Delete preset";
+                                    path: "M 4 6 L 20 6 M 9 6 L 9 3 L 15 3 L 15 6 M 6 6 L 7 21 L 17 21 L 18 6 M 10 10 L 10 17 M 14 10 L 14 17";
+                                    clicked => { root.begin-delete(); }
+                                }
+                            }
+                        }
+                        SelectableSection {
+                            text: "Stratagems & Booster";
+                            checked: root.scope-stratagems;
+                            enabled: root.interactive;
+                            toggled => {
+                                root.finish-rename(true);
+                                root.request-scope(!root.scope-stratagems, root.scope-equipment);
+                            }
+                            Rectangle {
+                                height: 48px;
+                                if (root.preview.stratagems.ready): StratagemPreview {
+                                    icon-size: 44px;
+                                    items: root.preview.stratagems.items;
+                                    opacity: root.scope-stratagems ? 1 : 0.65;
+                                }
+                                if (!root.preview.stratagems.ready): Text {
+                                    text: root.presets.length > 0 ? root.preview.stratagems.message : "Use + New preset to get started.";
+                                    color: #a6adaa;
+                                    wrap: word-wrap;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        Rectangle { height: 1px; background: #383d3b; }
+                        SelectableSection {
+                            text: "Equipment";
+                            checked: root.scope-equipment;
+                            enabled: root.interactive;
+                            toggled => {
+                                root.finish-rename(true);
+                                root.request-scope(root.scope-stratagems, !root.scope-equipment);
+                            }
+                            Rectangle {
+                                // Two 38px name rows, with the same 20px gap when empty.
+                                height: 96px;
+                                if (root.preview.equipment.ready): VerticalLayout {
+                                    spacing: 20px;
+                                    opacity: root.scope-equipment ? 1 : 0.65;
+                                    for row in 2: HorizontalLayout {
+                                        spacing: 14px;
+                                        for column in 3: NamePreview { item: root.preview.equipment.items[row * 3 + column]; }
+                                    }
+                                }
+                                if (!root.preview.equipment.ready): Text {
+                                    text: root.preview.equipment.message;
+                                    color: #a6adaa;
+                                    wrap: word-wrap;
+                                    font-size: 12px;
+                                    vertical-alignment: top;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: #383d3b; }
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.status != "" ? root.status
+                        : root.scope-stratagems || root.scope-equipment ? "Start from either loadout home."
+                        : "Select sections to save or apply.";
+                    color: #a6adaa;
+                    wrap: word-wrap;
+                    font-size: 12px;
+                }
+                actions := GridLayout {
+                    property <bool> stacked: root.preferred-width < 800px;
+                    height: self.stacked ? 112px : 50px;
+                    spacing: 12px;
+                    Rectangle {
+                        row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
+                        height: 50px;
+                        horizontal-stretch: 1;
+                        if (root.panel-shortcut-keys.length > 0): VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                height: 32px;
+                                alignment: start;
+                                spacing: 8px;
+                                for key in root.panel-shortcut-keys: Rectangle {
+                                    height: 32px;
+                                    width: panel-key.preferred-width + 14px;
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        height: 26px;
+                                        width: parent.width;
+                                        border-radius: 3px;
+                                        border-width: 1px;
+                                        border-color: #69716d;
+                                        background: #242829;
+                                    }
+                                    panel-key := Text {
+                                        text: key;
+                                        color: #e9e9e4;
+                                        font-size: 12px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Text { text: "Show / hide panel"; color: #e9e9e4; font-size: 13px; height: 32px; vertical-alignment: center; }
+                            }
+                            Text { text: "Global shortcut"; color: #a6adaa; font-size: 10px; height: 14px; }
+                        }
+                    }
+                    VerticalLayout {
+                        row: actions.stacked ? 1 : 0; col: 1;
+                        height: 50px;
+                        width: 150px;
+                        spacing: 4px;
+                        PanelButton {
+                            height: 32px;
+                            text: root.scope-stratagems ? (root.scope-equipment ? "Save preset" : "Save Stratagems")
+                                : root.scope-equipment ? "Save equipment" : "Select content";
+                            filled: true;
+                            enabled: root.save-available;
+                            Tooltip {
+                                text: root.scope-stratagems
+                                    ? @markdown("Overwrite only the checked sections without confirmation. Fill all four Stratagem slots first.")
+                                    : @markdown("Overwrite equipment only, without confirmation.");
+                            }
+                            clicked => { keyboard.focus(); root.save-current(); }
+                        }
+                        Text {
+                            text: "Ctrl+S";
+                            color: root.save-available ? #a6adaa : #69716d;
+                            font-size: 10px;
+                            height: 14px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    VerticalLayout {
+                        row: actions.stacked ? 1 : 0; col: 2;
+                        height: 50px;
+                        width: 150px;
+                        spacing: 4px;
+                        PanelButton {
+                            height: 32px;
+                            text: root.include-stratagems ? (root.include-equipment ? "Apply all" : "Apply Stratagems")
+                                : root.include-equipment ? "Apply equipment" : "Select content";
+                            accent: true;
+                            enabled: root.available;
+                            clicked => { keyboard.focus(); root.apply-current(); }
+                        }
+                        Text {
+                            text: "Enter";
+                            color: root.available ? #a6adaa : #69716d;
+                            font-size: 10px;
+                            height: 14px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (root.settings-open): Rectangle {
+        background: #00000099;
+        border-radius: 8px;
+        TouchArea { }
+    }
+    settings := SettingsDialog {
+        visible: root.settings-open;
+        enabled: root.settings-open;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(560px, parent.width - 32px);
+        height: min(560px, parent.height - 32px);
+        rows: root.shortcut-rows;
+        monitor-labels: root.monitor-labels;
+        selected-monitor <=> root.selected-monitor;
+        apply-in-saved-order <=> root.draft-apply-in-saved-order;
+        auto-ready-up <=> root.draft-auto-ready-up;
+        save-fallback-when-taken <=> root.draft-save-fallback-when-taken;
+        recording <=> root.recording-shortcut;
+        error: root.settings-error;
+        saving: root.settings-saving;
+        clear(index) => { root.clear-shortcut(index); }
+        save => { root.save-settings(); }
+        cancel => { root.settings-open = false; root.recording-shortcut = -1; root.focus-list(); }
+    }
+    if (root.delete-open): Rectangle {
+        background: #00000099;
+        border-radius: 8px;
+        TouchArea { }
+    }
+    delete-dialog := DeletePresetDialog {
+        visible: root.delete-open;
+        enabled: root.delete-open;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(420px, parent.width - 32px);
+        height: 220px;
+        preset-title: root.current.title;
+        confirm => {
+            root.request-delete(root.current.name);
+            root.delete-open = false;
+            root.focus-list();
+        }
+        cancel => { root.delete-open = false; root.focus-list(); }
+    }
+}

@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use anyhow::{Result, ensure};
 use half::f16;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use super::{CapturePixelFormat, display::DisplayColorInfo};
 use crate::game_settings::GameColorSettings;
@@ -101,7 +101,7 @@ impl ColorNormalizer {
             }
         };
 
-        info!(
+        debug!(
             source_format = source_format.label(),
             windows_hdr,
             game_hdr = settings.hdr_enabled,

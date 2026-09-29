@@ -10,7 +10,7 @@ pub struct ClientPoint {
 mod windows;
 
 #[cfg(target_os = "windows")]
-pub use windows::WindowTarget;
+pub use windows::{WindowIdentity, WindowTarget};
 
 #[cfg(target_os = "windows")]
 pub(crate) use windows::{ClientCrop, foreground_title};

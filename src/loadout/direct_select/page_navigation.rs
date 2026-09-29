@@ -16,8 +16,8 @@ use super::super::frame::{fingerprint_distance, image_fingerprint};
 use super::ScrollDirection;
 use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
 
-const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(250);
-const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
+const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
+const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(150);
 const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 2;
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
 const PAGE_SCROLL_NOTCHES: i32 = 5;

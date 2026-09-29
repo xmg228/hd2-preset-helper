@@ -6,6 +6,8 @@
 /data/debug/
 /data/app.log
 /data/diagnostics/
+/data/equipment-probe/
+/data/equipment-cache.json
 /data/wgc-f16/
 /data/presets.json
 /data/local_templates/
