@@ -290,7 +290,7 @@ impl ListMap {
             runner_up_support = runner_up.map(|candidate| candidate.support),
             margin,
             accepted,
-            candidates = ?candidates.iter().take(8).collect::<Vec<_>>(),
+            candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
             "continuous slot map alignment evaluated"
         );
         accepted

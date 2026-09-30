@@ -200,7 +200,7 @@ fn learn_fallback_booster(
     else {
         info!(
             preset = %preset_name,
-            timeout = ?FALLBACK_BOOSTER_SELECTION_TIMEOUT,
+            timeout_s = FALLBACK_BOOSTER_SELECTION_TIMEOUT.as_secs_f64(),
             "fallback booster selection timed out"
         );
         return Ok(false);

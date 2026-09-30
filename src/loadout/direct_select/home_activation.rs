@@ -37,7 +37,7 @@ pub(super) fn open_slot_list(
     debug!(
         x = target.point.0,
         y = target.point.1,
-        hold_ms = CLICK_HOLD_MS,
+        hold_s = CLICK_HOLD_MS as f64 / 1000.0,
         "opening home list with a direct mouse click"
     );
     automation.click(target.point, CLICK_HOLD_MS)?;
@@ -61,7 +61,7 @@ pub(super) fn open_slot_list(
             debug!(
                 item_kind = %target.item_kind.label(),
                 click_attempts,
-                elapsed = ?started.elapsed(),
+                elapsed_s = started.elapsed().as_secs_f64(),
                 "home list opened"
             );
             return Ok(observation);
@@ -75,7 +75,7 @@ pub(super) fn open_slot_list(
                 warn!(
                     item_kind = %target.item_kind.label(),
                     click_attempts,
-                    elapsed = ?started.elapsed(),
+                    elapsed_s = started.elapsed().as_secs_f64(),
                     "still on loadout home; retrying list entry click"
                 );
                 automation.click(target.point, CLICK_HOLD_MS)?;

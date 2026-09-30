@@ -22,7 +22,10 @@ impl RecognizerRuntime {
         let load_time = Instant::now();
         let calibration = parse_json_asset(default_calibration())?;
 
-        debug!(elapsed = ?load_time.elapsed(), "recognizer runtime ready");
+        debug!(
+            elapsed_s = load_time.elapsed().as_secs_f64(),
+            "recognizer runtime ready"
+        );
 
         Ok(Self { calibration })
     }

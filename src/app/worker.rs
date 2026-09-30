@@ -108,7 +108,7 @@ impl ActionWorker {
                             let saved = matches!(&outcome, Ok(PresetActionOutcome::Saved));
                             if let Err(error) = outcome {
                                 let error = format!("{error:#}");
-                                error!(preset = %preset, elapsed = ?start.elapsed(), %error, "preset action failed");
+                                error!(preset = %preset, elapsed_s = start.elapsed().as_secs_f64(), %error, "preset action failed");
                                 sink.emit(AppEvent::PresetFailed { preset, error });
                             }
                             // Completion follows all progress on the same FIFO channel.

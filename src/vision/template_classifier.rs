@@ -210,7 +210,7 @@ impl TemplateClassifier {
                     template.category.map(StratagemCategory::label)
                 ))
                 .collect::<Vec<_>>(),
-            elapsed = ?load_start.elapsed(),
+            elapsed_s = load_start.elapsed().as_secs_f64(),
             "template matching profile built"
         );
 
@@ -284,7 +284,7 @@ impl TemplateClassifier {
             comparisons = results.len() * self.templates.len(),
             accepted,
             failed = results.len() - accepted,
-            elapsed = ?started.elapsed(),
+            elapsed_s = started.elapsed().as_secs_f64(),
             "template classifier timing"
         );
         Ok(page_candidates)
@@ -453,8 +453,8 @@ fn trace_match(
         white_gain = result.white_gain,
         class_gain = result.class_gain,
         semantic_mode = extraction.mode,
-        primary_endpoint = ?extraction.primary_endpoint,
-        secondary_endpoint = ?extraction.secondary_endpoint,
+        primary_endpoint = %format_args!("{:.3?}", extraction.primary_endpoint),
+        secondary_endpoint = %format_args!("{:.3?}", extraction.secondary_endpoint),
         primary_mass = extraction.primary_mass,
         secondary_mass = extraction.secondary_mass,
         "template match evaluated"

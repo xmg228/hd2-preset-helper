@@ -81,7 +81,7 @@ impl HoverVerifier {
                 baseline = sample.baseline,
                 score_gap = sample.target_score - sample.baseline,
                 required_gap = sample.required_gap,
-                elapsed = ?started.elapsed(),
+                elapsed_s = started.elapsed().as_secs_f64(),
                 hover_confirmed = sample.confirmed(),
                 "target hover evidence"
             );
@@ -94,7 +94,7 @@ impl HoverVerifier {
                     baseline = sample.baseline,
                     score_gap = sample.target_score - sample.baseline,
                     required_gap = sample.required_gap,
-                    elapsed = ?started.elapsed(),
+                    elapsed_s = started.elapsed().as_secs_f64(),
                     "target hover state confirmed"
                 );
                 return Ok(sample.sample());
@@ -102,10 +102,10 @@ impl HoverVerifier {
 
             if started.elapsed() >= HOVER_TIMEOUT {
                 bail!(
-                    "hover was not confirmed for target slot row {} col {} after {:?} (target={:.1}, baseline={:.1}, gap={:.1}/{:.1})",
+                    "hover was not confirmed for target slot row {} col {} after {:.3}s (target={:.1}, baseline={:.1}, gap={:.1}/{:.1})",
                     target.row,
                     target.col,
-                    started.elapsed(),
+                    started.elapsed().as_secs_f64(),
                     sample.target_score,
                     sample.baseline,
                     sample.target_score - sample.baseline,

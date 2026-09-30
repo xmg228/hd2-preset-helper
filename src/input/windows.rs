@@ -431,8 +431,8 @@ impl InputSession {
         trace!(
             x = point.x,
             y = point.y,
-            hold_ms,
-            settle = ?CLICK_MOVE_SETTLE_DELAY,
+            hold_s = hold_ms as f64 / 1000.0,
+            settle_s = CLICK_MOVE_SETTLE_DELAY.as_secs_f64(),
             "mouse click input"
         );
         self.move_cursor(point)?;
@@ -460,7 +460,11 @@ impl InputSession {
 
     pub fn tap_key(&mut self, key: Key, hold_ms: u64) -> Result<()> {
         self.ensure_target()?;
-        trace!(key = key.name(), hold_ms, "key tap input");
+        trace!(
+            key = key.name(),
+            hold_s = hold_ms as f64 / 1000.0,
+            "key tap input"
+        );
         self.key_down(key)?;
         sleep(Duration::from_millis(hold_ms));
         self.key_up(key)?;

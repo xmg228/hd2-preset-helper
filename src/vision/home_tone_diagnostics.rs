@@ -30,10 +30,10 @@ pub(crate) fn log_home_tone(observation: &RoiObservation) {
     match measure_home_tone(observation) {
         Ok(tone) => debug!(
             home_gray = tone.gray,
-            home_rgb = ?tone.rgb,
+            home_rgb = %format_args!("{:.3?}", tone.rgb),
             consensus_support = tone.consensus_support,
             slot_peaks = ?tone.slot_peaks,
-            slot_supports = ?tone.slot_supports,
+            slot_supports = %format_args!("{:.3?}", tone.slot_supports),
             "normalized Home UI tone measured"
         ),
         Err(error) => debug!(

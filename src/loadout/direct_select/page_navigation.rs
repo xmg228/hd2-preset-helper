@@ -171,9 +171,9 @@ impl PageNavigator {
             };
             let elapsed = start.elapsed();
             trace!(
-                relation = ?relation,
+                relation = %format_args!("{relation:.3?}"),
                 semantic_observations,
-                elapsed = ?elapsed,
+                elapsed_s = elapsed.as_secs_f64(),
                 "page semantic relation"
             );
 
@@ -213,7 +213,7 @@ impl PageNavigator {
                     if no_movement_check && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES {
                         debug!(
                             target: "hd2_preset_helper::perf",
-                            elapsed = ?start.elapsed(),
+                            elapsed_s = start.elapsed().as_secs_f64(),
                             same_viewport_frames,
                             "page turn produced no movement"
                         );

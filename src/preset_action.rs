@@ -95,7 +95,7 @@ pub fn execute_preset(
         .acquire(&game_window)
         .context("failed to get capture session")?;
     debug!(
-        elapsed = ?capture_start.elapsed(),
+        elapsed_s = capture_start.elapsed().as_secs_f64(),
         "capture session ready"
     );
     let game_color_settings =
@@ -151,6 +151,6 @@ pub fn execute_preset(
         preset: preset_name.to_string(),
         completion,
     });
-    info!(preset = %preset_name, elapsed = ?action_start.elapsed(), "preset action completed");
+    info!(preset = %preset_name, elapsed_s = action_start.elapsed().as_secs_f64(), "preset action completed");
     Ok(outcome)
 }

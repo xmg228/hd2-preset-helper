@@ -123,7 +123,7 @@ pub(super) fn wait_for_stable_ui_state(
     let span = debug_span!(
         "wait_for_stable_ui_state",
         target_state = %target_state.label(),
-        timeout = ?timeout
+        timeout_s = timeout.as_secs_f64()
     );
     let _guard = span.enter();
     let (expected_layout, stable_distance) = match target_state {
@@ -163,7 +163,7 @@ pub(super) fn wait_for_stable_ui_state(
                         slot_count = result.slots.len(),
                         distance,
                         threshold = stable_distance,
-                        elapsed = ?start.elapsed(),
+                        elapsed_s = start.elapsed().as_secs_f64(),
                         "target UI state stabilized"
                     );
                     return Ok(Some(result));
@@ -201,7 +201,7 @@ pub(super) fn wait_for_stable_ui_state(
                 target_state = %target_state.label(),
                 last_state = %current_state.label(),
                 last_slot_count = result.slots.len(),
-                elapsed = ?start.elapsed(),
+                elapsed_s = start.elapsed().as_secs_f64(),
                 "timed out waiting for stable UI state"
             );
             return Ok(None);

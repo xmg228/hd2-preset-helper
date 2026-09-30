@@ -130,7 +130,7 @@ impl Diagnostics {
         let error = result.as_ref().err().map(|error| format!("{error:#}"));
         tracing::info!(
             found,
-            elapsed_ms,
+            elapsed_s = elapsed_ms / 1000.0,
             visits,
             best_target_cosine = self
                 .best_match

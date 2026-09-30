@@ -341,8 +341,8 @@ impl Session<'_, '_> {
                     };
                 tracing::debug!(
                     action = action.name(),
-                    elapsed_ms,
-                    stable_ms,
+                    elapsed_s = elapsed_ms / 1000.0,
+                    stable_s = stable_ms.map(|ms| ms / 1000.0),
                     name_cosine = change.name_cosine,
                     list_moved,
                     retried,
@@ -367,14 +367,14 @@ impl Session<'_, '_> {
                 );
                 if equipping {
                     bail!(
-                        "target equipment marker was not confirmed within {:?}; no retry or return was sent",
-                        started.elapsed()
+                        "target equipment marker was not confirmed within {:.3}s; no retry or return was sent",
+                        started.elapsed().as_secs_f64()
                     );
                 }
                 bail!(
-                    "{} navigation did not finish within {:?}; retried={retried}",
+                    "{} navigation did not finish within {:.3}s; retried={retried}",
                     action.name(),
-                    started.elapsed()
+                    started.elapsed().as_secs_f64()
                 );
             }
             if !responded
@@ -397,7 +397,7 @@ impl Session<'_, '_> {
                 });
                 tracing::info!(
                     action = key.name(),
-                    elapsed_ms,
+                    elapsed_s = elapsed_ms / 1000.0,
                     "retrying unresponsive equipment navigation once"
                 );
             }

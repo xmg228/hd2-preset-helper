@@ -79,7 +79,7 @@ pub fn detect(
     debug!(
         target: "hd2_preset_helper::perf",
         ?expected_layout,
-        total = ?started.elapsed(),
+        total_s = started.elapsed().as_secs_f64(),
         detections = slots.len(),
         "geometry detector timing"
     );
@@ -117,7 +117,7 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
     debug!(
         y = best.y,
         home_score = best.score,
-        slots = ?best.slots,
+        slots = %format_args!("{:.3?}", best.slots),
         "fixed home frame selected"
     );
 

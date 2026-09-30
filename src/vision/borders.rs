@@ -121,7 +121,7 @@ impl FixedEdgeProfiles {
                 .map(|profile| profile.samples.len())
                 .sum::<usize>(),
             vertical_points = vertical.iter().map(Vec::len).sum::<usize>(),
-            elapsed = ?started.elapsed(),
+            elapsed_s = started.elapsed().as_secs_f64(),
             "fixed edge profiles built"
         );
         Self {
@@ -553,10 +553,10 @@ pub(super) fn select_rows<const N: usize>(
         threshold,
         raw_rows = raw.len(),
         final_rows = selected.len(),
-        rows = ?selected
+        rows = %format_args!("{:.3?}", selected
             .iter()
             .map(|row| (row.y, row.score, row.slots))
-            .collect::<Vec<_>>(),
+            .collect::<Vec<_>>()),
         "fixed list rows selected"
     );
 

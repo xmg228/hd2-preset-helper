@@ -52,7 +52,7 @@ impl CaptureSessionManager {
         let capture = CaptureSource::new_for_window_target(target)
             .context("failed to create capture session")?;
         debug!(
-            elapsed = ?start.elapsed(),
+            elapsed_s = start.elapsed().as_secs_f64(),
             "capture session created"
         );
 
