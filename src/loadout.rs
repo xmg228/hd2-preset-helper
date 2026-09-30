@@ -5,7 +5,7 @@ mod frame;
 mod home;
 pub(crate) mod pages;
 
-pub use direct_select::{BoosterApplyOutcome, apply_booster_from_home, apply_stratagems_from_home};
+pub use direct_select::{BoosterApplyOutcome, apply_stratagem_preset_from_home};
 pub use frame::bind_loadout_region;
 pub use home::{
     UiState, collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,

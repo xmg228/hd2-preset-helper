@@ -14,9 +14,10 @@ use tracing::{debug, debug_span, info, info_span, warn};
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::preset::stratagems::{LocalTemplate, load_template_sample};
+use crate::preset::stratagems::{LocalTemplate, StratagemPreset, load_template_sample};
 use crate::vision::{
-    ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind, TemplateClassifier,
+    ImageSample, ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind,
+    TemplateClassifier,
 };
 
 use super::home::{find_home_row, home_booster_slot, wait_for_filled_home};
@@ -75,7 +76,82 @@ impl ScrollDirection {
     }
 }
 
-pub fn apply_stratagems_from_home(
+pub fn apply_stratagem_preset_from_home(
+    recognizer: RecognizerSession,
+    automation: &mut AutomationSession<'_>,
+    events: &AppEventSink,
+    mut home: RoiObservation,
+    presets_path: &Path,
+    preset: &StratagemPreset,
+    apply_in_saved_order: bool,
+) -> Result<Option<BoosterApplyOutcome>> {
+    let mut booster_sources = Vec::new();
+    if let Some(preferred) = &preset.booster {
+        for template in std::iter::once(preferred).chain(preset.fallback_booster.as_ref()) {
+            booster_sources.push((
+                template.path.clone(),
+                load_template_sample(presets_path, template)
+                    .context("failed to load booster template")?,
+            ));
+        }
+    }
+    let mut booster_confirmed = false;
+    if let Some((preferred, _)) = booster_sources.first()
+        && home_booster_slot(&home).is_some_and(|slot| slot.kind == SlotKind::HomeBooster)
+    {
+        TemplateClassifier::new(
+            ItemKind::Booster,
+            &booster_sources,
+            recognizer.ui_scale(),
+            &home,
+        )?
+        .classify_batch(&mut home)
+        .context("failed to identify equipped booster")?;
+        if let Some(equipped) = home_booster_slot(&home)
+            .and_then(|slot| slot.classification.as_ref())
+            .filter(|matched| matched.item_id == *preferred)
+        {
+            info!(
+                item_id = %equipped.item_id,
+                match_error = equipped.match_error,
+                "preferred booster is already equipped; skipping list entry"
+            );
+            booster_confirmed = true;
+        }
+    }
+    events.emit(AppEvent::StratagemsApplyStarted {
+        stratagems: preset
+            .stratagems
+            .iter()
+            .map(|item| item.path.clone())
+            .collect(),
+        booster: preset.booster.as_ref().map(|item| item.path.clone()),
+        booster_confirmed,
+    });
+    let home = apply_stratagems_from_home(
+        recognizer,
+        automation,
+        events,
+        home,
+        presets_path,
+        &preset.stratagems,
+        apply_in_saved_order,
+    )
+    .context("failed to apply stratagems from home")?;
+
+    // Selecting Stratagems does not change an already-confirmed Booster.
+    if booster_sources.is_empty() {
+        Ok(None)
+    } else if booster_confirmed {
+        Ok(Some(BoosterApplyOutcome::Applied))
+    } else {
+        apply_booster_from_home(recognizer, automation, events, home, &booster_sources)
+            .map(Some)
+            .context("failed to apply booster from home")
+    }
+}
+
+fn apply_stratagems_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
@@ -207,61 +283,26 @@ pub fn apply_stratagems_from_home(
     }
 }
 
-pub fn apply_booster_from_home(
+fn apply_booster_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
     events: &AppEventSink,
-    mut home: RoiObservation,
-    presets_path: &Path,
-    template: &LocalTemplate,
-    fallback: Option<&LocalTemplate>,
+    home: RoiObservation,
+    sources: &[(String, ImageSample)],
 ) -> Result<BoosterApplyOutcome> {
     events.emit(AppEvent::BoosterProgress {
-        item_id: template.path.clone(),
+        item_id: sources[0].0.clone(),
         confirmed: false,
     });
-    let templates = std::iter::once(template)
-        .chain(fallback)
-        .collect::<Vec<_>>();
-    let sources = templates
-        .iter()
-        .map(|template| {
-            load_template_sample(presets_path, template)
-                .map(|sample| (template.path.clone(), sample))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    if home_booster_slot(&home).is_some_and(|slot| slot.kind == SlotKind::HomeBooster) {
-        TemplateClassifier::new(ItemKind::Booster, &sources, recognizer.ui_scale(), &home)?
-            .classify_batch(&mut home)?;
-        if let Some(equipped) = home_booster_slot(&home)
-            .and_then(|slot| slot.classification.as_ref())
-            .filter(|matched| matched.item_id == template.path)
-        {
-            info!(
-                item_id = %equipped.item_id,
-                match_error = equipped.match_error,
-                "preferred booster is already equipped; skipping list entry"
-            );
-            events.emit(AppEvent::BoosterProgress {
-                item_id: template.path.clone(),
-                confirmed: true,
-            });
-            return Ok(BoosterApplyOutcome::Applied);
-        }
-    }
-
     let target = home_booster_target(&home)?;
     let opened_list = open_slot_list(automation, recognizer, target)?;
     let classifier = TemplateClassifier::new(
         ItemKind::Booster,
-        &sources,
+        sources,
         recognizer.ui_scale(),
         &opened_list,
     )?;
-    let item_ids = templates
-        .iter()
-        .map(|template| template.path.clone())
-        .collect::<Vec<_>>();
+    let item_ids = sources.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
     match select_items_from_open_list(
         PageNavigator::new(recognizer, ItemKind::Booster, classifier),
         automation,

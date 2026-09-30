@@ -77,10 +77,12 @@ impl Status {
                 (if repairing { "Updating equipment cache" } else { "Building equipment cache" }.into(),
                     WORKING, None)
             }
-            AppEvent::StratagemsApplyStarted { stratagems, booster } => {
+            AppEvent::StratagemsApplyStarted { stratagems, booster, booster_confirmed } => {
                 let icons = stratagems.iter().map(|id| self.icon(id)).collect::<Vec<_>>();
                 self.window.set_stratagems(Rc::new(VecModel::from(icons)).into());
-                self.window.set_booster(booster.map(|id| self.icon(&id)).unwrap_or_default());
+                let mut booster = booster.map(|id| self.icon(&id)).unwrap_or_default();
+                booster.confirmed = booster_confirmed;
+                self.window.set_booster(booster);
                 (format!("Applying Stratagems · 0/{}", stratagems.len()), WORKING, None)
             }
             AppEvent::StratagemsProgress { remaining } => {

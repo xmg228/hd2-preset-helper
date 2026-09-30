@@ -9,14 +9,14 @@ use crate::app_events::{AppEvent, PresetCompletion};
 use crate::automation::AutomationSession;
 use crate::input;
 use crate::loadout::{
-    BoosterApplyOutcome, UiState, apply_booster_from_home, apply_stratagems_from_home,
-    bind_loadout_region, collect_home_booster, collect_stratagem_preset, detect_ui_state,
-    scan_loadout_home, wait_for_stable_ui_state,
+    BoosterApplyOutcome, UiState, apply_stratagem_preset_from_home, bind_loadout_region,
+    collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,
+    wait_for_stable_ui_state,
 };
 use crate::preset::stratagems::{self as storage, CapturedStratagemPreset, StratagemPreset};
 #[cfg(feature = "diagnostics")]
 use crate::vision::log_home_tone;
-use crate::vision::{RecognizerRuntime, RecognizerSession, RoiObservation};
+use crate::vision::{RecognizerRuntime, RecognizerSession};
 
 const READY_UP_HOLD_MS: u64 = 45;
 const FALLBACK_BOOSTER_SELECTION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -68,26 +68,15 @@ pub(super) fn execute(
                 "applying preset from home"
             );
             log_preset_contents(&preset);
-            context.events.emit(AppEvent::StratagemsApplyStarted {
-                stratagems: preset
-                    .stratagems
-                    .iter()
-                    .map(|item| item.path.clone())
-                    .collect(),
-                booster: preset.booster.as_ref().map(|item| item.path.clone()),
-            });
-            let home = apply_stratagems_from_home(
+            let booster = apply_stratagem_preset_from_home(
                 recognizer,
                 &mut automation,
                 context.events,
                 initial_result,
                 context.presets,
-                &preset.stratagems,
+                &preset,
                 context.options.apply_in_saved_order,
-            )
-            .context("failed to apply stratagems from home")?;
-            let booster =
-                apply_booster_if_present(recognizer, &mut automation, context, &preset, home)?;
+            )?;
             let (ready_up_after_apply, completion) = match booster {
                 Some(BoosterApplyOutcome::Applied) => (true, PresetCompletion::Complete),
                 Some(BoosterApplyOutcome::Unavailable) => {
@@ -228,27 +217,4 @@ fn learn_fallback_booster(
         "fallback booster saved"
     );
     Ok(true)
-}
-
-fn apply_booster_if_present(
-    recognizer: RecognizerSession,
-    automation: &mut AutomationSession<'_>,
-    context: &PresetActionContext<'_>,
-    preset: &StratagemPreset,
-    home: RoiObservation,
-) -> Result<Option<BoosterApplyOutcome>> {
-    let Some(booster) = preset.booster.as_ref() else {
-        return Ok(None);
-    };
-    apply_booster_from_home(
-        recognizer,
-        automation,
-        context.events,
-        home,
-        context.presets,
-        booster,
-        preset.fallback_booster.as_ref(),
-    )
-    .map(Some)
-    .context("failed to apply booster from home")
 }

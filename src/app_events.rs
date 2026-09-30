@@ -47,6 +47,7 @@ pub enum AppEvent {
     StratagemsApplyStarted {
         stratagems: Vec<String>,
         booster: Option<String>,
+        booster_confirmed: bool,
     },
     StratagemsProgress {
         remaining: Vec<String>,
