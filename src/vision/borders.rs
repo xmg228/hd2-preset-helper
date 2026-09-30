@@ -320,22 +320,12 @@ fn edge_quality(
     let retained =
         ((values.len() as f32 * EDGE_RETAIN_RATIO).ceil() as usize).clamp(1, values.len());
     let robust = values[values.len() - retained..].iter().sum::<f32>() / retained as f32;
-    let q25 = quantile_sorted(values, 0.25);
+    let support = values[..retained].iter().sum::<f32>() / retained as f32;
+    // Missing segments reduce support continuously; isolated highlights cannot fill an edge.
     EdgeQuality {
-        q: (robust * q25).max(0.0).sqrt(),
+        q: (robust * support).max(0.0).sqrt(),
         cross_support,
     }
-}
-
-fn quantile_sorted(values: &[f32], quantile: f32) -> f32 {
-    if values.len() == 1 {
-        return values[0];
-    }
-    let position = quantile * (values.len() - 1) as f32;
-    let lower = position.floor() as usize;
-    let upper = position.ceil() as usize;
-    let fraction = position - lower as f32;
-    values[lower] + (values[upper] - values[lower]) * fraction
 }
 
 fn sample_horizontal_point(

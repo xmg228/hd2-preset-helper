@@ -100,15 +100,16 @@ impl Session<'_, '_> {
         let entry = loop {
             self.check_active()?;
             let entry = self.observer.entry(&self.frame);
-            if entry.confirmed() && entry.scores[kind.index()] >= 0.05 {
+            // All six positions are fixed once the entry page is confirmed.
+            if entry.confirmed() {
                 self.diagnostics
                     .save_entry(&self.frame, &entry, "entry-before");
                 break entry;
             }
             if started.elapsed() >= NAVIGATION_TIMEOUT {
                 self.diagnostics
-                    .save_entry(&self.frame, &entry, "entry-target-timeout");
-                bail!("equipment entry target was not confirmed before timeout; no click was sent");
+                    .save_entry(&self.frame, &entry, "entry-timeout");
+                bail!("equipment entry page was not confirmed before timeout; no click was sent");
             }
             self.refresh()?;
         };
