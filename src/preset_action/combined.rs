@@ -26,31 +26,21 @@ pub(super) fn execute(
     target: WindowTarget,
     colors: GameColorSettings,
 ) -> Result<(PresetActionOutcome, PresetCompletion)> {
-    let saving = command == PresetCommand::SaveFull;
-    // Validate both saved parts before switching pages or changing any equipment.
-    let items = if saving {
-        None
-    } else {
-        stratagems::load(context, preset)?;
-        Some(storage::load(context.presets, preset)?)
-    };
-    let started_on_equipment = saving && page_visible(capture, runtime, colors, Page::Equipment)?;
-    show_page(capture, runtime, &target, colors, Page::Stratagems)?;
-    let captured = {
-        let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
-        let recognizer = runtime.bind(bound.geometry);
-        let mut automation = AutomationSession::new(bound.region, target.clone())?;
-        let home = scan_loadout_home(&mut automation, recognizer)?;
-        ensure!(
-            detect_ui_state(&home) == UiState::Home,
-            "loadout home not detected; equipment has not been changed"
-        );
-        saving
-            .then(|| collect_stratagem_preset(&home, recognizer.ui_scale()))
-            .transpose()?
-    };
-    show_page(capture, runtime, &target, colors, Page::Equipment)?;
-    if let Some(captured) = captured {
+    if command == PresetCommand::SaveFull {
+        let started_on_equipment = page_visible(capture, runtime, colors, Page::Equipment)?;
+        show_page(capture, runtime, &target, colors, Page::Stratagems)?;
+        let captured = {
+            let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
+            let recognizer = runtime.bind(bound.geometry);
+            let mut automation = AutomationSession::new(bound.region, target.clone())?;
+            let home = scan_loadout_home(&mut automation, recognizer)?;
+            ensure!(
+                detect_ui_state(&home) == UiState::Home,
+                "loadout home not detected; equipment has not been changed"
+            );
+            collect_stratagem_preset(&home, recognizer.ui_scale())?
+        };
+        show_page(capture, runtime, &target, colors, Page::Equipment)?;
         let items = equipment::sample(capture, target.clone(), colors, context)?;
         if !started_on_equipment {
             show_page(capture, runtime, &target, colors, Page::Stratagems)?;
@@ -62,14 +52,11 @@ pub(super) fn execute(
             .context("equipment saved, but saving Stratagems failed")?;
         Ok((PresetActionOutcome::Saved, PresetCompletion::Saved))
     } else {
-        equipment::apply(
-            capture,
-            target.clone(),
-            colors,
-            context,
-            preset,
-            items.as_ref().unwrap(),
-        )?;
+        // Validate both saved parts before switching pages or changing any equipment.
+        stratagems::load(context, preset)?;
+        let items = storage::load(context.presets, preset)?;
+        show_page(capture, runtime, &target, colors, Page::Equipment)?;
+        equipment::apply(capture, target.clone(), colors, context, preset, &items)?;
         // Stratagems/Booster go last, so fallback learning and auto-ready cannot
         // run before equipment has finished.
         (|| {
