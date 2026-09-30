@@ -1,6 +1,6 @@
 [package]
 name = "hd2-preset-helper"
-version = "0.3.0-rc.1"
+version = "0.3.0"
 edition = "2024"
 build = "build.rs"
 description = "A Windows utility for saving and applying loadout presets in Helldivers 2"
