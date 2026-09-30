@@ -69,8 +69,12 @@ pub(crate) struct Session<'capture, 'operation> {
     last_release: Option<Instant>,
 }
 
-pub(crate) enum ApplyProgress {
+pub(crate) enum ApplyProgress<'a> {
     Selecting(EquipmentKind),
+    Caching {
+        category: &'a TextSample,
+        repairing: bool,
+    },
     Selected {
         kind: EquipmentKind,
         corrected_category: Option<TextSample>,
@@ -138,7 +142,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         self.diagnostics.save(&self.frame, &self.page, "remembered");
         Ok(EquipmentItem {
             name: self.page.name.clone(),
-            category: self.page.category.clone(),
+            category: Some(self.page.category.clone()),
             client_size: self.client_size,
         })
     }
@@ -183,7 +187,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         &mut self,
         items: &EquipmentSet,
         cache: &mut EquipmentCache,
-        mut progress: impl FnMut(ApplyProgress),
+        mut progress: impl FnMut(ApplyProgress<'_>),
     ) -> Result<()> {
         if let Some(kind) = EquipmentKind::ALL
             .iter()
@@ -202,7 +206,11 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             self.open(kind)
                 .with_context(|| format!("failed to open {kind:?} for application"))?;
             let corrected_category = self
-                .apply_item(items[kind.index()].as_ref().unwrap(), cache.search(kind))
+                .apply_item(
+                    items[kind.index()].as_ref().unwrap(),
+                    cache.search(kind),
+                    &mut progress,
+                )
                 .with_context(|| format!("failed to apply {kind:?}"))?;
             progress(ApplyProgress::Selected {
                 kind,
@@ -224,19 +232,27 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         &mut self,
         item: &EquipmentItem,
         cache: cache::SearchCache<'_>,
+        progress: &mut impl FnMut(ApplyProgress<'_>),
     ) -> Result<Option<TextSample>> {
         ensure!(
-            self.find_item(item, cache)?,
+            self.find_item(item, cache, progress)?,
             "saved equipment was not found in the list"
         );
         self.equip_and_return(item)
     }
 
-    fn find_item(&mut self, target: &EquipmentItem, cache: cache::SearchCache<'_>) -> Result<bool> {
+    fn find_item(
+        &mut self,
+        target: &EquipmentItem,
+        cache: cache::SearchCache<'_>,
+        progress: &mut impl FnMut(ApplyProgress<'_>),
+    ) -> Result<bool> {
+        let kind = cache.kind;
         let mut search = Search::new(target, cache);
         self.diagnostics.start_search(target);
         let started = Instant::now();
         let mut navigation = None;
+        let mut caching = None;
         let result = (|| loop {
             self.sync_category()?;
             let evaluate_started = Instant::now();
@@ -253,6 +269,19 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 &self.page,
                 evaluate_started.elapsed().as_secs_f64() * 1000.0,
             );
+            // The survey may briefly cross into another category to find its boundary.
+            // Keep its original title until cache work actually switches categories.
+            let active = search.caching();
+            if active != caching {
+                progress(match active {
+                    Some((_, repairing)) => ApplyProgress::Caching {
+                        category: &self.page.category,
+                        repairing,
+                    },
+                    None => ApplyProgress::Selecting(kind),
+                });
+                caching = active;
+            }
             match next {
                 Next::Input(action) => navigation = Some(self.navigate(action)?),
                 Next::Found | Next::NotFound => {

@@ -108,7 +108,7 @@ pub(super) struct Location {
 pub(super) struct SearchCache<'a> {
     categories: &'a mut Vec<Category>,
     dirty: &'a mut bool,
-    pub columns: usize,
+    pub kind: EquipmentKind,
     current: Option<Location>,
 }
 
@@ -127,7 +127,7 @@ impl EquipmentCache {
         SearchCache {
             categories: &mut self.kinds[kind.index()],
             dirty: &mut self.dirty,
-            columns: kind.list_columns(),
+            kind,
             current: None,
         }
     }
@@ -144,18 +144,36 @@ impl SearchCache<'_> {
         navigation: Option<Navigation>,
     ) -> Result<Location> {
         let focus = &page.slots[page.focus.context("equipment focus missing")?];
-        let title = page.category.as_ref().map(TextSample::signature);
+        let title = page.category.signature();
+        let columns = self.kind.list_columns();
+        // Single-category lists also need a visual language check. Old untitled
+        // caches cannot establish this, so rebuild only this kind on its first visit.
+        if !self.kind.has_categories()
+            && self.current.is_none()
+            && self.categories.first().is_some_and(|entry| {
+                entry
+                    .title
+                    .as_ref()
+                    .is_none_or(|old| old.cosine(title) < NAME_MATCH_THRESHOLD)
+            })
+        {
+            self.categories.clear();
+            *self.dirty = true;
+            tracing::info!(kind = ?self.kind, "equipment heading changed; rebuilding this cache");
+        }
         let category = self
             .categories
             .iter()
-            .position(|entry| match (&entry.title, &title) {
-                (None, None) => true,
-                (Some(a), Some(b)) => a.cosine(b) >= NAME_MATCH_THRESHOLD,
-                _ => false,
+            .position(|entry| {
+                !self.kind.has_categories()
+                    || entry
+                        .title
+                        .as_ref()
+                        .is_some_and(|old| old.cosine(title) >= NAME_MATCH_THRESHOLD)
             })
             .unwrap_or_else(|| {
                 self.categories.push(Category {
-                    title: title.cloned(),
+                    title: Some(title.clone()),
                     names: Vec::new(),
                     order: Vec::new(),
                     previous: None,
@@ -181,8 +199,8 @@ impl SearchCache<'_> {
                 && (changed
                     || navigation.is_some_and(|n| n.wrapped)
                     || self.current.is_some_and(|c| match k {
-                        Key::Down => c.width < self.columns,
-                        Key::Up => width < self.columns,
+                        Key::Down => c.width < columns,
+                        Key::Up => width < columns,
                         _ => false,
                     }))
         });
@@ -210,14 +228,14 @@ impl SearchCache<'_> {
             order
                 .len()
                 .checked_sub(1)
-                .map(|last| last / self.columns * self.columns + col)
+                .map(|last| last / columns * columns + col)
         } else if let Some(before) = self.current.filter(|_| !changed && continuous) {
             before.position.and_then(|p| {
-                let row = p / self.columns;
+                let row = p / columns;
                 match key {
-                    Some(Key::Down) => Some((row + 1) * self.columns + col),
-                    Some(Key::Up) => row.checked_sub(1).map(|r| r * self.columns + col),
-                    _ => Some(row * self.columns + col),
+                    Some(Key::Down) => Some((row + 1) * columns + col),
+                    Some(Key::Up) => row.checked_sub(1).map(|r| r * columns + col),
+                    _ => Some(row * columns + col),
                 }
             })
         } else {
@@ -229,18 +247,17 @@ impl SearchCache<'_> {
             || self.current.is_none_or(|c| {
                 c.position.is_none_or(|p| match key {
                     Some(Key::Down) => {
-                        boundary.is_some()
-                            == (p / self.columns + 1 == order.len().div_ceil(self.columns))
+                        boundary.is_some() == (p / columns + 1 == order.len().div_ceil(columns))
                     }
-                    Some(Key::Up) => boundary.is_some() == (p / self.columns == 0),
+                    Some(Key::Up) => boundary.is_some() == (p / columns == 0),
                     _ => true,
                 })
             });
         let position = expected.filter(|&p| {
             boundary_agrees
-                && p % self.columns == col
+                && p % columns == col
                 && order.get(p) == Some(&name)
-                && order.len().saturating_sub(p - col).min(self.columns) == width
+                && order.len().saturating_sub(p - col).min(columns) == width
         });
         let location = Location {
             category,
@@ -363,6 +380,7 @@ impl SearchCache<'_> {
         order: Vec<Name>,
         position: Option<usize>,
     ) -> Location {
+        let columns = self.kind.list_columns();
         tracing::info!(
             category,
             slots = order.len(),
@@ -376,12 +394,8 @@ impl SearchCache<'_> {
             let order = &self.categories[category].order;
             current.position = position.filter(|&p| {
                 order.get(p) == Some(&current.name)
-                    && p % self.columns == current.col
-                    && order
-                        .len()
-                        .saturating_sub(p - current.col)
-                        .min(self.columns)
-                        == current.width
+                    && p % columns == current.col
+                    && order.len().saturating_sub(p - current.col).min(columns) == current.width
             });
             let mut occurrences = order
                 .iter()
@@ -394,24 +408,25 @@ impl SearchCache<'_> {
     }
 
     pub fn next(&self, target: Name) -> Option<InputAction> {
+        let columns = self.kind.list_columns();
         let current = self.current?;
         let position = current.position?;
         let category = &self.categories[current.category];
-        let row_count = category.order.len().div_ceil(self.columns) as i32;
+        let row_count = category.order.len().div_ceil(columns) as i32;
         let (rows, col) = category
             .order
             .iter()
             .enumerate()
             .filter(|&(_, &name)| name == target)
             .map(|(p, _)| {
-                let mut rows = (p / self.columns) as i32 - (position / self.columns) as i32;
+                let mut rows = (p / columns) as i32 - (position / columns) as i32;
                 if category.circular {
                     rows = rows.rem_euclid(row_count);
                     if rows > row_count - rows {
                         rows -= row_count;
                     }
                 }
-                (rows, p % self.columns)
+                (rows, p % columns)
             })
             .min_by_key(|&(r, c)| (r.abs(), c != current.col))?;
         let action = if rows != 0 {

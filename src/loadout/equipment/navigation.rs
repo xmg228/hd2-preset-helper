@@ -47,7 +47,7 @@ impl Session<'_, '_> {
 
     /// Hover changes the category heading without changing keyboard focus.
     pub(super) fn sync_category(&mut self) -> Result<()> {
-        if self.page.category.is_none() {
+        if !self.observer.kind().has_categories() {
             return Ok(());
         }
         let started = Instant::now();
@@ -55,14 +55,7 @@ impl Session<'_, '_> {
         let mut hover_confirmed = false;
         loop {
             self.check_active()?;
-            if self.page.ready()
-                && self.page.focus == self.page.hover
-                && self
-                    .page
-                    .category
-                    .as_ref()
-                    .is_some_and(|title| title.has_text())
-            {
+            if self.page.ready() && self.page.focus == self.page.hover {
                 if cursor.is_some() && !hover_confirmed {
                     // The category heading can update after the hover border.
                     hover_confirmed = true;
@@ -128,11 +121,6 @@ impl Session<'_, '_> {
         loop {
             self.refresh()?;
             let ready = self.page.ready()
-                && self
-                    .page
-                    .category
-                    .as_ref()
-                    .is_none_or(|title| title.has_text())
                 && self.page.focus.is_some_and(|i| self.page.slots[i].equipped)
                 && !self.at_entry();
             if ready {
@@ -424,18 +412,11 @@ impl Session<'_, '_> {
         }
         self.sync_category()?;
         self.confirm_target(target, true)?;
-        let corrected_category = self
-            .page
+        let corrected_category = target
             .category
             .as_ref()
-            .filter(|category| {
-                category.has_text()
-                    && target
-                        .category
-                        .as_ref()
-                        .is_none_or(|saved| category.cosine(saved) < NAME_MATCH_THRESHOLD)
-            })
-            .cloned();
+            .is_none_or(|saved| self.page.category.cosine(saved) < NAME_MATCH_THRESHOLD)
+            .then(|| self.page.category.clone());
         self.return_to_entry()?;
         Ok(corrected_category)
     }

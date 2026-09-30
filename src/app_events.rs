@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::item::{EquipmentKind, ItemKind};
+use crate::item::EquipmentKind;
 
 type AppEventHandler = dyn Fn(AppEvent) + Send + Sync;
 
@@ -44,19 +44,27 @@ pub enum AppEvent {
     EquipmentActionStarted {
         saving: bool,
     },
-    ListSelectionStarted {
-        item_kind: ItemKind,
-        requested_items: usize,
+    StratagemsApplyStarted {
+        stratagems: Vec<String>,
+        booster: Option<String>,
+    },
+    StratagemsProgress {
+        remaining: Vec<String>,
+    },
+    BoosterProgress {
+        item_id: String,
+        confirmed: bool,
     },
     FallbackBoosterRequested {
         preset: String,
     },
-    ItemSelected,
-    ItemSelectionStarted {
-        item_id: String,
-    },
-    EquipmentSelectionStarted {
+    EquipmentProgress {
         kind: EquipmentKind,
+        confirmed: bool,
+    },
+    EquipmentCaching {
+        category: image::RgbaImage,
+        repairing: bool,
     },
     PresetDone {
         preset: String,

@@ -67,7 +67,17 @@ pub(super) fn apply(
     with_session(capture, target, colors, context.presets, |session| {
         session.apply_all(items, context.equipment_cache, |progress| {
             let event = match progress {
-                ApplyProgress::Selecting(kind) => AppEvent::EquipmentSelectionStarted { kind },
+                ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
+                    kind,
+                    confirmed: false,
+                },
+                ApplyProgress::Caching {
+                    category,
+                    repairing,
+                } => AppEvent::EquipmentCaching {
+                    category: crate::preset::preview::equipment_category(category),
+                    repairing,
+                },
                 ApplyProgress::Selected {
                     kind,
                     corrected_category,
@@ -87,7 +97,10 @@ pub(super) fn apply(
                                 "equipment applied, but its corrected category could not be saved"),
                         }
                     }
-                    AppEvent::ItemSelected
+                    AppEvent::EquipmentProgress {
+                        kind,
+                        confirmed: true,
+                    }
                 }
             };
             context.events.emit(event);

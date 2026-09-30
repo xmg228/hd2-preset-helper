@@ -138,6 +138,9 @@ pub fn apply_stratagems_from_home(
             .filter(|(id, _)| !equipped.contains(&id.as_str()))
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
+        events.emit(AppEvent::StratagemsProgress {
+            remaining: missing.clone(),
+        });
         if missing.is_empty() {
             info!("all preset Stratagems are already equipped");
             return Ok(home);
@@ -213,6 +216,10 @@ pub fn apply_booster_from_home(
     template: &LocalTemplate,
     fallback: Option<&LocalTemplate>,
 ) -> Result<BoosterApplyOutcome> {
+    events.emit(AppEvent::BoosterProgress {
+        item_id: template.path.clone(),
+        confirmed: false,
+    });
     let templates = std::iter::once(template)
         .chain(fallback)
         .collect::<Vec<_>>();
@@ -235,6 +242,10 @@ pub fn apply_booster_from_home(
                 match_error = equipped.match_error,
                 "preferred booster is already equipped; skipping list entry"
             );
+            events.emit(AppEvent::BoosterProgress {
+                item_id: template.path.clone(),
+                confirmed: true,
+            });
             return Ok(BoosterApplyOutcome::Applied);
         }
     }
@@ -293,11 +304,6 @@ fn select_items_from_open_list(
         }
     );
     let _guard = span.enter();
-    events.emit(AppEvent::ListSelectionStarted {
-        item_kind,
-        requested_items,
-    });
-
     let mut remaining = items.to_vec();
     let mut selections_left = requested_items;
     let mut wheel_attempts = 0u32;
@@ -349,9 +355,6 @@ fn select_items_from_open_list(
                 })
         };
         if let Some(target) = target {
-            events.emit(AppEvent::ItemSelectionStarted {
-                item_id: target.item_id.clone(),
-            });
             if let ItemAvailability::Unavailable { brightness_ratio } = target.availability {
                 info!(
                     item_id = %target.item_id,
@@ -361,6 +364,10 @@ fn select_items_from_open_list(
                 );
                 if matches!(mode, ListSelectionMode::FirstAvailable) && remaining.len() > 1 {
                     remaining.remove(0);
+                    events.emit(AppEvent::BoosterProgress {
+                        item_id: remaining[0].clone(),
+                        confirmed: false,
+                    });
                     wheel_attempts = 0;
                     boundary_candidate = None;
                     debug!(
@@ -394,9 +401,17 @@ fn select_items_from_open_list(
                 item_kind,
                 final_requested_item,
             )?;
-            events.emit(AppEvent::ItemSelected);
             selections_left -= 1;
             remaining.retain(|item_id| item_id != &selected_item_id);
+            events.emit(match item_kind {
+                ItemKind::Stratagem => AppEvent::StratagemsProgress {
+                    remaining: remaining.clone(),
+                },
+                ItemKind::Booster => AppEvent::BoosterProgress {
+                    item_id: selected_item_id.clone(),
+                    confirmed: true,
+                },
+            });
             list_map.mark_selected(&selected_slot);
             match outcome {
                 TargetSelectionOutcome::List { page, placement } => {

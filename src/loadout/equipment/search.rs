@@ -56,10 +56,11 @@ pub(super) struct Search<'a> {
 
 impl<'a> Search<'a> {
     pub fn new(target: &'a EquipmentItem, cache: SearchCache<'a>) -> Self {
+        let prefer_category = cache.kind.has_categories() && target.category.is_some();
         Self {
             target,
             cache,
-            category_search: if target.category.is_some() {
+            category_search: if prefer_category {
                 CategorySearch::Preferred
             } else {
                 CategorySearch::All {
@@ -72,6 +73,13 @@ impl<'a> Search<'a> {
             expected_col: None,
             visits: 0,
         }
+    }
+
+    /// Active cache work, keyed by category so presentation changes only on transitions.
+    pub fn caching(&self) -> Option<(usize, bool)> {
+        self.survey
+            .as_ref()
+            .map(|survey| (survey.category, matches!(self.phase, Phase::Repair)))
     }
 
     /// Once per confirmed navigation, not per capture frame. Category hover is synchronized by the caller.
@@ -100,11 +108,10 @@ impl<'a> Search<'a> {
             .target
             .category
             .as_ref()
-            .zip(page.category.as_ref())
-            .map(|(t, c)| t.cosine(c));
+            .map(|title| title.cosine(&page.category));
         let same_category = self.target.category.is_none()
             || category_cosine.is_some_and(|s| s >= NAME_MATCH_THRESHOLD);
-        let next = self.next(page, navigation, location, score, same_category)?;
+        let next = self.next(navigation, location, score, same_category)?;
         if let Next::Input(InputAction::ClickColumn(col)) = next {
             self.expected_col = Some(col);
         }
@@ -124,7 +131,6 @@ impl<'a> Search<'a> {
 
     fn next(
         &mut self,
-        page: &EquipmentObservation,
         mut navigation: Option<Navigation>,
         mut location: Location,
         score: f32,
@@ -155,7 +161,7 @@ impl<'a> Search<'a> {
                         location = self.cache.replace(category, order, position);
                         self.survey = None;
                         let single_category =
-                            page.category.is_none() || self.cache.is_circular(category);
+                            !self.cache.kind.has_categories() || self.cache.is_circular(category);
                         let accept_weak = single_category
                             || matches!(self.category_search, CategorySearch::Target(_));
                         if !self.select_target([category], accept_weak) {
@@ -233,7 +239,7 @@ impl<'a> Search<'a> {
                 if location.position.is_some() && navigation.is_none_or(|n| !n.retried) {
                     return self.route(location, target.name, score);
                 }
-            } else if self.select_target([location.category], page.category.is_none()) {
+            } else if self.select_target([location.category], !self.cache.kind.has_categories()) {
                 continue;
             }
             let old = self.cache.take_order(location.category);
@@ -243,10 +249,10 @@ impl<'a> Search<'a> {
                     && navigation.is_none_or(|n| !n.retried)
                 {
                     self.phase = Phase::Repair;
-                    Survey::repair(location, self.cache.columns, old)
+                    Survey::repair(location, self.cache.kind.list_columns(), old)
                 } else {
                     self.phase = Phase::Scan;
-                    Survey::build(location, self.cache.columns)
+                    Survey::build(location, self.cache.kind.list_columns())
                 },
             );
             navigation = None;

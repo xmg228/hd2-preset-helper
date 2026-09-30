@@ -81,8 +81,8 @@ pub struct EquipmentObservation {
     pub hover: Option<usize>,
     pub name: TextSample,
     /// Displayed heading, also changed by hover; not necessarily the focus's category.
-    /// Helmets and capes have no category navigation.
-    pub category: Option<TextSample>,
+    /// Present even for helmets and capes, which have no category navigation.
+    pub category: TextSample,
     pub scale: f64,
 }
 
@@ -92,7 +92,7 @@ pub struct PageChange {
     pub focus_changed: bool,
     pub name_cosine: f32,
     pub name_changed: bool,
-    pub category_cosine: Option<f32>,
+    pub category_cosine: f32,
     pub category_changed: bool,
 }
 
@@ -104,7 +104,7 @@ impl PageChange {
 
 impl EquipmentObservation {
     pub fn ready(&self) -> bool {
-        self.focus.is_some() && self.name.has_text()
+        self.focus.is_some() && self.name.has_text() && self.category.has_text()
     }
 
     pub fn change_from(&self, previous: &Self) -> PageChange {
@@ -123,11 +123,7 @@ impl EquipmentObservation {
             _ => self.focus != previous.focus,
         };
         let name_cosine = self.name.native_cosine(&previous.name);
-        let category_cosine = self
-            .category
-            .as_ref()
-            .zip(previous.category.as_ref())
-            .map(|(current, old)| current.native_cosine(old));
+        let category_cosine = self.category.native_cosine(&previous.category);
         PageChange {
             geometry_changed,
             focus_changed,
@@ -135,7 +131,9 @@ impl EquipmentObservation {
             // Provisional temporal-change threshold, deliberately not an identity threshold.
             name_changed: self.name.has_text() && previous.name.has_text() && name_cosine < 0.97,
             category_cosine,
-            category_changed: category_cosine.is_some_and(|score| score < 0.97),
+            category_changed: self.category.has_text()
+                && previous.category.has_text()
+                && category_cosine < 0.97,
         }
     }
 }
@@ -146,6 +144,10 @@ pub struct EquipmentObserver {
 }
 
 impl EquipmentObserver {
+    pub fn kind(&self) -> EquipmentKind {
+        self.kind
+    }
+
     /// All kinds share the same capture ROI; only list layout/semantics change.
     pub fn with_kind(&self, kind: EquipmentKind) -> Self {
         Self {
@@ -228,8 +230,7 @@ impl EquipmentObserver {
             .or(hover);
         let name = self.text(image, EquipmentText::Name);
         // Exclude Z/C key labels and the horizontal separator below the heading.
-        let category = (!matches!(self.kind, EquipmentKind::Helmet | EquipmentKind::Cape))
-            .then(|| self.text(image, EquipmentText::Category));
+        let category = self.text(image, EquipmentText::Category);
         EquipmentObservation {
             slots,
             focus,

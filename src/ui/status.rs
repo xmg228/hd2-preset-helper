@@ -1,19 +1,18 @@
 //! Passive action feedback, driven by the same events as the automation.
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use slint::ComponentHandle;
 use slint::winit_030::WinitWindowAccessor;
+use slint::{ComponentHandle, Model, VecModel};
 
-use super::{ActionStatus, PresetInfo, place_top_right};
+use super::{ActionStatus, PresetInfo, StatusItem, place_top_right};
 use crate::app_events::{AppEvent, PresetCompletion};
 
 pub(super) struct Status {
     window: ActionStatus,
-    selected: usize,
-    requested: usize,
     hide_at: Option<Instant>,
     presets: PathBuf,
     preset: String,
@@ -23,8 +22,6 @@ impl Status {
     pub fn new(presets: PathBuf) -> Result<Self> {
         Ok(Self {
             window: ActionStatus::new()?,
-            selected: 0,
-            requested: 0,
             hide_at: None,
             presets,
             preset: String::new(),
@@ -55,54 +52,70 @@ impl Status {
             self.window
                 .set_heading(super::preset_title(preset, label).into());
         }
-        // Load only when the target changes, not on captured frames. A missing
-        // preview must never interrupt the actual automation.
-        let picture = match &event {
-            AppEvent::ItemSelectionStarted { item_id } => {
-                Some(crate::preset::load_template_image(&self.presets, item_id))
-            }
-            AppEvent::EquipmentSelectionStarted { kind } => Some(
-                crate::preset::preview::equipment_name(&self.presets, &self.preset, *kind),
-            ),
-            _ => None,
-        };
-        if !matches!(&event, AppEvent::ItemSelected) {
-            self.window
-                .set_name_picture(matches!(&event, AppEvent::EquipmentSelectionStarted { .. }));
-            self.window.set_picture(match picture {
-                Some(Ok(image)) => super::image(&image),
-                Some(Err(error)) => {
-                    tracing::warn!(%error, "could not load status preview");
-                    slint::Image::default()
-                }
-                None => slint::Image::default(),
-            });
+        if !matches!(
+            &event,
+            AppEvent::StratagemsProgress { .. }
+                | AppEvent::BoosterProgress { .. }
+                | AppEvent::EquipmentProgress { .. }
+                | AppEvent::EquipmentCaching { .. }
+                | AppEvent::PresetDone { .. }
+        ) {
+            self.window.set_stratagems(Default::default());
+            self.window.set_booster(StatusItem::default());
+            self.window.set_picture(slint::Image::default());
         }
         let (message, color, seconds) = match event {
-            AppEvent::PresetStarted { .. } => {
-                self.selected = 0;
-                self.requested = 0;
-                ("Starting".into(), WORKING, None)
-            }
+            AppEvent::PresetStarted { .. } => ("Starting".into(), WORKING, None),
             AppEvent::HotkeyReleaseRequested { .. } => (
                 "Release the shortcut keys and mouse button to continue".into(), WORKING, None),
             AppEvent::PresetCancelled { reason, .. } => (format!("Cancelled: {reason}"), WARNING, Some(5)),
             AppEvent::EquipmentActionStarted { saving } => {
-                self.selected = 0;
-                self.requested = crate::item::EquipmentKind::ALL.len();
                 (if saving { "Saving equipment" } else { "Applying equipment" }.into(), WORKING, None)
             }
-            AppEvent::ListSelectionStarted { item_kind, requested_items } => {
-                self.selected = 0;
-                self.requested = requested_items;
-                (format!("Selecting {}: 0/{requested_items}", item_kind.label()), WORKING, None)
+            AppEvent::EquipmentCaching { category, repairing } => {
+                self.window.set_picture(super::image(&category));
+                (if repairing { "Updating equipment cache" } else { "Building equipment cache" }.into(),
+                    WORKING, None)
             }
-            AppEvent::ItemSelected => {
-                self.selected += 1;
-                (format!("Selected · {}/{}", self.selected, self.requested), WORKING, None)
+            AppEvent::StratagemsApplyStarted { stratagems, booster } => {
+                let icons = stratagems.iter().map(|id| self.icon(id)).collect::<Vec<_>>();
+                self.window.set_stratagems(Rc::new(VecModel::from(icons)).into());
+                self.window.set_booster(booster.map(|id| self.icon(&id)).unwrap_or_default());
+                (format!("Applying Stratagems · 0/{}", stratagems.len()), WORKING, None)
             }
-            AppEvent::ItemSelectionStarted { .. } | AppEvent::EquipmentSelectionStarted { .. } => (
-                format!("Selecting · {}/{}", self.selected + 1, self.requested), WORKING, None),
+            AppEvent::StratagemsProgress { remaining } => {
+                let icons = self.window.get_stratagems();
+                for (index, mut icon) in icons.iter().enumerate() {
+                    icon.confirmed = !remaining.iter().any(|id| id == icon.item_id.as_str());
+                    icons.set_row_data(index, icon);
+                }
+                let completed = icons.iter().filter(|icon| icon.confirmed).count();
+                (format!("Applying Stratagems · {completed}/{}", icons.row_count()), WORKING, None)
+            }
+            AppEvent::BoosterProgress { item_id, confirmed } => {
+                let mut icon = self.window.get_booster();
+                if icon.item_id.as_str() != item_id {
+                    icon = self.icon(&item_id);
+                }
+                icon.confirmed = confirmed;
+                self.window.set_booster(icon);
+                ("Applying Booster".into(), WORKING, None)
+            }
+            AppEvent::EquipmentProgress { kind, confirmed } => {
+                if !confirmed {
+                    self.window.set_picture(match crate::preset::preview::equipment_name(
+                        &self.presets, &self.preset, kind)
+                    {
+                        Ok(image) => super::image(&image),
+                        Err(error) => {
+                            tracing::warn!(%error, "could not load status preview");
+                            slint::Image::default()
+                        }
+                    });
+                }
+                (format!("Applying equipment · {}/{}", kind.index() + usize::from(confirmed),
+                    crate::item::EquipmentKind::ALL.len()), WORKING, None)
+            }
             AppEvent::FallbackBoosterRequested { .. } => (
                 "Saved Booster is already in use. Select another to save as your fallback, or return to cancel.".into(),
                 WARNING, None),
@@ -121,6 +134,22 @@ impl Status {
         self.window
             .set_accent(slint::Color::from_argb_encoded(color));
         self.hide_at = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
+    }
+
+    /// Load only at the start or when switching to the fallback Booster.
+    fn icon(&self, item_id: &str) -> StatusItem {
+        let picture = match crate::preset::load_template_image(&self.presets, item_id) {
+            Ok(image) => super::image(&image),
+            Err(error) => {
+                tracing::warn!(%error, "could not load status preview");
+                slint::Image::default()
+            }
+        };
+        StatusItem {
+            item_id: item_id.into(),
+            picture,
+            confirmed: false,
+        }
     }
 
     pub fn show(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {

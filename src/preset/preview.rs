@@ -1,4 +1,5 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -120,4 +121,40 @@ fn name_preview(sample: &TextSample) -> RgbaImage {
     RgbaImage::from_fn(width, height, |x, y| {
         Rgba([255, 255, 255, foreground.get_pixel(x, y)[0]])
     })
+}
+
+/// Display-only crop of a centered heading. Identity keeps the complete text region.
+pub(crate) fn equipment_category(sample: &TextSample) -> RgbaImage {
+    let image = name_preview(sample);
+    let (width, height) = image.dimensions();
+    let mut projection = vec![0u32; width as usize];
+    for (x, _, pixel) in image.enumerate_pixels() {
+        projection[x as usize] += pixel[3] as u32;
+    }
+    let threshold = projection.iter().copied().max().unwrap_or(0) as f32 * 0.03;
+    let columns = projection
+        .iter()
+        .enumerate()
+        .filter_map(|(x, &value)| (value as f32 > threshold).then_some(x))
+        .collect::<Vec<_>>();
+    let gap = (height as f32 * 0.5).round_ties_even() as usize;
+    let center = (width / 2) as usize;
+    let group = columns
+        .chunk_by(|a, b| b - a - 1 <= gap)
+        .min_by_key(|group| {
+            let distance = group[0]
+                .saturating_sub(center)
+                .max(center.saturating_sub(group[group.len() - 1]));
+            (
+                distance,
+                Reverse(group.iter().map(|&x| projection[x]).sum::<u32>()),
+            )
+        });
+    let Some(group) = group else {
+        return RgbaImage::new(0, 0);
+    };
+    let padding = (height as f32 * 0.1).round_ties_even().max(2.0) as u32;
+    let left = (group[0] as u32).saturating_sub(padding);
+    let right = (group[group.len() - 1] as u32 + 1 + padding).min(width);
+    image::imageops::crop_imm(&image, left, 0, right - left, height).to_image()
 }

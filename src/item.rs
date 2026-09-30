@@ -46,6 +46,10 @@ pub enum EquipmentKind {
 }
 
 impl EquipmentKind {
+    pub const fn has_categories(self) -> bool {
+        !matches!(self, Self::Helmet | Self::Cape)
+    }
+
     pub const fn list_columns(self) -> usize {
         match self {
             Self::Primary | Self::Secondary => 2,

@@ -258,7 +258,7 @@ impl Output {
             .save(directory.join(format!("{:04}-foreground.png", visit.index)))?;
         save_category(
             &directory,
-            page.category.as_ref(),
+            Some(&page.category),
             &format!("{:04}-", visit.index),
         )?;
         let known = self
@@ -331,7 +331,7 @@ impl Output {
         page.name
             .foreground()
             .save(directory.join("foreground.png"))?;
-        save_category(&directory, page.category.as_ref(), "")?;
+        save_category(&directory, Some(&page.category), "")?;
         let data = File::create(directory.join("observation.json"))?;
         serde_json::to_writer_pretty(data, &describe(page))
             .context("failed to write equipment observation")?;
@@ -371,8 +371,7 @@ pub(crate) fn describe(page: &EquipmentObservation) -> Value {
     json!({ "scale": page.scale, "slots": page.slots, "focus": page.focus, "hover": page.hover,
         "name_width": page.name.image.width(), "name_height": page.name.image.height(),
         "name_support": page.name.response.iter().filter(|&&v| v > 0.0).count(),
-        "category_support": page.category.as_ref().map(|title|
-            title.response.iter().filter(|&&v| v > 0.0).count()),
+        "category_support": page.category.response.iter().filter(|&&v| v > 0.0).count(),
         "name_energy": page.name.response.iter().map(|v| v*v).sum::<f32>() })
 }
 

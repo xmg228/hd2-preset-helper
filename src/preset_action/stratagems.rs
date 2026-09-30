@@ -68,6 +68,14 @@ pub(super) fn execute(
                 "applying preset from home"
             );
             log_preset_contents(&preset);
+            context.events.emit(AppEvent::StratagemsApplyStarted {
+                stratagems: preset
+                    .stratagems
+                    .iter()
+                    .map(|item| item.path.clone())
+                    .collect(),
+                booster: preset.booster.as_ref().map(|item| item.path.clone()),
+            });
             let home = apply_stratagems_from_home(
                 recognizer,
                 &mut automation,
