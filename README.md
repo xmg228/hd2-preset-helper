@@ -12,57 +12,46 @@ The program recognizes the game interface through screen capture and completes s
 2. Extract it to a separate writable folder.
 3. Run `HD2PresetHelper.exe`.
 
-To update, extract the new `HD2PresetHelper` folder over the existing folder.
-Settings are preserved. If a release changes the preset format, the app backs
-up the old preset file and asks you to recreate the presets.
+To update, exit the app and extract the new folder over the existing one,
+keeping your `data/` folder.
 
-The preset panel opens on startup. Hiding it leaves the application running
-in the system tray. Left-click its tray icon to reopen the panel,
-or right-click and select **Exit** to close the application.
+The app stays in the system tray when the panel is hidden. Left-click the tray
+icon to reopen it, or right-click and select **Exit** to quit.
 
-To uninstall, exit the application and delete the extracted
-`HD2PresetHelper` folder. This also removes its configuration, presets, and
-logs.
+To uninstall, exit the app and delete its folder, including any saved presets.
 
 ## Quick start
 
-1. Open the loadout home screen and select all four Stratagems and, optionally,
-   a Booster. Equip the helmet, armor, cape and weapons you want to save.
-2. Press `Ctrl+Shift+Space` to open the panel, select a preset, check both sections and click **Save preset**
-   (or press `Ctrl+S`). Release all keys and mouse buttons to start.
+1. Equip the loadout you want to save, then return to either loadout home screen.
+2. Press `Ctrl+Shift+Space` to open the panel, select a preset and click **Save preset**.
 3. To apply it later, open the panel from either loadout home and choose
-   **Apply all**, or use `Ctrl+Shift+F7` through `Ctrl+Shift+F12` for presets 1–6.
+   **Apply all**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
+   for presets 1–6 by default).
 
-Preset shortcuts **only apply**, never save. Existing bindings are kept on upgrade,
-but the old context-sensitive save/apply behavior is replaced.
+Release all keys and mouse buttons after triggering a save or apply action.
+Preset shortcuts **only apply**; use the panel to save.
 
 ### Preset panel
 
-`Ctrl+Shift+Space` toggles the panel from the game or desktop. Esc or switching to
-another window hides it. Saving or applying brings the running game to the foreground;
-release all keys and mouse buttons to let the action start.
+`Ctrl+Shift+Space` shows or hides the panel. Esc also hides it.
 
-Hover to preview; click a row or use Up/Down or W/S to select. Enter or double-click applies
-the selected preset. Use **+ New preset** to add presets and the pencil or trash icon
-beside the title to rename or delete them.
+Hover to preview, click to select, and press Enter or double-click to apply.
 
 Check **Stratagems & Booster**, **Equipment**, or both to choose what to save and
-apply. This choice is shared across presets, remembered across restarts, and also
-used by preset shortcuts. **Saving overwrites the checked sections without confirmation**;
-unchecked sections are preserved. Applying skips sections that have not been saved.
+apply, including through preset shortcuts. Saving overwrites only the checked
+sections; applying skips unsaved sections.
 
 ### Usage notes
 
-- Start from either loadout home screen. Page switching uses the game's default `R` key.
-- Saving Stratagems requires all four slots filled; saving only equipment does not.
-  Applying keeps matching Stratagems in place, replaces the others, and fills empty
-  slots. Saved-order selection only applies when all four slots start empty.
+- Switching between loadout pages uses the game's default `R` key.
+- Saving Stratagems requires all four slots filled. Applying can replace existing
+  selections.
 - Equipment includes helmet, armor, cape, primary, secondary and throwable, but not
-  weapon attachments or separate appearances of items with the same name. Templates
-  and the learned order cache work across resolutions; save equipment again after
-  changing the game language.
-- The first search in an equipment category scans it completely and may take longer.
-  Later applications reuse the learned order.
+  weapon attachments or separate appearances of items with the same name.
+- Equipment templates work across resolutions, but need to be re-saved if the game
+  language changes.
+- The first equipment search may take longer while the list order is learned.
+  Later searches reuse the cache.
 
 ## Compatibility
 
@@ -79,35 +68,25 @@ if this occurs.
 
 ## Configuration
 
-Open the panel's **Settings** to configure:
+Open **Settings** to customize shortcuts, selection order, automatic ready-up,
+fallback Booster saving, and the display used for the panel and status window.
 
-- **Shortcuts** — the panel shortcut and optional per-preset shortcuts, including
-  single keys. The panel shortcut works globally; preset shortcuts work while the
-  game or panel is in the foreground. Panel navigation keys take priority over
-  custom bindings. For numpad digits, keep Num Lock on and avoid Shift combinations.
-- **General** — saved selection order, automatic ready-up, fallback Booster saving,
-  and the display used for the panel and status window.
+The panel shortcut works globally. Preset shortcuts support single keys and work
+while the game or panel is in the foreground.
 
-Changes take effect when saved. To edit the file directly, see the comments in
-`data/config.toml` and restart afterward.
-
-All user data is kept in `data/` beside the executable. Back up this folder to keep
-your settings and presets. To relearn the equipment order, exit the app and delete
-only `data/equipment-cache.json`.
+Settings and presets are stored in `data/` beside the executable. Back up this
+folder to keep them.
 
 ## Troubleshooting
 
-If a preset key does nothing, verify that the app is running in the tray, the
-stable loadout home screen is open, the game or preset panel is in the foreground,
-you are not renaming or recording a shortcut, and no other application uses the same shortcut.
+If a shortcut does not work, check for conflicts in **Settings → Shortcuts**.
 
 For bug reports, include `data/app.log`, the resolution and display mode,
 Windows scaling and HDR status, and a screenshot of the affected screen.
 
 ## Building from source
 
-Normal users should use the prebuilt ZIP from GitHub Releases. For development,
-install a current stable Rust toolchain and run:
+With Rust installed, run:
 
 ```powershell
 cargo build --release --locked
