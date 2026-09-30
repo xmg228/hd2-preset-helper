@@ -1,7 +1,8 @@
 //! A message-only recipient keeps hotkeys independent of the GUI's message loop.
+use std::collections::BTreeMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use windows::Win32::Foundation::{
     ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM,
 };
@@ -19,6 +20,8 @@ use crate::input::HotkeySpec;
 pub struct Hotkeys {
     hotkeys: Vec<HotkeySpec>,
     enabled: Vec<i32>,
+    requested: Vec<i32>,
+    unavailable: BTreeMap<i32, String>,
     window: HWND,
     // The window borrows this stable address until DestroyWindow in Drop.
     _sender: Box<Sender<i32>>,
@@ -62,6 +65,8 @@ impl Hotkeys {
         Ok(Self {
             hotkeys: hotkeys.to_vec(),
             enabled: Vec::new(),
+            requested: Vec::new(),
+            unavailable: BTreeMap::new(),
             window,
             _sender: sender,
             pending,
@@ -72,6 +77,11 @@ impl Hotkeys {
         self.set_enabled_where(|_| enabled)
     }
 
+    /// Last registration failures remain visible while shortcuts are suspended.
+    pub fn unavailable(&self) -> impl Iterator<Item = &str> {
+        self.unavailable.values().map(String::as_str)
+    }
+
     /// Registration policy belongs to the caller, not the input backend.
     pub fn set_enabled_where(&mut self, enabled: impl Fn(&HotkeySpec) -> bool) -> Result<()> {
         let requested: Vec<_> = self
@@ -80,7 +90,8 @@ impl Hotkeys {
             .filter(|key| enabled(key))
             .map(|key| key.id)
             .collect();
-        if self.enabled == requested {
+        // A failed binding is retried when the requested set changes, not every tick.
+        if self.requested == requested {
             return Ok(());
         }
         for hotkey in self
@@ -93,7 +104,6 @@ impl Hotkeys {
         }
         self.enabled.clear();
         self.discard_pending();
-        let mut failures = Vec::new();
         for hotkey in self
             .hotkeys
             .iter()
@@ -107,19 +117,20 @@ impl Hotkeys {
                     hotkey.key.virtual_key(),
                 )
             } {
-                Ok(()) => self.enabled.push(hotkey.id),
-                Err(error) => failures.push(format!("{}: {error}", hotkey.label())),
+                Ok(()) => {
+                    self.enabled.push(hotkey.id);
+                    self.unavailable.remove(&hotkey.id);
+                }
+                Err(error) => {
+                    let message = format!("{}: {error}", hotkey.label());
+                    if self.unavailable.get(&hotkey.id) != Some(&message) {
+                        tracing::warn!(%message, "shortcut unavailable");
+                    }
+                    self.unavailable.insert(hotkey.id, message);
+                }
             }
         }
-        if !failures.is_empty() {
-            for id in self.enabled.drain(..) {
-                let _ = unsafe { UnregisterHotKey(Some(self.window), id) };
-            }
-            bail!(
-                "the following hotkeys could not be registered:\n- {}\n\nChange them in the configuration file",
-                failures.join("\n- ")
-            );
-        }
+        self.requested = requested;
         Ok(())
     }
 

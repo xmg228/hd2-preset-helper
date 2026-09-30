@@ -138,3 +138,56 @@ export component NameImage inherits Rectangle {
         colorize: root.colorize;
     }
 }
+
+// Keep the full error for copying, without growing the panel around long diagnostics.
+export component FailureNotice inherits HorizontalLayout {
+    in-out property <string> details;
+    private property <bool> copied;
+    changed details => { root.copied = false; }
+    spacing: 8px;
+    height: 36px;
+    Rectangle {
+        clip: true;
+        horizontal-stretch: 1;
+        details-text := TextInput {
+            text: root.details;
+            read-only: true;
+            enabled: false;
+            wrap: word-wrap;
+            vertical-alignment: self.preferred-height <= self.height ? center : top;
+            color: #efb09b;
+            font-size: 12px;
+        }
+        Tooltip { text: @markdown("\{root.details}"); }
+    }
+    VerticalLayout {
+        width: 60px;
+        alignment: center;
+        HorizontalLayout {
+            height: 28px;
+            spacing: 4px;
+            IconButton {
+                label: root.copied ? "Copied" : "Copy details";
+                path: root.copied ? "M 5 12 L 10 17 L 20 6"
+                    : "M 9 9 H 21 V 21 H 9 Z M 5 15 H 3 V 3 H 15 V 5";
+                clicked => {
+                    details-text.select-all();
+                    details-text.copy();
+                    details-text.clear-selection();
+                    root.copied = true;
+                    copy-feedback.restart();
+                }
+            }
+            IconButton {
+                label: "Dismiss last failure";
+                path: "M 6 6 L 18 18 M 18 6 L 6 18";
+                clicked => { root.details = ""; }
+            }
+        }
+    }
+    copy-feedback := Timer {
+        interval: 1500ms;
+        running: root.copied;
+        triggered => { root.copied = false; }
+    }
+}

@@ -1,5 +1,5 @@
 //! Commit settings only after shortcut registration and the single file write succeed.
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 use super::{ActionState, AppController, panel_hotkey, preset_hotkeys};
 use crate::{config::SettingsDraft, input::Hotkeys, preset_action::PresetActionOptions};
@@ -30,6 +30,15 @@ impl AppController {
         // Validate the entire candidate set before replacing the saved bindings.
         panel.set_enabled(true)?;
         hotkeys.set_enabled(true)?;
+        let unavailable = panel
+            .unavailable()
+            .chain(hotkeys.unavailable())
+            .collect::<Vec<_>>()
+            .join("\n");
+        ensure!(
+            unavailable.is_empty(),
+            "Shortcuts unavailable:\n{unavailable}"
+        );
         panel.set_enabled(false)?;
         hotkeys.set_enabled(false)?;
         draft.save(&self.paths.config)?;

@@ -1,5 +1,5 @@
 import { ScrollView } from "std-widgets.slint";
-import { PanelButton, IconButton, DeletePresetDialog, NameImage } from "controls.slint";
+import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice } from "controls.slint";
 import { ShortcutRow, SettingsDialog, MonitorChoice } from "settings.slint";
 export { ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
@@ -148,6 +148,8 @@ export component PresetPanel inherits Window {
 
     in property <[PresetRow]> presets;
     in property <string> status;
+    in-out property <string> failure-details;
+    in property <string> shortcut-warning;
     in property <bool> pending;
     in property <bool> loading: true;
     in property <[string]> panel-shortcut-keys;
@@ -582,13 +584,23 @@ export component PresetPanel inherits Window {
             Rectangle { height: 1px; background: #383d3b; }
             VerticalLayout {
                 spacing: 8px;
-                Text {
+                if (root.failure-details != "" && root.status == ""): FailureNotice {
+                    details <=> root.failure-details;
+                }
+                if (root.failure-details == "" || root.status != ""): Text {
                     text: root.status != "" ? root.status
                         : root.scope-stratagems || root.scope-equipment ? "Start from either loadout home."
                         : "Select sections to save or apply.";
                     color: #a6adaa;
                     wrap: word-wrap;
                     font-size: 12px;
+                }
+                if (root.shortcut-warning != ""): Text {
+                    text: "Some shortcuts are unavailable. Change them in Settings > Shortcuts.";
+                    color: #e6b975;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    Tooltip { text: @markdown("\{root.shortcut-warning}"); }
                 }
                 actions := GridLayout {
                     property <bool> stacked: root.preferred-width < 800px;
@@ -700,6 +712,7 @@ export component PresetPanel inherits Window {
         save-fallback-when-taken <=> root.draft-save-fallback-when-taken;
         recording <=> root.recording-shortcut;
         error: root.settings-error;
+        shortcut-warning: root.shortcut-warning;
         saving: root.settings-saving;
         clear(index) => { root.clear-shortcut(index); }
         save => { root.save-settings(); }

@@ -230,9 +230,34 @@ impl AppUi {
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {
+        let failed = matches!(
+            &event,
+            AppEvent::PresetFailed { .. } | AppEvent::PresetCancelled { .. }
+        );
+        match &event {
+            AppEvent::PresetFailed { preset, error }
+            | AppEvent::PresetCancelled {
+                preset,
+                reason: error,
+            } => {
+                let label = self
+                    .preset_info
+                    .get(preset)
+                    .map_or("", |info| info.label.as_str());
+                self.window.set_failure_details(
+                    format!("{} — {error}", preset_title(preset, label)).into(),
+                );
+            }
+            AppEvent::PresetDone { .. } => self.window.set_failure_details("".into()),
+            _ => {}
+        }
         self.status.update(event, &self.preset_info);
         if self.is_panel_visible() {
-            self.set_status(&self.status.message());
+            if failed {
+                self.set_status("");
+            } else {
+                self.set_status(&self.status.message());
+            }
         } else {
             self.status.show(&self.monitor, self.anchor)?;
         }
@@ -295,6 +320,12 @@ impl AppUi {
     pub fn settings_failed(&self, error: &str) {
         self.window.set_settings_saving(false);
         self.window.set_settings_error(error.into());
+    }
+
+    pub fn set_shortcut_warning(&self, warning: &str) {
+        if self.window.get_shortcut_warning() != warning {
+            self.window.set_shortcut_warning(warning.into());
+        }
     }
 
     pub fn next_preset_name(&self) -> String {

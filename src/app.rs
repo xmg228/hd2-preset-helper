@@ -201,6 +201,14 @@ impl AppController {
         self.panel_hotkey.set_enabled_where(|key| {
             shortcuts_enabled && (!panel_active || !ui::uses_shortcut(key))
         })?;
+        self.ui.set_shortcut_warning(
+            &self
+                .panel_hotkey
+                .unavailable()
+                .chain(self.hotkeys.unavailable())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         // Consume triggers before completion: keys pressed during the action cannot
         // turn into a new action just because the worker finished in this iteration.
         while let Some(id) = self.hotkeys.next_trigger() {

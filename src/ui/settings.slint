@@ -76,12 +76,13 @@ export component SettingsDialog inherits Rectangle {
     in-out property <bool> save-fallback-when-taken;
     in-out property <int> recording: -1;
     in property <string> error;
+    in property <string> shortcut-warning;
     in property <bool> saving;
     private property <bool> general: true;
     callback clear(int);
     callback save();
     callback cancel();
-    public function focus-dialog() { root.general = true; keys.focus(); }
+    public function focus-dialog() { root.general = root.shortcut-warning == ""; keys.focus(); }
     background: #1d2122;
     border-color: #464c49;
     border-width: 1px;
@@ -158,6 +159,15 @@ export component SettingsDialog inherits Rectangle {
                 recording <=> root.recording;
                 enabled: root.enabled && !root.saving;
                 clear(index) => { root.clear(index); }
+            }
+            if (!root.general && root.shortcut-warning != "" && root.error == ""): Text {
+                text: "Currently unavailable:\n" + root.shortcut-warning;
+                color: #e6b975;
+                wrap: word-wrap;
+                font-size: 12px;
+                max-height: 56px;
+                overflow: elide;
+                Tooltip { text: @markdown("Currently unavailable:\n\{root.shortcut-warning}"); }
             }
             if (root.error != ""): Text {
                 text: root.error;
