@@ -41,17 +41,9 @@ pub(super) fn execute(
         let recognizer = runtime.bind(bound.geometry);
         let mut automation = AutomationSession::new(bound.region, target.clone())?;
         let home = scan_loadout_home(&mut automation, recognizer)?;
-        let state = detect_ui_state(&home);
         ensure!(
-            matches!(
-                state,
-                UiState::HomeEmpty | UiState::HomeMixed | UiState::HomeFilled
-            ),
+            detect_ui_state(&home) == UiState::Home,
             "loadout home not detected; equipment has not been changed"
-        );
-        ensure!(
-            !saving || state == UiState::HomeFilled,
-            "fill all four Stratagem slots before saving a full preset; equipment has not been changed"
         );
         saving
             .then(|| collect_stratagem_preset(&home, recognizer.ui_scale()))

@@ -11,7 +11,7 @@ use crate::input;
 use crate::loadout::{
     BoosterApplyOutcome, UiState, apply_booster_from_home, apply_stratagems_from_home,
     bind_loadout_region, collect_home_booster, collect_stratagem_preset, detect_ui_state,
-    scan_loadout_home, wait_for_filled_home,
+    scan_loadout_home, wait_for_stable_ui_state,
 };
 use crate::preset::stratagems::{self as storage, CapturedStratagemPreset, StratagemPreset};
 #[cfg(feature = "diagnostics")]
@@ -45,15 +45,8 @@ pub(super) fn execute(
     };
 
     ensure!(
-        matches!(
-            ui_state,
-            UiState::HomeEmpty | UiState::HomeMixed | UiState::HomeFilled
-        ),
+        ui_state == UiState::Home,
         "loadout home not detected; return to the loadout home before using a preset"
-    );
-    ensure!(
-        command != PresetCommand::SaveStratagems || ui_state == UiState::HomeFilled,
-        "fill all four Stratagem slots before saving a preset"
     );
     #[cfg(feature = "diagnostics")]
     log_home_tone(&initial_result);
@@ -195,8 +188,13 @@ fn learn_fallback_booster(
     context.events.emit(AppEvent::FallbackBoosterRequested {
         preset: preset_name.to_string(),
     });
-    let Some(home) =
-        wait_for_filled_home(automation, recognizer, FALLBACK_BOOSTER_SELECTION_TIMEOUT)?
+    let Some(home) = wait_for_stable_ui_state(
+        automation,
+        recognizer,
+        UiState::Home,
+        FALLBACK_BOOSTER_SELECTION_TIMEOUT,
+        |_| true,
+    )?
     else {
         info!(
             preset = %preset_name,

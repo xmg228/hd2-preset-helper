@@ -1,7 +1,7 @@
 //! Stratagem/Booster overview, sampling and transitions to their icon lists.
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use tracing::{debug, debug_span, trace};
 
 use crate::automation::AutomationSession;
@@ -22,9 +22,7 @@ const SLOT_FINGERPRINT_SAMPLES: f32 = (SLOT_FINGERPRINT_GRID * SLOT_FINGERPRINT_
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiState {
-    HomeEmpty,
-    HomeMixed,
-    HomeFilled,
+    Home,
     List(ItemKind),
     Unknown,
 }
@@ -37,9 +35,7 @@ enum UiStabilitySignature {
 impl UiState {
     pub fn label(self) -> &'static str {
         match self {
-            Self::HomeEmpty => "home_empty",
-            Self::HomeMixed => "home_mixed",
-            Self::HomeFilled => "home_filled",
+            Self::Home => "home",
             Self::List(kind) => SlotLayout::List(kind).label(),
             Self::Unknown => "unknown",
         }
@@ -48,20 +44,7 @@ impl UiState {
 
 pub fn detect_ui_state(result: &RoiObservation) -> UiState {
     match result.layout {
-        SlotLayout::Home => {
-            let Some((stratagems, _booster)) = find_home_row(result) else {
-                return UiState::Unknown;
-            };
-            match stratagems
-                .iter()
-                .filter(|slot| slot.kind == SlotKind::Stratagem)
-                .count()
-            {
-                0 => UiState::HomeEmpty,
-                4 => UiState::HomeFilled,
-                _ => UiState::HomeMixed,
-            }
-        }
+        SlotLayout::Home if find_home_row(result).is_some() => UiState::Home,
         SlotLayout::List(item_kind) if is_slot_list(result, item_kind) => UiState::List(item_kind),
         _ => UiState::Unknown,
     }
@@ -85,12 +68,15 @@ fn collect_home_stratagems(
     stratagem_template_scale: f32,
 ) -> Result<Vec<crate::vision::ImageSample>> {
     let (stratagems, _) = find_home_row(result).context("missing home loadout row")?;
+    ensure!(
+        stratagems
+            .iter()
+            .all(|slot| slot.kind == SlotKind::Stratagem),
+        "fill all four Stratagem slots before saving a preset"
+    );
     let mut items = Vec::with_capacity(stratagems.len());
 
-    for (col, slot) in stratagems.into_iter().enumerate() {
-        if slot.kind != SlotKind::Stratagem {
-            bail!("home stratagem slot {col} is empty");
-        }
+    for slot in stratagems {
         let physical_size = HOME_ICON_SIZE_LOGICAL * stratagem_template_scale;
         items.push(crop_slot_sample(&result.image, slot, physical_size)?);
     }
@@ -106,19 +92,23 @@ pub fn scan_loadout_home(
     recognizer.detect(image, SlotLayout::Home)
 }
 
-pub fn wait_for_filled_home(
+pub(super) fn wait_for_filled_home(
     automation: &mut AutomationSession<'_>,
     recognizer: RecognizerSession,
     timeout: Duration,
 ) -> Result<Option<RoiObservation>> {
-    wait_for_stable_ui_state(automation, recognizer, UiState::HomeFilled, timeout)
+    wait_for_stable_ui_state(automation, recognizer, UiState::Home, timeout, |home| {
+        find_home_row(home)
+            .is_some_and(|(slots, _)| slots.iter().all(|slot| slot.kind == SlotKind::Stratagem))
+    })
 }
 
-pub(super) fn wait_for_stable_ui_state(
+pub fn wait_for_stable_ui_state(
     automation: &mut AutomationSession<'_>,
     recognizer: RecognizerSession,
     target_state: UiState,
     timeout: Duration,
+    accept: impl Fn(&RoiObservation) -> bool,
 ) -> Result<Option<RoiObservation>> {
     let span = debug_span!(
         "wait_for_stable_ui_state",
@@ -127,9 +117,7 @@ pub(super) fn wait_for_stable_ui_state(
     );
     let _guard = span.enter();
     let (expected_layout, stable_distance) = match target_state {
-        UiState::HomeEmpty | UiState::HomeMixed | UiState::HomeFilled => {
-            (SlotLayout::Home, UI_HOME_Y_STABLE_DISTANCE)
-        }
+        UiState::Home => (SlotLayout::Home, UI_HOME_Y_STABLE_DISTANCE),
         UiState::List(kind) => (SlotLayout::List(kind), UI_STATE_STABLE_DISTANCE),
         UiState::Unknown => bail!("cannot wait for an unknown UI state"),
     };
@@ -150,7 +138,8 @@ pub(super) fn wait_for_stable_ui_state(
         }
         let current_state = detect_ui_state(&result);
 
-        if current_state == target_state {
+        // Content requirements must hold on both stable observations.
+        if current_state == target_state && accept(&result) {
             let signature = ui_stability_signature(&result)?;
             if let Some(distance) = stable_candidate
                 .as_ref()

@@ -56,7 +56,7 @@ pub(super) fn open_slot_list(
             remaining
         };
         if let Some(observation) =
-            wait_for_stable_ui_state(automation, recognizer, target_state, wait)?
+            wait_for_stable_ui_state(automation, recognizer, target_state, wait, |_| true)?
         {
             debug!(
                 item_kind = %target.item_kind.label(),
@@ -70,7 +70,7 @@ pub(super) fn open_slot_list(
         // Never retry on an unconfirmed transition or an already-open list.
         if click_attempts < MAX_OPEN_CLICK_ATTEMPTS {
             let home = scan_loadout_home(automation, recognizer)?;
-            if detect_ui_state(&home) != UiState::Unknown && started.elapsed() < LIST_OPEN_TIMEOUT {
+            if detect_ui_state(&home) == UiState::Home && started.elapsed() < LIST_OPEN_TIMEOUT {
                 click_attempts += 1;
                 warn!(
                     item_kind = %target.item_kind.label(),

@@ -104,10 +104,7 @@ impl PageDetector {
         match self {
             Self::Stratagems(recognizer) => {
                 let home = recognizer.detect(frame, SlotLayout::Home)?;
-                Ok(matches!(
-                    detect_ui_state(&home),
-                    UiState::HomeEmpty | UiState::HomeFilled | UiState::HomeMixed
-                ))
+                Ok(detect_ui_state(&home) == UiState::Home)
             }
             Self::Equipment(observer) => Ok(observer.entry(&frame).confirmed()),
         }

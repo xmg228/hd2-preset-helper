@@ -19,7 +19,7 @@ use crate::vision::{
     ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind, TemplateClassifier,
 };
 
-use super::home::{UiState, find_home_row, home_booster_slot, wait_for_stable_ui_state};
+use super::home::{find_home_row, home_booster_slot, wait_for_filled_home};
 
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, home_booster_target, open_slot_list};
@@ -633,10 +633,9 @@ fn select_preset_target(
 
         automation.click_current(CLICK_HOLD_MS)?;
         if final_requested_item {
-            if let Some(home) = wait_for_stable_ui_state(
+            if let Some(home) = wait_for_filled_home(
                 automation,
                 navigator.recognizer(),
-                UiState::HomeFilled,
                 POST_CLICK_CONFIRM_TIMEOUT,
             )? {
                 debug!(
@@ -658,12 +657,9 @@ fn select_preset_target(
                 continue;
             }
 
-            if let Some(home) = wait_for_stable_ui_state(
-                automation,
-                navigator.recognizer(),
-                UiState::HomeFilled,
-                TERMINAL_SETTLE_TIMEOUT,
-            )? {
+            if let Some(home) =
+                wait_for_filled_home(automation, navigator.recognizer(), TERMINAL_SETTLE_TIMEOUT)?
+            {
                 debug!(
                     item_kind = %item_kind.label(),
                     "terminal item selection returned to the loadout home after settling"
