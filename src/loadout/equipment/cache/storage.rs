@@ -4,6 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{Cursor, ErrorKind},
     path::Path,
@@ -13,17 +14,18 @@ use super::{Category, EquipmentCache};
 use crate::vision::text::TextSignature;
 
 // Also bump when text extraction/geometry changes incompatibly.
-const VERSION: u32 = 2;
+// Rebuild unscoped maps that may contain mixed category orders.
+const VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 struct File {
     version: u32,
-    kinds: [Vec<SavedCategory>; 6],
+    scales: BTreeMap<String, [Vec<SavedCategory>; 6]>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct SavedCategory {
-    title: Option<String>,
+    title: String,
     names: Vec<String>,
     order: Vec<usize>,
     previous: Option<usize>,
@@ -42,33 +44,38 @@ impl EquipmentCache {
             let file: File = serde_json::from_slice(&bytes)?;
             ensure!(file.version == VERSION, "equipment cache format changed");
             let mut cache = Self::default();
-            for (saved, categories) in file.kinds.into_iter().zip(&mut cache.kinds) {
-                let count = saved.len();
-                for entry in saved {
-                    ensure!(
-                        entry.order.iter().all(|&p| p < entry.names.len())
-                            && entry.previous.is_none_or(|p| p < count)
-                            && entry.next.is_none_or(|p| p < count),
-                        "invalid equipment cache references"
-                    );
-                    categories.push(Category {
-                        title: entry.title.as_deref().map(decode).transpose()?,
-                        names: entry
-                            .names
-                            .iter()
-                            .map(|png| decode(png))
-                            .collect::<Result<_>>()?,
-                        order: entry.order,
-                        previous: entry.previous,
-                        next: entry.next,
-                        circular: entry.circular,
-                    });
+            for (scale, saved_kinds) in file.scales {
+                let kinds = cache.scales.entry(scale).or_default();
+                for (saved, categories) in saved_kinds.into_iter().zip(kinds) {
+                    let count = saved.len();
+                    for entry in saved {
+                        ensure!(
+                            entry.order.iter().all(|&p| p < entry.names.len())
+                                && entry.previous.is_none_or(|p| p < count)
+                                && entry.next.is_none_or(|p| p < count),
+                            "invalid equipment cache references"
+                        );
+                        categories.push(Category {
+                            title: decode(&entry.title)?,
+                            names: entry
+                                .names
+                                .iter()
+                                .map(|png| decode(png))
+                                .collect::<Result<_>>()?,
+                            order: entry.order,
+                            previous: entry.previous,
+                            next: entry.next,
+                            circular: entry.circular,
+                        });
+                    }
                 }
             }
             tracing::info!(
+                scales = cache.scales.len(),
                 categories = cache
-                    .kinds
-                    .iter()
+                    .scales
+                    .values()
+                    .flatten()
                     .flatten()
                     .filter(|c| !c.order.is_empty())
                     .count(),
@@ -90,18 +97,21 @@ impl EquipmentCache {
         let result = (|| -> Result<()> {
             let mut file = File {
                 version: VERSION,
-                kinds: Default::default(),
+                scales: BTreeMap::new(),
             };
-            for (categories, saved) in self.kinds.iter().zip(&mut file.kinds) {
-                for category in categories {
-                    saved.push(SavedCategory {
-                        title: category.title.as_ref().map(encode).transpose()?,
-                        names: category.names.iter().map(encode).collect::<Result<_>>()?,
-                        order: category.order.clone(),
-                        previous: category.previous,
-                        next: category.next,
-                        circular: category.circular,
-                    });
+            for (scale, kinds) in &self.scales {
+                let saved_kinds = file.scales.entry(scale.clone()).or_default();
+                for (categories, saved) in kinds.iter().zip(saved_kinds) {
+                    for category in categories {
+                        saved.push(SavedCategory {
+                            title: encode(&category.title)?,
+                            names: category.names.iter().map(encode).collect::<Result<_>>()?,
+                            order: category.order.clone(),
+                            previous: category.previous,
+                            next: category.next,
+                            circular: category.circular,
+                        });
+                    }
                 }
             }
             if let Some(parent) = path.parent() {

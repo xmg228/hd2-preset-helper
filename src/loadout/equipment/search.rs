@@ -109,8 +109,11 @@ impl<'a> Search<'a> {
             .category
             .as_ref()
             .map(|title| title.cosine(&page.category));
-        let same_category = self.target.category.is_none()
-            || category_cosine.is_some_and(|s| s >= NAME_MATCH_THRESHOLD);
+        let same_category = self
+            .target
+            .category
+            .as_ref()
+            .is_none_or(|title| self.cache.category_hint(title) == Some(location.category));
         let next = self.next(navigation, location, score, same_category)?;
         if let Next::Input(InputAction::ClickColumn(col)) = next {
             self.expected_col = Some(col);
@@ -208,7 +211,7 @@ impl<'a> Search<'a> {
                         .target
                         .category
                         .as_ref()
-                        .and_then(|title| self.cache.category_index(title))
+                        .and_then(|title| self.cache.category_hint(title))
                         .and_then(|category| self.cache.category_key(category));
                     self.phase = Phase::Category;
                     return Ok(Next::Input(InputAction::Key(key.unwrap_or(Key::C))));

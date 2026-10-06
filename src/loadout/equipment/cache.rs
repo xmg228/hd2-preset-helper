@@ -11,9 +11,11 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
+use std::collections::BTreeMap;
 
 pub(super) type Name = usize;
 const NAME_MATCH_MARGIN: f32 = 0.04;
+const CATEGORY_IDENTITY_THRESHOLD: f32 = 0.97;
 
 #[derive(Clone, Copy)]
 pub(super) struct Target {
@@ -24,12 +26,12 @@ pub(super) struct Target {
 
 #[derive(Default)]
 pub(crate) struct EquipmentCache {
-    kinds: [Vec<Category>; 6],
+    scales: BTreeMap<String, [Vec<Category>; 6]>,
     dirty: bool,
 }
 
 struct Category {
-    title: Option<TextSignature>,
+    title: TextSignature,
     names: Vec<TextSignature>,
     order: Vec<Name>,
     previous: Option<usize>,
@@ -123,9 +125,10 @@ impl Drop for SearchCache<'_> {
 }
 
 impl EquipmentCache {
-    pub(super) fn search(&mut self, kind: EquipmentKind) -> SearchCache<'_> {
+    pub(super) fn search(&mut self, kind: EquipmentKind, scale: f64) -> SearchCache<'_> {
         SearchCache {
-            categories: &mut self.kinds[kind.index()],
+            // Decimal keys retain the exact UI scale, including in the JSON cache.
+            categories: &mut self.scales.entry(scale.to_string()).or_default()[kind.index()],
             dirty: &mut self.dirty,
             kind,
             current: None,
@@ -146,42 +149,35 @@ impl SearchCache<'_> {
         let focus = &page.slots[page.focus.context("equipment focus missing")?];
         let title = page.category.signature();
         let columns = self.kind.list_columns();
-        // Single-category lists also need a visual language check. Old untitled
-        // caches cannot establish this, so rebuild only this kind on its first visit.
+        // Single-category lists also need a visual language check on their first visit.
         if !self.kind.has_categories()
             && self.current.is_none()
-            && self.categories.first().is_some_and(|entry| {
-                entry
-                    .title
-                    .as_ref()
-                    .is_none_or(|old| old.cosine(title) < NAME_MATCH_THRESHOLD)
-            })
+            && self
+                .categories
+                .first()
+                .is_some_and(|entry| entry.title.cosine(title) < CATEGORY_IDENTITY_THRESHOLD)
         {
             self.categories.clear();
             *self.dirty = true;
             tracing::info!(kind = ?self.kind, "equipment heading changed; rebuilding this cache");
         }
-        let category = self
-            .categories
-            .iter()
-            .position(|entry| {
-                !self.kind.has_categories()
-                    || entry
-                        .title
-                        .as_ref()
-                        .is_some_and(|old| old.cosine(title) >= NAME_MATCH_THRESHOLD)
-            })
-            .unwrap_or_else(|| {
-                self.categories.push(Category {
-                    title: Some(title.clone()),
-                    names: Vec::new(),
-                    order: Vec::new(),
-                    previous: None,
-                    next: None,
-                    circular: false,
-                });
-                self.categories.len() - 1
+        // Only a strong, same-scale heading match can reuse a map identity.
+        let category = if self.kind.has_categories() {
+            self.match_category(title, CATEGORY_IDENTITY_THRESHOLD)
+        } else {
+            (!self.categories.is_empty()).then_some(0)
+        }
+        .unwrap_or_else(|| {
+            self.categories.push(Category {
+                title: title.clone(),
+                names: Vec::new(),
+                order: Vec::new(),
+                previous: None,
+                next: None,
+                circular: false,
             });
+            self.categories.len() - 1
+        });
         let col = focus.col;
         let width = page.slots.iter().filter(|s| s.row == focus.row).count();
         let name = self.categories[category]
@@ -280,29 +276,35 @@ impl SearchCache<'_> {
             Key::Z | Key::Up => std::mem::swap(&mut from, &mut to),
             _ => return,
         }
-        if self.categories[from].next == Some(to) {
-            return;
+        if self.categories[from].next != Some(to) {
+            if let Some(old) = self.categories[from].next {
+                self.categories[old].previous = None;
+            }
+            if let Some(old) = self.categories[to].previous {
+                self.categories[old].next = None;
+            }
+            self.categories[from].next = Some(to);
+            self.categories[to].previous = Some(from);
+            *self.dirty = true;
         }
-        if let Some(old) = self.categories[from].next {
-            self.categories[old].previous = None;
-        }
-        if let Some(old) = self.categories[to].previous {
-            self.categories[old].next = None;
-        }
-        self.categories[from].next = Some(to);
-        self.categories[to].previous = Some(from);
+        *self.dirty |= self.categories[from].circular || self.categories[to].circular;
         self.categories[from].circular = false;
         self.categories[to].circular = false;
-        *self.dirty = true;
     }
 
-    pub fn category_index(&self, target: &TextSample) -> Option<usize> {
-        let target = target.signature();
-        self.categories.iter().position(|c| {
-            c.title
-                .as_ref()
-                .is_some_and(|t| t.cosine(target) >= NAME_MATCH_THRESHOLD)
-        })
+    /// A saved heading may come from another resolution; it only guides navigation.
+    pub fn category_hint(&self, target: &TextSample) -> Option<usize> {
+        self.match_category(target.signature(), NAME_MATCH_THRESHOLD)
+    }
+
+    fn match_category(&self, target: &TextSignature, threshold: f32) -> Option<usize> {
+        self.categories
+            .iter()
+            .enumerate()
+            .map(|(category, entry)| (category, entry.title.cosine(target)))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .filter(|(_, score)| *score >= threshold)
+            .map(|(category, _)| category)
     }
 
     pub fn category_key(&self, target: usize) -> Option<Key> {

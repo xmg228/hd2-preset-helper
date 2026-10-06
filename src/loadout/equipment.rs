@@ -208,7 +208,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             let corrected_category = self
                 .apply_item(
                     items[kind.index()].as_ref().unwrap(),
-                    cache.search(kind),
+                    cache.search(kind, self.page.scale),
                     &mut progress,
                 )
                 .with_context(|| format!("failed to apply {kind:?}"))?;
