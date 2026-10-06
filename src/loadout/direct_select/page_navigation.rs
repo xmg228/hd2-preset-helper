@@ -1,31 +1,34 @@
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::RgbaImage;
-use tracing::{debug, debug_span, trace};
+use tracing::{debug, debug_span, trace, warn};
 
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::vision::{
-    RecognizerSession, RoiObservation, SlotKind, SlotLayout, TemplateClassifier,
-    TemplateMatchCandidate,
+    ItemAvailability, ROI_REFERENCE_H, RecognizerSession, RoiObservation, Slot, SlotKind,
+    SlotLayout, TemplateClassifier, TemplateMatchCandidate,
 };
 
 use super::super::frame::{fingerprint_distance, image_fingerprint};
 
 use super::ScrollDirection;
-use super::page_relation::{PAGE_TURN_SHORT_THRESHOLD_RATIO, PageRelation, compare_page_turn};
+use super::list_map::{ListMap, LocatedPage};
 
 const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
 const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(150);
 const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 2;
+const PAGE_TURN_ALIGNMENT_TIMEOUT: Duration = Duration::from_millis(400);
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
 const PAGE_SCROLL_NOTCHES: i32 = 5;
 const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
+// A full turn moves about 253.5 px in the 624 px reference ROI.
+const PAGE_TURN_SHIFT_REFERENCE_PX: f32 = 253.5;
+const PAGE_TURN_SHORT_THRESHOLD_RATIO: f32 = 0.80;
 
 pub(super) struct PageSnapshot {
     pub(super) roi: RoiObservation,
-    pub(super) signature: Vec<u8>,
     pub(super) match_candidates: Vec<TemplateMatchCandidate>,
     pub(super) slot_samples: Vec<SlotSample>,
 }
@@ -49,12 +52,9 @@ pub(super) struct PageNavigator {
 }
 
 pub(super) enum PageTurnResult {
-    Moved {
-        page: PageSnapshot,
-        short: bool,
-        directed_shift: Option<f32>,
-    },
+    Moved { page: PageSnapshot, short: bool },
     NoMovement(PageSnapshot),
+    Recovered(PageSnapshot),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -111,33 +111,77 @@ impl PageNavigator {
         self.recognizer
     }
 
-    pub(super) fn perform_confirmed_semantic_page_turn(
+    pub(super) fn item_availability(
+        &self,
+        image: &RgbaImage,
+        slot: &Slot,
+        item_id: &str,
+    ) -> Result<ItemAvailability> {
+        self.classifier.item_availability(image, slot, item_id)
+    }
+
+    pub(super) fn turn_page(
         &self,
         automation: &mut AutomationSession<'_>,
+        list_map: &mut ListMap,
         current_page: &PageSnapshot,
         input: PageTurnInput,
         wheel_attempt: u32,
     ) -> Result<PageTurnResult> {
-        let span = debug_span!("confirmed_semantic_page_turn", wheel_attempt, ?input);
+        let span = debug_span!("turn_page", wheel_attempt, ?input);
         let _guard = span.enter();
 
         automation.scroll(input.scroll_notches())?;
-        self.observe_instant_viewport_change(automation, current_page, input)
+        let (page, placement) = self.observe_page_turn(
+            automation,
+            list_map,
+            current_page,
+            input,
+            Some(input.direction()),
+        )?;
+        if let Some(placement) = placement {
+            let moved = placement.has_moved();
+            let expected_full_shift = PAGE_TURN_SHIFT_REFERENCE_PX * page.roi.image.height() as f32
+                / ROI_REFERENCE_H as f32;
+            let short = placement.vertical_shift.abs()
+                < expected_full_shift * PAGE_TURN_SHORT_THRESHOLD_RATIO;
+            list_map.commit(&page, placement, "page-turn");
+            return Ok(if moved {
+                PageTurnResult::Moved { page, short }
+            } else {
+                PageTurnResult::NoMovement(page)
+            });
+        }
+
+        warn!(
+            ?input,
+            "page turn remained unplaced in the temporary list map; nudging back once"
+        );
+        let recovery = PageTurnInput::Nudge(input.direction().opposite());
+        automation.scroll(recovery.scroll_notches())?;
+        // The rejected page was never committed. Recovery may land on either
+        // side of the last confirmed page, or return to that same position.
+        let (page, placement) =
+            self.observe_page_turn(automation, list_map, &page, recovery, None)?;
+        let placement = placement.context(
+            "neither the page turn nor the page after a recovery nudge could be placed in the temporary list map",
+        )?;
+        list_map.commit(&page, placement, "recovery");
+        Ok(PageTurnResult::Recovered(page))
     }
 
-    fn observe_instant_viewport_change(
+    fn observe_page_turn(
         &self,
         automation: &mut AutomationSession<'_>,
+        list_map: &ListMap,
         current_page: &PageSnapshot,
         input: PageTurnInput,
-    ) -> Result<PageTurnResult> {
-        // Semantic anchors preserve measured page shifts when a target is
-        // shared; a changed fresh frame covers pages with no recognized target.
+        direction: Option<ScrollDirection>,
+    ) -> Result<(PageSnapshot, Option<LocatedPage>)> {
         let start = Instant::now();
-        let mut visual_reference = current_page.signature.clone();
+        let visual_reference = image_fingerprint(&current_page.roi.image);
         let mut same_viewport_frames = 0usize;
-        let mut semantic_observations = 0usize;
-        let direction = input.direction();
+        let mut observations = 0usize;
         let no_movement_grace = if input.is_nudge() {
             PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE
         } else {
@@ -146,79 +190,55 @@ impl PageNavigator {
 
         loop {
             let image = automation.capture()?;
+            let observed_elapsed = start.elapsed();
             let signature = image_fingerprint(&image);
             let distance = fingerprint_distance(&visual_reference, &signature);
-            let elapsed = start.elapsed();
-            let no_movement_check = elapsed >= no_movement_grace;
-            if distance < PAGE_CHANGE_THRESHOLD && !no_movement_check {
+            // The fingerprint only triggers scanning, not movement confirmation.
+            // Recovery offsets refer to the old map, so let the reverse input
+            // settle before accepting a displaced frame from the capture queue.
+            if observed_elapsed < no_movement_grace
+                && (direction.is_none() || distance < PAGE_CHANGE_THRESHOLD)
+            {
                 continue;
             }
 
-            let candidate = self.scan_direct_page(image)?;
-            semantic_observations += 1;
-            let relation = match compare_page_turn(
-                &current_page.roi,
-                &candidate.roi,
-                self.item_kind,
-                direction,
-            ) {
-                PageRelation::DifferentViewport | PageRelation::Uncertain
-                    if distance < PAGE_CHANGE_THRESHOLD =>
-                {
-                    PageRelation::SameViewport
-                }
-                relation => relation,
-            };
-            let elapsed = start.elapsed();
+            let page = self.scan_direct_page(image)?;
+            observations += 1;
+            let placement = list_map.locate_page(&page, direction);
             trace!(
-                relation = %format_args!("{relation:.3?}"),
-                semantic_observations,
-                elapsed_s = elapsed.as_secs_f64(),
-                "page semantic relation"
+                observations,
+                located = placement.is_some(),
+                elapsed_s = start.elapsed().as_secs_f64(),
+                "page map observation"
             );
 
-            match relation {
-                PageRelation::Shifted(shift) => {
-                    let short = shift.shift_ratio < PAGE_TURN_SHORT_THRESHOLD_RATIO;
+            if let Some(placement) = placement {
+                if placement.has_moved() {
                     debug!(
                         target: "hd2_preset_helper::perf",
-                        directed_shift = shift.directed_shift,
-                        shift_ratio = shift.shift_ratio,
-                        short_threshold_ratio = PAGE_TURN_SHORT_THRESHOLD_RATIO,
-                        short,
-                        "page turn completed"
+                        vertical_shift = placement.vertical_shift,
+                        elapsed_s = start.elapsed().as_secs_f64(),
+                        "page turn confirmed by map placement"
                     );
-                    return Ok(PageTurnResult::Moved {
-                        page: candidate,
-                        short,
-                        directed_shift: Some(shift.directed_shift),
-                    });
+                    return Ok((page, Some(placement)));
                 }
-                relation @ (PageRelation::DifferentViewport | PageRelation::Uncertain) => {
+
+                same_viewport_frames += 1;
+                if observed_elapsed >= no_movement_grace
+                    && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES
+                {
                     debug!(
                         target: "hd2_preset_helper::perf",
-                        ?relation,
-                        distance,
-                        "page turn completed from changed frame"
+                        elapsed_s = start.elapsed().as_secs_f64(),
+                        same_viewport_frames,
+                        "page turn confirmed at the same map position"
                     );
-                    return Ok(PageTurnResult::Moved {
-                        page: candidate,
-                        short: false,
-                        directed_shift: None,
-                    });
+                    return Ok((page, Some(placement)));
                 }
-                PageRelation::SameViewport => {
-                    visual_reference = candidate.signature.clone();
-                    same_viewport_frames += 1;
-                    if no_movement_check && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES {
-                        debug!(
-                            target: "hd2_preset_helper::perf",
-                            elapsed_s = start.elapsed().as_secs_f64(),
-                            same_viewport_frames,
-                            "page turn produced no movement"
-                        );
-                        return Ok(PageTurnResult::NoMovement(candidate));
-                    }
+            } else {
+                same_viewport_frames = 0;
+                if start.elapsed() >= PAGE_TURN_ALIGNMENT_TIMEOUT && observations >= 2 {
+                    return Ok((page, None));
                 }
             }
         }
@@ -240,25 +260,8 @@ impl PageNavigator {
         self.prepare_page(roi)
     }
 
-    pub(super) fn prepare_initial_page(&self, roi: RoiObservation) -> Result<PageSnapshot> {
-        self.prepare_page(roi)
-    }
-
-    fn prepare_page(&self, mut roi: RoiObservation) -> Result<PageSnapshot> {
+    pub(super) fn prepare_page(&self, mut roi: RoiObservation) -> Result<PageSnapshot> {
         let match_candidates = self.classifier.classify_batch(&mut roi)?;
-        self.finish_direct_page(roi, match_candidates)
-    }
-
-    fn finish_direct_page(
-        &self,
-        roi: RoiObservation,
-        match_candidates: Vec<TemplateMatchCandidate>,
-    ) -> Result<PageSnapshot> {
-        let signature = {
-            let span = debug_span!("roi_fingerprint");
-            let _guard = span.enter();
-            image_fingerprint(&roi.image)
-        };
         let slot_samples = roi
             .slots
             .iter()
@@ -290,7 +293,6 @@ impl PageNavigator {
 
         Ok(PageSnapshot {
             roi,
-            signature,
             match_candidates,
             slot_samples,
         })

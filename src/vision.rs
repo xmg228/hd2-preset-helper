@@ -167,7 +167,6 @@ pub struct Classification {
     pub match_margin: f32,
     /// Normalized surplus above the weaker acceptance gate; not a probability.
     pub gate_quality: f32,
-    pub availability: ItemAvailability,
 }
 
 #[derive(Debug, Clone, Copy)]

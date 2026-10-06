@@ -67,7 +67,7 @@ impl HoverVerifier {
         automation: &mut AutomationSession<'_>,
         slots: &[Slot],
         target: &Slot,
-    ) -> Result<HoverSample> {
+    ) -> Result<(HoverSample, RgbaImage)> {
         let started = Instant::now();
 
         loop {
@@ -97,7 +97,7 @@ impl HoverVerifier {
                     elapsed_s = started.elapsed().as_secs_f64(),
                     "target hover state confirmed"
                 );
-                return Ok(sample.sample());
+                return Ok((sample.sample(), image));
             }
 
             if started.elapsed() >= HOVER_TIMEOUT {

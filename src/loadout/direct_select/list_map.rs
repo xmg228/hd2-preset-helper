@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
 use crate::item::ItemKind;
-use crate::vision::{ItemAvailability, RoiObservation, Slot, SlotKind, TemplateMatchCandidate};
+use crate::vision::{RoiObservation, Slot, SlotKind, TemplateMatchCandidate};
 
 use super::ScrollDirection;
-use super::page_navigation::{PageSnapshot, PageTurnInput, SlotSample};
+use super::click_plan::DirectClickTarget;
+use super::page_navigation::{PageSnapshot, SlotSample};
 
 #[cfg(feature = "diagnostics")]
 #[path = "list_map_diagnostics.rs"]
@@ -16,7 +17,7 @@ const PAGE_ALIGNMENT_MIN_MARGIN: f32 = 0.04;
 const POSITION_TOLERANCE_PX: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct SlotId(usize);
+pub(super) struct SlotId(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LocalPosition {
@@ -46,7 +47,6 @@ struct MappedCandidate {
     score: f64,
     match_margin: f32,
     gate_quality: f32,
-    availability: ItemAvailability,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -104,9 +104,7 @@ struct PagePlacement {
 
 #[derive(Clone, Copy)]
 struct AlignmentConstraints {
-    direction: ScrollDirection,
-    expected_offset_y: Option<f32>,
-    allow_stationary: bool,
+    direction: Option<ScrollDirection>,
     excluded: Option<SlotId>,
 }
 
@@ -118,9 +116,15 @@ struct AlignmentCandidate {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct PostClickPlacement {
+pub(super) struct LocatedPage {
     page: PagePlacement,
     pub(super) vertical_shift: f32,
+}
+
+impl LocatedPage {
+    pub(super) fn has_moved(&self) -> bool {
+        self.vertical_shift.abs() > POSITION_TOLERANCE_PX
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,39 +173,30 @@ impl ListMap {
         map
     }
 
-    pub(super) fn advance(
-        &mut self,
+    pub(super) fn locate_page(
+        &self,
         page: &PageSnapshot,
-        input: PageTurnInput,
-        directed_shift: Option<f32>,
-    ) -> bool {
-        let direction = input.direction();
-        let expected_offset_y = directed_shift.map(|shift| match direction {
-            ScrollDirection::Down => self.current.offset_y + shift,
-            ScrollDirection::Up => self.current.offset_y - shift,
-        });
-        let Some(placement) = self.find_placement(
+        direction: Option<ScrollDirection>,
+    ) -> Option<LocatedPage> {
+        self.find_placement(
             page,
             AlignmentConstraints {
                 direction,
-                expected_offset_y,
-                allow_stationary: false,
                 excluded: None,
             },
-            "page-turn",
-        ) else {
-            return false;
-        };
-        self.commit_page(page, placement, "page-turn");
-        true
+            if direction.is_some() {
+                "page-turn"
+            } else {
+                "recovery"
+            },
+        )
     }
 
     pub(super) fn locate_after_click(
         &self,
         page: &PageSnapshot,
-        clicked_slot: &Slot,
-    ) -> Option<PostClickPlacement> {
-        let clicked_id = self.current_slot_id(clicked_slot)?;
+        clicked_id: SlotId,
+    ) -> Option<LocatedPage> {
         let clicked_y = self.slots[clicked_id.0].content_y;
         let (visible_min, visible_max) = self.visible_content_y_range()?;
         let visible_midpoint = 0.5 * (visible_min + visible_max);
@@ -210,38 +205,22 @@ impl ListMap {
         } else {
             ScrollDirection::Down
         };
-        let placement = self.find_placement(
+        self.find_placement(
             page,
             AlignmentConstraints {
-                direction: expected_direction,
-                expected_offset_y: None,
-                allow_stationary: true,
+                direction: Some(expected_direction),
                 excluded: Some(clicked_id),
             },
             "post-click",
-        )?;
-        let vertical_shift = self.current.offset_y - placement.offset_y;
-        debug!(
-            offset_y = placement.offset_y,
-            vertical_shift,
-            ?expected_direction,
-            support = placement.support,
-            mean_score = placement.mean_score,
-            "post-click page located in temporary list map"
-        );
-        Some(PostClickPlacement {
-            page: placement,
-            vertical_shift,
-        })
+        )
     }
 
     pub(super) fn slot_after_placement(
         &self,
-        placement: &PostClickPlacement,
+        placement: &LocatedPage,
         page: &RoiObservation,
-        previous_slot: &Slot,
+        id: SlotId,
     ) -> Option<Slot> {
-        let id = self.current_slot_id(previous_slot)?;
         let local = placement
             .page
             .slots
@@ -254,12 +233,13 @@ impl ListMap {
             .cloned()
     }
 
-    pub(super) fn commit_after_click(
+    pub(super) fn commit(
         &mut self,
         page: &PageSnapshot,
-        placement: PostClickPlacement,
+        placement: LocatedPage,
+        context: &'static str,
     ) {
-        self.commit_page(page, placement.page, "post-click");
+        self.commit_page(page, placement.page, context);
     }
 
     fn find_placement(
@@ -267,7 +247,7 @@ impl ListMap {
         page: &PageSnapshot,
         constraints: AlignmentConstraints,
         context: &'static str,
-    ) -> Option<PagePlacement> {
+    ) -> Option<LocatedPage> {
         let candidates = self.alignment_candidates(page, constraints);
         let best = candidates.first().copied();
         let best = best?;
@@ -280,7 +260,6 @@ impl ListMap {
             context,
             direction = ?constraints.direction,
             current_offset_y = self.current.offset_y,
-            expected_offset_y = constraints.expected_offset_y,
             best_offset_y = best.offset_y,
             vertical_shift = self.current.offset_y - best.offset_y,
             algorithm = "semantic_cosine",
@@ -293,8 +272,10 @@ impl ListMap {
             candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
             "continuous slot map alignment evaluated"
         );
-        accepted
-            .then(|| self.placement_at_offset(page, best.offset_y, best.mean_score, best.support))
+        accepted.then(|| LocatedPage {
+            page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),
+            vertical_shift: self.current.offset_y - best.offset_y,
+        })
     }
 
     fn alignment_candidates(
@@ -314,22 +295,15 @@ impl ListMap {
                         && constraints.excluded != Some(id)
                 })
                 .map(move |(_, mapped)| mapped.content_y - current.page_y)
-                .filter(move |offset_y| {
-                    constraints.expected_offset_y.is_none_or(|expected| {
-                        (*offset_y - expected).abs() <= POSITION_TOLERANCE_PX
-                    })
-                })
         });
         let mut candidates = offset_hypotheses(offsets)
             .into_iter()
-            .filter(|&offset_y| {
-                self.direction_allows(
-                    offset_y,
-                    constraints.direction,
-                    constraints.allow_stationary,
-                )
-            })
             .filter_map(|offset_y| self.evaluate_alignment(page, offset_y, constraints.excluded))
+            .filter(|candidate| {
+                constraints
+                    .direction
+                    .is_none_or(|direction| self.direction_allows(candidate.offset_y, direction))
+            })
             .collect::<Vec<_>>();
 
         // Prefer page-level evidence. A single overlapping slot remains a
@@ -394,30 +368,11 @@ impl ListMap {
         })
     }
 
-    fn direction_allows(
-        &self,
-        offset_y: f32,
-        direction: ScrollDirection,
-        allow_stationary: bool,
-    ) -> bool {
+    fn direction_allows(&self, offset_y: f32, direction: ScrollDirection) -> bool {
         let movement = offset_y - self.current.offset_y;
         match direction {
-            ScrollDirection::Up => {
-                movement
-                    <= if allow_stationary {
-                        POSITION_TOLERANCE_PX
-                    } else {
-                        -POSITION_TOLERANCE_PX
-                    }
-            }
-            ScrollDirection::Down => {
-                movement
-                    >= if allow_stationary {
-                        -POSITION_TOLERANCE_PX
-                    } else {
-                        POSITION_TOLERANCE_PX
-                    }
-            }
+            ScrollDirection::Up => movement <= POSITION_TOLERANCE_PX,
+            ScrollDirection::Down => movement >= -POSITION_TOLERANCE_PX,
         }
     }
 
@@ -509,16 +464,6 @@ impl ListMap {
         );
     }
 
-    pub(super) fn record_page(&mut self, page: &PageSnapshot) {
-        let placement = self.placement_at_offset(
-            page,
-            self.current.offset_y,
-            self.current.mean_score,
-            self.current.support,
-        );
-        self.commit_page(page, placement, "same-viewport");
-    }
-
     fn record_current(&mut self, page: &RoiObservation) {
         for slot in page
             .slots
@@ -537,10 +482,7 @@ impl ListMap {
         }
     }
 
-    pub(super) fn mark_selected(&mut self, slot: &Slot) {
-        let Some(id) = self.current_slot_id(slot) else {
-            return;
-        };
+    pub(super) fn mark_selected(&mut self, id: SlotId) {
         self.selected.insert(id);
         self.items.retain(|_, mapped| *mapped != id);
         self.candidate_evidence.retain(|_, candidates| {
@@ -570,7 +512,6 @@ impl ListMap {
                 score: candidate.score,
                 match_margin: candidate.match_margin,
                 gate_quality: candidate.gate_quality,
-                availability: candidate.availability,
             };
             if self.no_booster_option == Some(slot_id) || self.selected.contains(&slot_id) {
                 continue;
@@ -610,7 +551,7 @@ impl ListMap {
         &self,
         item_id: &str,
         page: &RoiObservation,
-    ) -> Option<TemplateMatchCandidate> {
+    ) -> Option<DirectClickTarget> {
         let id = *self.items.get(item_id)?;
         if self.selected.contains(&id) {
             return None;
@@ -631,15 +572,14 @@ impl ListMap {
                 .copied()
                 .map(CandidateEvidence::candidate)
         });
-        Some(TemplateMatchCandidate {
+        Some(DirectClickTarget {
             item_id: item_id.to_string(),
             slot: slot.clone(),
-            score: candidate.map_or(1.0, |candidate| candidate.score),
+            match_error: candidate.map_or(1.0, |candidate| candidate.score as f32),
             match_margin: candidate.map_or(0.0, |candidate| candidate.match_margin),
             gate_quality: candidate.map_or(0.0, |candidate| candidate.gate_quality),
-            availability: candidate.map_or(ItemAvailability::Available, |candidate| {
-                candidate.availability
-            }),
+            #[cfg(feature = "diagnostics")]
+            fallback: true,
         })
     }
 
@@ -680,7 +620,7 @@ impl ListMap {
         Some(visible.fold((first, first), |(min, max), y| (min.min(y), max.max(y))))
     }
 
-    fn current_slot_id(&self, slot: &Slot) -> Option<SlotId> {
+    pub(super) fn current_slot_id(&self, slot: &Slot) -> Option<SlotId> {
         let local = LocalPosition::of(slot);
         self.current
             .slots

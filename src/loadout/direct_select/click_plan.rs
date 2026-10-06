@@ -1,5 +1,5 @@
 use crate::item::ItemKind;
-use crate::vision::{ItemAvailability, RoiObservation, Slot, TemplateMatchCandidate};
+use crate::vision::{RoiObservation, Slot};
 
 #[derive(Clone)]
 pub(super) struct DirectClickTarget {
@@ -7,23 +7,9 @@ pub(super) struct DirectClickTarget {
     pub(super) match_error: f32,
     pub(super) match_margin: f32,
     pub(super) gate_quality: f32,
-    pub(super) availability: ItemAvailability,
     pub(super) slot: Slot,
+    #[cfg(feature = "diagnostics")]
     pub(super) fallback: bool,
-}
-
-impl DirectClickTarget {
-    pub(super) fn from_fallback(candidate: TemplateMatchCandidate) -> Self {
-        Self {
-            item_id: candidate.item_id,
-            match_error: candidate.score as f32,
-            match_margin: candidate.match_margin,
-            gate_quality: candidate.gate_quality,
-            availability: candidate.availability,
-            slot: candidate.slot,
-            fallback: true,
-        }
-    }
 }
 
 pub(super) fn next_visible_target(
@@ -60,8 +46,8 @@ pub(super) fn find_visible_target(
                 match_error: classification.match_error,
                 match_margin: classification.match_margin,
                 gate_quality: classification.gate_quality,
-                availability: classification.availability,
                 slot: slot.clone(),
+                #[cfg(feature = "diagnostics")]
                 fallback: false,
             })
         })

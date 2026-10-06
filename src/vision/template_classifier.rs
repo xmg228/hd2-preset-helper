@@ -54,7 +54,6 @@ pub struct TemplateMatchCandidate {
     pub score: f64,
     pub match_margin: f32,
     pub gate_quality: f32,
-    pub availability: ItemAvailability,
 }
 
 struct SlotMatchOutcome {
@@ -245,6 +244,35 @@ impl TemplateClassifier {
         }
     }
 
+    pub(crate) fn item_availability(
+        &self,
+        screenshot: &RgbaImage,
+        slot: &Slot,
+        item_id: &str,
+    ) -> Result<ItemAvailability> {
+        if self.item_kind != ItemKind::Booster {
+            return Ok(ItemAvailability::Available);
+        }
+        let reference = self
+            .templates
+            .iter()
+            .find(|template| template.item_id == item_id)
+            .and_then(|template| template.reference_yellow_luma)
+            .context("booster template is absent from the classifier")?;
+        let sample = crop_sample(
+            self.item_kind,
+            screenshot,
+            slot,
+            self.candidate_physical_size,
+        )?;
+        let brightness_ratio = booster::yellow_luma(&booster::extract(&sample)?) / reference;
+        Ok(if brightness_ratio >= booster::AVAILABLE_BRIGHTNESS_RATIO {
+            ItemAvailability::Available
+        } else {
+            ItemAvailability::Unavailable { brightness_ratio }
+        })
+    }
+
     pub fn classify_batch(&self, page: &mut RoiObservation) -> Result<Vec<TemplateMatchCandidate>> {
         ensure!(
             page.layout == self.layout,
@@ -338,7 +366,7 @@ impl TemplateClassifier {
         let accepted = result.score < self.match_threshold;
         let candidates = ranked
             .iter()
-            .map(|(template, extraction, candidate_result)| {
+            .map(|(template, _, candidate_result)| {
                 let competing_score = ranked
                     .iter()
                     .filter(|(other, _, _)| other.item_id != template.item_id)
@@ -354,7 +382,6 @@ impl TemplateClassifier {
                     gate_quality: ((self.match_threshold - candidate_result.score)
                         / self.match_threshold)
                         .clamp(0.0, 1.0) as f32,
-                    availability: item_availability(template, extraction),
                 }
             })
             .collect();
@@ -388,7 +415,6 @@ impl TemplateClassifier {
             match_margin: margin as f32,
             gate_quality: ((self.match_threshold - result.score) / self.match_threshold)
                 .clamp(0.0, 1.0) as f32,
-            availability: item_availability(best, best_extraction),
         });
         Ok(SlotMatchOutcome {
             accepted,
@@ -402,21 +428,6 @@ impl TemplateClassifier {
 fn is_candidate_slot(slot: &Slot, item_kind: ItemKind) -> bool {
     slot.kind.is_selectable_item_for(item_kind)
         || (item_kind == ItemKind::Booster && slot.kind == SlotKind::HomeBooster)
-}
-
-fn item_availability(
-    template: &PreparedTemplateEntry,
-    extraction: &SemanticExtraction,
-) -> ItemAvailability {
-    let Some(reference) = template.reference_yellow_luma else {
-        return ItemAvailability::Available;
-    };
-    let brightness_ratio = booster::yellow_luma(extraction) / reference;
-    if brightness_ratio >= booster::AVAILABLE_BRIGHTNESS_RATIO {
-        ItemAvailability::Available
-    } else {
-        ItemAvailability::Unavailable { brightness_ratio }
-    }
 }
 
 fn trace_match(
