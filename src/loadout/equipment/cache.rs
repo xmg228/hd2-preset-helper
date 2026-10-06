@@ -312,6 +312,32 @@ impl SearchCache<'_> {
         if from == target {
             return None;
         }
+        self.category_route(target).map(|(_, key)| key)
+    }
+
+    /// Z/C reaches a category's first row, regardless of the starting row.
+    fn category_route(&self, target: usize) -> Option<(usize, Key)> {
+        if !self.kind.has_categories() {
+            return None;
+        }
+        let from = self.current?.category;
+        if from == target {
+            // Leave and return to reset this category to its first row.
+            for (key, neighbor) in [
+                (Key::C, self.categories[from].next),
+                (Key::Z, self.categories[from].previous),
+            ] {
+                if let Some(at) = neighbor.filter(|&at| at != from)
+                    && match key {
+                        Key::C => self.categories[at].previous == Some(from),
+                        _ => self.categories[at].next == Some(from),
+                    }
+                {
+                    return Some((2, key));
+                }
+            }
+            return None;
+        }
         let distance = |forward: bool| {
             let mut at = from;
             for steps in 1..=self.categories.len() {
@@ -327,11 +353,52 @@ impl SearchCache<'_> {
             None
         };
         match (distance(false), distance(true)) {
-            (Some(back), Some(ahead)) if back < ahead => Some(Key::Z),
-            (_, Some(_)) => Some(Key::C),
-            (Some(_), None) => Some(Key::Z),
+            (Some(back), Some(ahead)) if back < ahead => Some((back, Key::Z)),
+            (_, Some(ahead)) => Some((ahead, Key::C)),
+            (Some(back), None) => Some((back, Key::Z)),
             _ => None,
         }
+    }
+
+    /// Vertical travel requires complete row counts along the connected path.
+    fn row_distance(&self, target: usize, target_row: usize, forward: bool) -> Option<usize> {
+        let columns = self.kind.list_columns();
+        let current = self.current?;
+        let (mut at, mut row, mut steps) = (current.category, current.position? / columns, 0);
+        for _ in 0..=self.categories.len() {
+            let category = &self.categories[at];
+            let rows = category.order.len().div_ceil(columns);
+            if rows == 0 {
+                return None;
+            }
+            if at == target
+                && if forward {
+                    target_row >= row
+                } else {
+                    target_row <= row
+                }
+            {
+                return Some(steps + target_row.abs_diff(row));
+            }
+            steps += if forward { rows - row } else { row + 1 };
+            at = if category.circular {
+                at
+            } else if forward {
+                category.next?
+            } else {
+                category.previous?
+            };
+            row = if forward {
+                0
+            } else {
+                self.categories[at]
+                    .order
+                    .len()
+                    .div_ceil(columns)
+                    .checked_sub(1)?
+            };
+        }
+        None
     }
 
     pub fn is_complete(&self, category: usize) -> bool {
@@ -409,40 +476,73 @@ impl SearchCache<'_> {
         self.current.unwrap()
     }
 
-    pub fn next(&self, target: Name) -> Option<InputAction> {
+    pub fn next(&self, target: Target) -> Option<InputAction> {
         let columns = self.kind.list_columns();
         let current = self.current?;
-        let position = current.position?;
-        let category = &self.categories[current.category];
-        let row_count = category.order.len().div_ceil(columns) as i32;
-        let (rows, col) = category
-            .order
-            .iter()
-            .enumerate()
-            .filter(|&(_, &name)| name == target)
-            .map(|(p, _)| {
-                let mut rows = (p / columns) as i32 - (position / columns) as i32;
-                if category.circular {
-                    rows = rows.rem_euclid(row_count);
-                    if rows > row_count - rows {
-                        rows -= row_count;
+        // An unverified target-category position must be repaired, not routed.
+        // Other categories can still use Z/C or their observed real head.
+        if current.category == target.category && current.position.is_none() {
+            return None;
+        }
+        let category = &self.categories[target.category];
+        let last_row = category.order.len().div_ceil(columns).checked_sub(1)?;
+        let head = self.category_route(target.category);
+        // The real next-category head is enough to enter the target tail;
+        // its own old map may be absent or stale. Include that Up in the cost.
+        let tail = category.next.and_then(|next| {
+            if current.category == next && current.head {
+                Some((1, Key::Up))
+            } else {
+                self.category_route(next)
+                    .map(|(steps, key)| (steps + 1, key))
+            }
+        });
+        let mut best: Option<(usize, InputAction)> = None;
+        let mut consider = |cost, action| {
+            if best.is_none_or(|(old_cost, _)| cost < old_cost) {
+                best = Some((cost, action));
+            }
+        };
+        for (p, &name) in category.order.iter().enumerate() {
+            if name != target.name {
+                continue;
+            }
+            let (row, col) = (p / columns, p % columns);
+            // Prefer direct travel on ties. Only click after reaching the target row.
+            for (forward, key) in [(true, Key::Down), (false, Key::Up)] {
+                if let Some(steps) = self.row_distance(target.category, row, forward) {
+                    if steps == 0 {
+                        if col != current.col {
+                            consider(1, InputAction::ClickColumn(col));
+                        }
+                    } else {
+                        let direct = current.category == target.category
+                            && current.position.is_some_and(|p| {
+                                if forward {
+                                    row > p / columns
+                                } else {
+                                    row < p / columns
+                                }
+                            });
+                        // Crossing a short tail may reset the column. Budget one
+                        // final click; the real landing column is observed later.
+                        let click = usize::from(!direct || col != current.col);
+                        consider(steps + click, InputAction::Key(key));
                     }
                 }
-                (rows, p % columns)
-            })
-            .min_by_key(|&(r, c)| (r.abs(), c != current.col))?;
-        let action = if rows != 0 {
-            InputAction::Key(if rows < 0 { Key::Up } else { Key::Down })
-        } else if col != current.col {
-            InputAction::ClickColumn(col)
-        } else {
-            return None;
-        };
+            }
+            if let Some((steps, key)) = head {
+                consider(steps + row + 1, InputAction::Key(key));
+            }
+            if let Some((steps, key)) = tail {
+                consider(steps + last_row - row + 1, InputAction::Key(key));
+            }
+        }
+        let (cost, action) = best?;
         tracing::debug!(
             action = action.name(),
-            rows_remaining = rows,
-            target_col = col,
-            "using complete equipment cache"
+            estimated_inputs = cost,
+            "using cached equipment route"
         );
         Some(action)
     }

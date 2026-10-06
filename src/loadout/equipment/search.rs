@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use super::{
     EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation,
-    cache::{Location, Name, SearchCache, Target},
+    cache::{Location, SearchCache, Target},
     survey::{Step, Survey},
 };
 use crate::{input::Key, vision::equipment::EquipmentObservation};
@@ -225,6 +225,15 @@ impl<'a> Search<'a> {
                     continue;
                 }
                 CategorySearch::Target(target) if target.category != location.category => {
+                    if navigation.is_none_or(|n| !n.retried)
+                        && let Some(action) = self.cache.next(*target)
+                    {
+                        // Cached travel can stay in or revisit a category.
+                        // The category-loop guard only belongs to blind Z/C exploration.
+                        self.category_origin = None;
+                        self.phase = Phase::Cached;
+                        return Ok(Next::Input(action));
+                    }
                     if self.category_origin == Some(location.category) {
                         // Cached category navigation looped; fall back to live exploration.
                         self.cache.take_order(target.category);
@@ -240,7 +249,7 @@ impl<'a> Search<'a> {
             }
             if let CategorySearch::Target(target) = self.category_search {
                 if location.position.is_some() && navigation.is_none_or(|n| !n.retried) {
-                    return self.route(location, target.name, score);
+                    return self.route(location, target, score);
                 }
             } else if self.select_target([location.category], !self.cache.kind.has_categories()) {
                 continue;
@@ -290,9 +299,9 @@ impl<'a> Search<'a> {
         }
     }
 
-    fn route(&mut self, location: Location, target: Name, score: f32) -> Result<Next> {
+    fn route(&mut self, location: Location, target: Target, score: f32) -> Result<Next> {
         self.phase = Phase::Cached;
-        if location.position.is_some() && location.name == target {
+        if location.name == target.name {
             ensure!(
                 score >= NAME_MATCH_THRESHOLD,
                 "mapped equipment target did not match its saved name"
