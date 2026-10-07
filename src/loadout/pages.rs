@@ -1,7 +1,7 @@
 //! Navigate between the Stratagem and equipment loadout pages.
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use image::RgbaImage;
 
 use super::{UiState, bind_loadout_region, detect_ui_state};
@@ -9,7 +9,7 @@ use crate::{
     capture::{CaptureRegion, CaptureSource},
     game_settings::GameColorSettings,
     input::{InputSession, Key},
-    item::EquipmentKind,
+    item::{EquipmentKind, ItemKind},
     vision::{RecognizerRuntime, RecognizerSession, SlotLayout, equipment::EquipmentObserver},
     window::WindowTarget,
 };
@@ -20,26 +20,54 @@ pub(crate) enum Page {
     Equipment,
 }
 
+/// Show the requested home and return the originating loadout page.
 pub(crate) fn show_page(
     capture: &mut CaptureSource,
     runtime: &RecognizerRuntime,
     target: &WindowTarget,
     colors: GameColorSettings,
     page: Page,
-) -> Result<()> {
+) -> Result<Page> {
     if page_visible(capture, runtime, colors, page)? {
-        return Ok(());
+        return Ok(page);
     }
     let other = match page {
         Page::Stratagems => Page::Equipment,
         Page::Equipment => Page::Stratagems,
     };
-    ensure!(
-        page_visible(capture, runtime, colors, other)?,
-        "return to the Stratagem or equipment home before using a preset"
-    );
+    let origin = if page_visible(capture, runtime, colors, other)? {
+        other
+    } else {
+        let mut origin = None;
+        // Equipment's focus and text evidence take precedence over generic icon geometry.
+        for candidate in [Page::Equipment, Page::Stratagems] {
+            let (mut region, detector) = bind_page(capture, runtime, colors, candidate)?;
+            if detector.list_visible(region.capture()?)? {
+                origin = Some(candidate);
+                break;
+            }
+        }
+        let origin =
+            origin.context("open a Stratagem or equipment loadout screen before using a preset")?;
+        InputSession::new(target.clone())?.tap_key(Key::Escape, 45)?;
+        wait_for_page(capture, runtime, target, colors, origin)?;
+        origin
+    };
+    if origin != page {
+        InputSession::new(target.clone())?.tap_key(Key::R, 45)?;
+        wait_for_page(capture, runtime, target, colors, page)?;
+    }
+    Ok(origin)
+}
+
+fn wait_for_page(
+    capture: &mut CaptureSource,
+    runtime: &RecognizerRuntime,
+    target: &WindowTarget,
+    colors: GameColorSettings,
+    page: Page,
+) -> Result<()> {
     let started = Instant::now();
-    InputSession::new(target.clone())?.tap_key(Key::R, 45)?;
     let (mut region, detector) = bind_page(capture, runtime, colors, page)?;
     let mut confirmed = false;
     loop {
@@ -49,19 +77,19 @@ pub(crate) fn show_page(
             tracing::debug!(
                 ?page,
                 elapsed_s = started.elapsed().as_secs_f64(),
-                "loadout page switched"
+                "loadout home confirmed after navigation"
             );
             return Ok(());
         }
         confirmed = visible;
         ensure!(
             started.elapsed() < Duration::from_millis(1500),
-            "could not confirm the {page:?} home after switching; no retry was sent"
+            "could not confirm the {page:?} home after navigation; no retry was sent"
         );
     }
 }
 
-pub(crate) fn page_visible(
+fn page_visible(
     capture: &mut CaptureSource,
     runtime: &RecognizerRuntime,
     colors: GameColorSettings,
@@ -107,6 +135,28 @@ impl PageDetector {
                 Ok(detect_ui_state(&home) == UiState::Home)
             }
             Self::Equipment(observer) => Ok(observer.entry(&frame).confirmed()),
+        }
+    }
+
+    fn list_visible(&self, frame: RgbaImage) -> Result<bool> {
+        match self {
+            Self::Stratagems(recognizer) => {
+                let mut observation = recognizer.detect(frame, SlotLayout::Home)?;
+                if detect_ui_state(&observation) == UiState::Home {
+                    return Ok(false);
+                }
+                for kind in [ItemKind::Stratagem, ItemKind::Booster] {
+                    observation = recognizer.detect(observation.image, SlotLayout::List(kind))?;
+                    if detect_ui_state(&observation) == UiState::List(kind) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Self::Equipment(observer) => Ok(!observer.entry(&frame).confirmed()
+                && [EquipmentKind::Helmet, EquipmentKind::Primary]
+                    .into_iter()
+                    .any(|kind| observer.with_kind(kind).observe(&frame).ready())),
         }
     }
 }

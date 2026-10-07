@@ -22,9 +22,9 @@ To uninstall, exit the app and delete its folder, including any saved presets.
 
 ## Quick start
 
-1. Equip the loadout you want to save, then return to either loadout home screen.
+1. Equip the loadout you want to save.
 2. Press `Ctrl+Shift+Space` to open the panel, select a preset and click **Save preset**.
-3. To apply it later, open the panel from either loadout home and choose
+3. To apply it later, open the panel from either loadout page and choose
    **Apply all**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
    for presets 1–6 by default).
 

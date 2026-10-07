@@ -9,7 +9,7 @@ use crate::{
     game_settings::GameColorSettings,
     loadout::{
         UiState, bind_loadout_region, collect_stratagem_preset, detect_ui_state,
-        pages::{Page, page_visible, show_page},
+        pages::{Page, show_page},
         scan_loadout_home,
     },
     preset::equipment as storage,
@@ -27,8 +27,8 @@ pub(super) fn execute(
     colors: GameColorSettings,
 ) -> Result<(PresetActionOutcome, PresetCompletion)> {
     if command == PresetCommand::SaveFull {
-        let started_on_equipment = page_visible(capture, runtime, colors, Page::Equipment)?;
-        show_page(capture, runtime, &target, colors, Page::Stratagems)?;
+        let started_on_equipment =
+            show_page(capture, runtime, &target, colors, Page::Stratagems)? == Page::Equipment;
         let captured = {
             let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
             let recognizer = runtime.bind(bound.geometry);
