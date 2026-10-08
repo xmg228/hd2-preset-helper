@@ -3,6 +3,7 @@ import { ScrollView } from "std-widgets.slint";
 
 export component PanelComboBox inherits Rectangle {
     in property <[string]> model;
+    in property <[string]> font-families;
     in property <bool> enabled: true;
     in-out property <int> current-index;
     out property <string> current-value: model[current-index];
@@ -64,6 +65,7 @@ export component PanelComboBox inherits Rectangle {
         spacing: 8px;
         Text {
             text: root.current-value;
+            font-family: root.font-families[root.current-index];
             color: root.enabled ? Theme.control-text : Theme.text-disabled;
             vertical-alignment: center;
             overflow: elide;
@@ -136,6 +138,7 @@ export component PanelComboBox inherits Rectangle {
                                 x: 14px;
                                 width: parent.width - 24px;
                                 text: value;
+                                font-family: root.font-families[index];
                                 color: Theme.text;
                                 vertical-alignment: center;
                                 overflow: elide;

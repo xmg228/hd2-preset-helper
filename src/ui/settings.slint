@@ -74,6 +74,7 @@ export component SettingsDialog inherits Rectangle {
     in property <[string]> monitor-labels;
     in-out property <int> selected-monitor;
     in-out property <int> selected-language;
+    in property <[string]> language-fonts;
     in-out property <bool> apply-in-saved-order;
     in-out property <bool> auto-ready-up;
     in-out property <bool> save-fallback-when-taken;
@@ -155,6 +156,7 @@ export component SettingsDialog inherits Rectangle {
                                 "Español (España)", "Español (Latinoamérica)",
                                 "Português (Brasil)", "Português (Portugal)", "Polski", "Русский"];
                             current-index <=> root.selected-language;
+                            font-families: root.language-fonts;
                             enabled: root.enabled && !root.saving;
                         }
                     }

@@ -81,6 +81,18 @@ impl AppUi {
             })
             .select()?;
         let window = PresetPanel::new()?;
+        #[cfg(target_os = "windows")]
+        window.set_language_fonts(
+            UiLanguage::ALL
+                .map(|language| {
+                    language
+                        .locale()
+                        .map(windows::font_family)
+                        .unwrap_or("")
+                        .into()
+                })
+                .into(),
+        );
         let (send, requests) = mpsc::channel();
         let tray = AppTray::new()?;
         let icon = image::load_from_memory(include_bytes!("../assets/app-icon.ico"))?.into_rgba8();

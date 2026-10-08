@@ -173,6 +173,7 @@ export component PresetPanel inherits Window {
         @tr("Saved display (unavailable)"), @tr("Display"), @tr("Primary display"));
     in-out property <int> selected-monitor;
     in-out property <int> selected-language;
+    in property <[string]> language-fonts;
     in-out property <bool> draft-apply-in-saved-order;
     in-out property <bool> draft-auto-ready-up;
     in-out property <bool> draft-save-fallback-when-taken;
@@ -749,6 +750,7 @@ export component PresetPanel inherits Window {
         monitor-labels: root.monitor-labels;
         selected-monitor <=> root.selected-monitor;
         selected-language <=> root.selected-language;
+        language-fonts: root.language-fonts;
         apply-in-saved-order <=> root.draft-apply-in-saved-order;
         auto-ready-up <=> root.draft-auto-ready-up;
         save-fallback-when-taken <=> root.draft-save-fallback-when-taken;
