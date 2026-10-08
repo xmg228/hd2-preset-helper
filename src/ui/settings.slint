@@ -1,19 +1,20 @@
-import { ComboBox, ScrollView } from "std-widgets.slint";
-import { PanelButton } from "controls.slint";
-import { ShortcutEditor, ShortcutRow } from "shortcuts.slint";
-export { ShortcutRow }
-export struct MonitorChoice { id: string, label: string }
+import { Theme } from "theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { PanelButton, PanelComboBox } from "controls.slint";
+import { ShortcutEditor } from "shortcuts.slint";
+import { ShortcutRow } from "models.slint";
 
 component SettingToggle inherits Rectangle {
     in property <string> text;
     in property <string> description;
     in property <bool> enabled;
     in-out property <bool> checked;
-    height: 64px;
+    min-height: 64px;
+    vertical-stretch: 0;
     border-radius: 4px;
     border-width: keys.has-focus ? 1px : 0px;
-    border-color: #cdbf84;
-    background: touch.has-hover && enabled ? #242829 : transparent;
+    border-color: Theme.accent-soft;
+    background: touch.has-hover && enabled ? Theme.control : transparent;
     accessible-role: checkbox;
     accessible-label: text;
     accessible-enabled: enabled;
@@ -25,18 +26,19 @@ component SettingToggle inherits Rectangle {
         padding: 8px;
         spacing: 12px;
         VerticalLayout {
+            horizontal-stretch: 1;
             alignment: center;
             spacing: 4px;
-            Text { text: root.text; color: #e9e9e4; font-size: 14px; }
-            Text { text: root.description; color: #a6adaa; font-size: 11px; wrap: word-wrap; }
+            Text { text: root.text; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+            Text { text: root.description; color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
         }
         Rectangle {
             width: 18px;
             height: 18px;
             border-radius: 3px;
             border-width: 1px;
-            border-color: root.checked ? #cdbf84 : #69716d;
-            background: root.checked ? #cdbf84 : transparent;
+            border-color: root.checked ? Theme.accent-soft : Theme.inactive;
+            background: root.checked ? Theme.accent-soft : transparent;
             if root.checked: Path {
                 width: parent.width;
                 height: parent.height;
@@ -44,7 +46,7 @@ component SettingToggle inherits Rectangle {
                 viewbox-height: 18;
                 commands: "M 4 9 L 7.5 12.5 L 14 5.5";
                 fill: transparent;
-                stroke: #181b1c;
+                stroke: Theme.background;
                 stroke-width: 2px;
             }
         }
@@ -71,6 +73,7 @@ export component SettingsDialog inherits Rectangle {
     in property <[ShortcutRow]> rows;
     in property <[string]> monitor-labels;
     in-out property <int> selected-monitor;
+    in-out property <int> selected-language;
     in-out property <bool> apply-in-saved-order;
     in-out property <bool> auto-ready-up;
     in-out property <bool> save-fallback-when-taken;
@@ -83,8 +86,8 @@ export component SettingsDialog inherits Rectangle {
     callback save();
     callback cancel();
     public function focus-dialog() { root.general = root.shortcut-warning == ""; keys.focus(); }
-    background: #1d2122;
-    border-color: #464c49;
+    background: Theme.surface;
+    border-color: Theme.border-strong;
     border-width: 1px;
     border-radius: 8px;
     TouchArea { }
@@ -100,57 +103,70 @@ export component SettingsDialog inherits Rectangle {
         VerticalLayout {
             padding: 22px;
             spacing: 12px;
-            Text { text: "Settings"; color: #e9e9e4; font-size: 21px; height: 30px; }
+            Text { text: @tr("Settings"); color: Theme.text; font-size: 21px; height: 30px; }
             HorizontalLayout {
                 height: 32px;
                 alignment: start;
                 spacing: 8px;
                 PanelButton {
-                    width: 100px; text: "General"; filled: root.general;
+                    min-width: 100px; text: @tr("General"); filled: root.general;
                     enabled: root.enabled && !root.saving;
                     clicked => { root.recording = -1; root.general = true; }
                 }
                 PanelButton {
-                    width: 100px; text: "Shortcuts"; filled: !root.general;
+                    min-width: 100px; text: @tr("Shortcuts"); filled: !root.general;
                     enabled: root.enabled && !root.saving;
                     clicked => { root.general = false; }
                 }
             }
-            Rectangle { height: 1px; background: #383d3b; }
+            Rectangle { height: 1px; background: Theme.border; }
             if root.general: ScrollView {
                 content-width: self.visible-width - 8px;
                 VerticalLayout {
                     alignment: start;
                     spacing: 6px;
                     SettingToggle {
-                        text: "Apply Stratagems in saved order";
-                        description: "Use the saved order when all four slots start empty.";
+                        text: @tr("Apply Stratagems in saved order");
+                        description: @tr("Only when all four slots start empty.");
                         checked <=> root.apply-in-saved-order;
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
-                        text: "Auto ready up";
-                        description: "Ready up after successfully applying a Booster.";
+                        text: @tr("Auto ready up");
+                        description: @tr("Ready up after successfully applying a Booster.");
                         checked <=> root.auto-ready-up;
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
-                        text: "Save fallback Booster when taken";
-                        description: "If the saved Booster is in use, wait for your selection and save it as a fallback.";
+                        text: @tr("Save fallback Booster when taken");
+                        description: @tr("Wait for your selection, then save it as a fallback.");
                         checked <=> root.save-fallback-when-taken;
                         enabled: root.enabled && !root.saving;
                     }
-                    Rectangle { height: 1px; background: #383d3b; }
+                    Rectangle { height: 1px; background: Theme.border; }
                     VerticalLayout {
                         padding: 8px;
                         spacing: 6px;
-                        Text { text: "Display"; color: #e9e9e4; font-size: 14px; }
-                        ComboBox {
+                        Text { text: @tr("Language"); color: Theme.text; font-size: 14px; }
+                        PanelComboBox {
+                            model: [@tr("Follow system"), "English", "简体中文", "繁體中文",
+                                "日本語", "한국어", "Deutsch", "Français", "Italiano",
+                                "Español (España)", "Español (Latinoamérica)",
+                                "Português (Brasil)", "Português (Portugal)", "Polski", "Русский"];
+                            current-index <=> root.selected-language;
+                            enabled: root.enabled && !root.saving;
+                        }
+                    }
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        Text { text: @tr("Display"); color: Theme.text; font-size: 14px; }
+                        PanelComboBox {
                             model: root.monitor-labels;
                             current-index <=> root.selected-monitor;
                             enabled: root.enabled && !root.saving;
                         }
-                        Text { text: "Used for the panel and action status."; color: #a6adaa; font-size: 11px; wrap: word-wrap; }
+                        Text { text: @tr("Used for the panel and action status."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
                     }
                 }
             }
@@ -161,13 +177,13 @@ export component SettingsDialog inherits Rectangle {
                 clear(index) => { root.clear(index); }
             }
             if (!root.general && root.shortcut-warning != "" && root.error == ""): Text {
-                text: "Currently unavailable:\n" + root.shortcut-warning;
-                color: #e6b975;
+                text: @tr("Currently unavailable:\n") + root.shortcut-warning;
+                color: Theme.warning;
                 wrap: word-wrap;
                 font-size: 12px;
                 max-height: 56px;
                 overflow: elide;
-                Tooltip { text: @markdown("Currently unavailable:\n\{root.shortcut-warning}"); }
+                Tooltip { text: @markdown("\{parent.text}"); }
             }
             if (root.error != ""): Text {
                 text: root.error;
@@ -178,13 +194,13 @@ export component SettingsDialog inherits Rectangle {
                 overflow: elide;
                 Tooltip { text: @markdown("\{root.error}"); }
             }
-            Rectangle { height: 1px; background: #383d3b; }
+            Rectangle { height: 1px; background: Theme.border; }
             HorizontalLayout {
                 height: 32px;
                 alignment: end;
                 spacing: 10px;
-                PanelButton { width: 86px; text: "Cancel"; filled: true; enabled: root.enabled && !root.saving; clicked => { root.cancel(); } }
-                PanelButton { width: 86px; text: root.saving ? "Saving…" : "Save"; accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { root.save(); } }
+                PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled && !root.saving; clicked => { root.cancel(); } }
+                PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { root.save(); } }
             }
         }
     }

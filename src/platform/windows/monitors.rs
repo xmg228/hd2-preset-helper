@@ -15,7 +15,9 @@ use windows::core::BOOL;
 #[derive(PartialEq)]
 pub struct Monitor {
     pub id: String,
-    pub label: String,
+    pub source: String,
+    pub name: String,
+    pub primary: bool,
     pub bounds: RECT,
 }
 
@@ -75,21 +77,15 @@ pub fn available() -> Result<Vec<Monitor>> {
         if id.is_empty() {
             continue;
         }
-        let name = wide_string(&target.monitorFriendlyDeviceName);
-        let mut label = source_name.replace(r"\\.\DISPLAY", "Display ");
-        if !name.is_empty() {
-            label.push_str(&format!(" — {name}"));
-        }
-        if desktop.monitorInfo.dwFlags & 1 != 0 {
-            label.push_str(" (Primary)");
-        }
         monitors.push(Monitor {
             id,
-            label,
+            source: source_name,
+            name: wide_string(&target.monitorFriendlyDeviceName),
+            primary: desktop.monitorInfo.dwFlags & 1 != 0,
             bounds: desktop.monitorInfo.rcMonitor,
         });
     }
-    monitors.sort_by(|a, b| a.label.cmp(&b.label));
+    monitors.sort_by(|a, b| a.source.cmp(&b.source));
     Ok(monitors)
 }
 

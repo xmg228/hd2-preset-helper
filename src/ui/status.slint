@@ -1,5 +1,8 @@
+import { Theme } from "theme.slint";
 import { NameImage } from "controls.slint";
+import { UiText } from "text.slint";
 
+export enum StatusTone { working, success, warning, error }
 export struct StatusItem { item-id: string, picture: image, confirmed: bool }
 
 component ItemIcon inherits Rectangle {
@@ -19,7 +22,7 @@ component ItemIcon inherits Rectangle {
         width: 13px;
         height: 13px;
         border-radius: 6px;
-        background: #181b1c;
+        background: Theme.background;
         Path {
             x: 3px; y: 3px;
             width: 8px; height: 7px;
@@ -39,22 +42,26 @@ export component ActionStatus inherits Window {
     resize-border-width: 0px;
     width: 380px;
     height: 112px;
-    background: #181b1c;
+    background: Theme.background;
     default-font-family: "Segoe UI";
-    in property <string> heading;
+    in property <string> preset-label;
+    in property <string> preset-number;
     in property <string> message;
-    in property <color> accent: #e9d778;
+    in property <StatusTone> tone;
+    private property <color> accent: tone == StatusTone.success ? Theme.success
+        : tone == StatusTone.warning ? Theme.warning
+        : tone == StatusTone.error ? Theme.error : Theme.accent;
     in property <image> picture;
     in property <[StatusItem]> stratagems;
     in property <StatusItem> booster;
-    Rectangle { border-width: 1px; border-color: #383d3b; }
+    Rectangle { border-width: 1px; border-color: Theme.border; }
     Rectangle { x: 0px; y: 0px; width: 3px; height: parent.height; background: root.accent; }
     VerticalLayout {
         padding: 12px;
         spacing: 6px;
         alignment: start;
-        Text { text: root.heading; color: root.accent; font-size: 13px; height: 16px; overflow: elide; }
-        Text { text: root.message; color: #e9e9e4; font-size: 13px; min-height: 16px; wrap: word-wrap; overflow: elide; }
+        Text { text: UiText.preset-title(root.preset-label, root.preset-number); color: root.accent; font-size: 13px; height: 16px; overflow: elide; }
+        Text { text: root.message; color: Theme.text; font-size: 13px; min-height: 16px; wrap: word-wrap; overflow: elide; }
         if (root.stratagems.length > 0 || root.booster.item-id != ""): HorizontalLayout {
             height: 40px;
             spacing: 8px;
@@ -62,7 +69,7 @@ export component ActionStatus inherits Window {
             for item in root.stratagems: ItemIcon { item: item; }
             if (root.stratagems.length > 0 && root.booster.item-id != ""): Rectangle {
                 width: 12px;
-                Rectangle { x: 5px; y: 4px; width: 1px; height: 32px; background: #383d3b; }
+                Rectangle { x: 5px; y: 4px; width: 1px; height: 32px; background: Theme.border; }
             }
             if (root.booster.item-id != ""): ItemIcon { item: root.booster; }
         }

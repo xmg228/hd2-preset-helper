@@ -1,0 +1,236 @@
+# French translations for hd2-preset-helper.
+msgid ""
+msgstr ""
+"Project-Id-Version: hd2-preset-helper\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+# Panel and preset previews.
+msgid "Preset {}"
+msgstr "Préréglage {}"
+
+msgid "Stratagem {}"
+msgstr "Stratagème {}"
+
+msgid "Booster"
+msgstr "Bonus"
+
+msgid "Fallback Booster"
+msgstr "Bonus de secours"
+
+msgid "Helmet"
+msgstr "Casque"
+
+msgid "Armor"
+msgstr "Armure"
+
+msgid "Cape"
+msgstr "Cape"
+
+msgid "Primary"
+msgstr "Arme principale"
+
+msgid "Secondary"
+msgstr "Arme secondaire"
+
+msgid "Throwable"
+msgstr "Arme de jet"
+
+msgid "Settings"
+msgstr "Paramètres"
+
+msgid "Hide panel"
+msgstr "Masquer le panneau"
+
+msgid "Preview unavailable"
+msgstr "Aperçu indisponible"
+
+msgid "Not saved"
+msgstr "Non enregistré"
+
+msgid "Loading previews…"
+msgstr "Chargement des aperçus…"
+
+msgid "+ New preset"
+msgstr "+ Nouveau préréglage"
+
+msgid "Select a preset"
+msgstr "Choisir un préréglage"
+
+msgid "No presets"
+msgstr "Aucun préréglage"
+
+msgid "Cut"
+msgstr "Couper"
+
+msgid "Copy"
+msgstr "Copier"
+
+msgid "Paste"
+msgstr "Coller"
+
+msgid "Select all"
+msgstr "Tout sélectionner"
+
+msgid "Preset name"
+msgstr "Nom du préréglage"
+
+msgid "Rename preset"
+msgstr "Renommer le préréglage"
+
+msgid "Delete preset"
+msgstr "Supprimer le préréglage"
+
+msgid "Stratagems & Booster"
+msgstr "Stratagèmes et bonus"
+
+msgid "Use + New preset to get started."
+msgstr "Commencez avec « + Nouveau préréglage »."
+
+msgid "Equipment"
+msgstr "Équipement"
+
+msgid "Start from either loadout page."
+msgstr "Vous pouvez commencer depuis l'une des deux pages d'équipement."
+
+msgid "Select sections to save or apply."
+msgstr "Choisissez les sections à enregistrer ou à appliquer."
+
+msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
+msgstr "Certains raccourcis sont indisponibles. Modifiez-les dans Paramètres > Raccourcis."
+
+msgid "Show / hide panel"
+msgstr "Afficher / masquer le panneau"
+
+msgid "Global shortcut"
+msgstr "Raccourci global"
+
+msgid "Save preset"
+msgstr "Enregistrer le préréglage"
+
+msgid "Save Stratagems"
+msgstr "Enregistrer les stratagèmes"
+
+msgid "Save equipment"
+msgstr "Enregistrer l'équipement"
+
+msgid "Select content"
+msgstr "Choisir le contenu"
+
+msgid "Fill all four Stratagem slots before saving."
+msgstr "Remplissez les quatre emplacements de stratagèmes avant d'enregistrer."
+
+msgid "Apply all"
+msgstr "Tout appliquer"
+
+msgid "Apply Stratagems"
+msgstr "Appliquer les stratagèmes"
+
+msgid "Apply equipment"
+msgstr "Appliquer l'équipement"
+
+# General settings.
+msgid "General"
+msgstr "Général"
+
+msgid "Shortcuts"
+msgstr "Raccourcis"
+
+msgid "Apply Stratagems in saved order"
+msgstr "Appliquer les stratagèmes dans l'ordre enregistré"
+
+msgid "Only when all four slots start empty."
+msgstr "Uniquement si les quatre emplacements sont vides au départ."
+
+msgid "Auto ready up"
+msgstr "Prêt automatiquement"
+
+msgid "Ready up after successfully applying a Booster."
+msgstr "Se déclarer prêt après l'application réussie d'un bonus."
+
+msgid "Save fallback Booster when taken"
+msgstr "Enregistrer un bonus de secours si un allié l'utilise"
+
+msgid "Wait for your selection, then save it as a fallback."
+msgstr "Attend votre sélection, puis l'enregistre comme bonus de secours."
+
+msgid "Display"
+msgstr "Écran"
+
+msgid "Follow game (automatic)"
+msgstr "Suivre le jeu (automatique)"
+
+msgid "Saved display (unavailable)"
+msgstr "Écran enregistré (indisponible)"
+
+msgid "Primary display"
+msgstr "Écran principal"
+
+msgid "Used for the panel and action status."
+msgstr "Utilisé pour le panneau et l'état des actions."
+
+msgid "Language"
+msgstr "Langue"
+
+msgid "Follow system"
+msgstr "Langue du système"
+
+msgid "Currently unavailable:\n"
+msgstr "Actuellement indisponible :\n"
+
+msgid "Saving…"
+msgstr "Enregistrement…"
+
+msgid "Save"
+msgstr "Enregistrer"
+
+# Shortcut settings.
+msgid "Open panel"
+msgstr "Ouvrir le panneau"
+
+msgid "Press keys…"
+msgstr "Appuyez sur les touches…"
+
+msgid "Unassigned"
+msgstr "Non attribué"
+
+msgid "Clear shortcut"
+msgstr "Effacer le raccourci"
+
+msgid "Click a shortcut and press your keys. Esc cancels recording."
+msgstr "Cliquez sur un raccourci et appuyez sur les touches souhaitées. Esc annule la saisie."
+
+msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
+msgstr "Le raccourci du panneau fonctionne partout ; ceux des préréglages fonctionnent dans le jeu ou le panneau."
+
+msgid "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."
+msgstr "Num0–Num9 sont les touches du pavé numérique. Gardez Num Lock activé ; évitez Shift avec les chiffres du pavé numérique."
+
+# Dialogs and fixed error controls.
+msgid "Delete preset?"
+msgstr "Supprimer le préréglage ?"
+
+msgid "Its saved content and shortcut will be deleted. This cannot be undone."
+msgstr "Son contenu enregistré et son raccourci seront supprimés. Cette action est irréversible."
+
+msgid "Cancel"
+msgstr "Annuler"
+
+msgid "Delete"
+msgstr "Supprimer"
+
+msgid "Copied"
+msgstr "Copié"
+
+msgid "Copy details"
+msgstr "Copier les détails"
+
+msgid "Dismiss last failure"
+msgstr "Fermer le dernier message d'erreur"
+
+# Tray.
+msgid "Exit"
+msgstr "Quitter"

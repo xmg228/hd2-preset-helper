@@ -12,8 +12,16 @@ use crate::{
     vision::{equipment::EquipmentText, text::TextSample},
 };
 
+#[derive(Clone, Copy, Debug)]
+pub enum PreviewRole {
+    Stratagem(usize),
+    Booster,
+    FallbackBooster,
+    Equipment(EquipmentKind),
+}
+
 pub struct PreviewImage {
-    pub label: String,
+    pub role: PreviewRole,
     pub image: RgbaImage,
 }
 
@@ -44,17 +52,22 @@ pub fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
                     .stratagems
                     .iter()
                     .enumerate()
-                    .map(|(index, item)| (format!("Stratagem {}", index + 1), item))
-                    .chain(preset.booster.iter().map(|item| ("Booster".into(), item)))
+                    .map(|(index, item)| (PreviewRole::Stratagem(index + 1), item))
+                    .chain(
+                        preset
+                            .booster
+                            .iter()
+                            .map(|item| (PreviewRole::Booster, item)),
+                    )
                     .chain(
                         preset
                             .fallback_booster
                             .iter()
-                            .map(|item| ("Fallback Booster".into(), item)),
+                            .map(|item| (PreviewRole::FallbackBooster, item)),
                     )
-                    .map(|(label, item)| {
+                    .map(|(role, item)| {
                         Ok(PreviewImage {
-                            label,
+                            role,
                             image: load_template_image(path, &item.path)?,
                         })
                     })
@@ -66,7 +79,7 @@ pub fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
                     .zip(&equipment.items)
                     .map(|(kind, item)| {
                         Ok(PreviewImage {
-                            label: format!("{kind:?}"),
+                            role: PreviewRole::Equipment(*kind),
                             image: load_name(path, &item.name, equipment.client_size)?,
                         })
                     })

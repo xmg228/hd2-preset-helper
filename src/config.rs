@@ -84,11 +84,146 @@ impl PresetSlot {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+pub enum UiLanguage {
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "en")]
+    English,
+    #[serde(rename = "zh-Hans")]
+    SimplifiedChinese,
+    #[serde(rename = "zh-Hant")]
+    TraditionalChinese,
+    #[serde(rename = "ja")]
+    Japanese,
+    #[serde(rename = "ko")]
+    Korean,
+    #[serde(rename = "de")]
+    German,
+    #[serde(rename = "fr")]
+    French,
+    #[serde(rename = "it")]
+    Italian,
+    #[serde(rename = "es-ES")]
+    SpanishSpain,
+    #[serde(rename = "es-419")]
+    SpanishLatinAmerica,
+    #[serde(rename = "pt-BR")]
+    PortugueseBrazil,
+    #[serde(rename = "pt-PT")]
+    PortuguesePortugal,
+    #[serde(rename = "pl")]
+    Polish,
+    #[serde(rename = "ru")]
+    Russian,
+}
+
+impl UiLanguage {
+    pub const ALL: [Self; 15] = [
+        Self::Auto,
+        Self::English,
+        Self::SimplifiedChinese,
+        Self::TraditionalChinese,
+        Self::Japanese,
+        Self::Korean,
+        Self::German,
+        Self::French,
+        Self::Italian,
+        Self::SpanishSpain,
+        Self::SpanishLatinAmerica,
+        Self::PortugueseBrazil,
+        Self::PortuguesePortugal,
+        Self::Polish,
+        Self::Russian,
+    ];
+
+    pub fn locale(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::English => Some("en"),
+            Self::SimplifiedChinese => Some("zh-Hans"),
+            Self::TraditionalChinese => Some("zh-Hant"),
+            Self::Japanese => Some("ja"),
+            Self::Korean => Some("ko"),
+            Self::German => Some("de"),
+            Self::French => Some("fr"),
+            Self::Italian => Some("it"),
+            Self::SpanishSpain => Some("es-ES"),
+            Self::SpanishLatinAmerica => Some("es-419"),
+            Self::PortugueseBrazil => Some("pt-BR"),
+            Self::PortuguesePortugal => Some("pt-PT"),
+            Self::Polish => Some("pl"),
+            Self::Russian => Some("ru"),
+        }
+    }
+
+    pub fn from_locale(locale: &str) -> Option<Self> {
+        let locale = locale.replace('_', "-").to_ascii_lowercase();
+        let mut parts = locale.split('-');
+        match parts.next()? {
+            "zh" => Some(
+                if locale.contains("-hant")
+                    || !locale.contains("-hans")
+                        && parts.any(|part| matches!(part, "tw" | "hk" | "mo"))
+                {
+                    Self::TraditionalChinese
+                } else {
+                    Self::SimplifiedChinese
+                },
+            ),
+            "es" => Some(
+                if parts.any(|part| {
+                    matches!(
+                        part,
+                        "419"
+                            | "ar"
+                            | "bo"
+                            | "br"
+                            | "bz"
+                            | "cl"
+                            | "co"
+                            | "cr"
+                            | "cu"
+                            | "do"
+                            | "ec"
+                            | "gt"
+                            | "hn"
+                            | "mx"
+                            | "ni"
+                            | "pa"
+                            | "pe"
+                            | "pr"
+                            | "py"
+                            | "sv"
+                            | "us"
+                            | "uy"
+                            | "ve"
+                    )
+                }) {
+                    Self::SpanishLatinAmerica
+                } else {
+                    Self::SpanishSpain
+                },
+            ),
+            "pt" => Some(if parts.any(|part| part == "br") {
+                Self::PortugueseBrazil
+            } else {
+                Self::PortuguesePortugal
+            }),
+            language => Self::ALL
+                .into_iter()
+                .find(|candidate| candidate.locale() == Some(language)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiSettings {
     pub panel_shortcut: String,
     pub monitor: String,
+    pub language: UiLanguage,
 }
 
 impl Default for UiSettings {
@@ -96,6 +231,7 @@ impl Default for UiSettings {
         Self {
             panel_shortcut: "Ctrl + Shift + Space".into(),
             monitor: AUTO_MONITOR.to_string(),
+            language: UiLanguage::default(),
         }
     }
 }

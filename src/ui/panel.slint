@@ -1,20 +1,12 @@
+import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice } from "controls.slint";
-import { ShortcutRow, SettingsDialog, MonitorChoice } from "settings.slint";
-export { ShortcutRow, MonitorChoice }
+import { SettingsDialog } from "settings.slint";
+import { PreviewRole, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
+import { UiText } from "text.slint";
+export { PreviewRole, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
-export { ActionStatus, StatusItem } from "status.slint";
-
-export struct PreviewRow { label: string, picture: image }
-export struct PreviewSection { items: [PreviewRow], message: string, ready: bool, saved: bool }
-export struct PresetRow {
-    name: string,
-    label: string,
-    title: string,
-    shortcut: string,
-    stratagems: PreviewSection,
-    equipment: PreviewSection,
-}
+export { ActionStatus, StatusItem, StatusTone } from "status.slint";
 
 component SelectableSection inherits Rectangle {
     in property <string> text;
@@ -24,7 +16,7 @@ component SelectableSection inherits Rectangle {
     vertical-stretch: 0;
     border-radius: 5px;
     border-width: 1px;
-    border-color: keys.has-focus ? #a6adaa : transparent;
+    border-color: keys.has-focus ? Theme.text-secondary : transparent;
     background: touch.has-hover && enabled ? #222627 : transparent;
     accessible-role: checkbox;
     accessible-label: text;
@@ -47,7 +39,7 @@ component SelectableSection inherits Rectangle {
             spacing: 8px;
             Text {
                 text: root.text;
-                color: root.enabled ? #e9e9e4 : #8c9398;
+                color: root.enabled ? Theme.text : Theme.text-disabled;
                 font-size: 15px;
                 font-weight: 600;
                 horizontal-stretch: 0;
@@ -59,9 +51,9 @@ component SelectableSection inherits Rectangle {
                 height: 16px;
                 border-radius: 3px;
                 border-width: 1px;
-                border-color: touch.has-hover && root.enabled ? #e9d778
-                    : root.checked ? (root.enabled ? #bdb078 : #59605d) : #69716d;
-                background: root.checked ? (root.enabled ? #cdbf84 : #59605d) : transparent;
+                border-color: touch.has-hover && root.enabled ? Theme.accent
+                    : root.checked ? (root.enabled ? #bdb078 : #59605d) : Theme.inactive;
+                background: root.checked ? (root.enabled ? Theme.accent-soft : #59605d) : transparent;
                 if (root.checked): Path {
                     width: parent.width;
                     height: parent.height;
@@ -69,7 +61,7 @@ component SelectableSection inherits Rectangle {
                     viewbox-height: 18;
                     commands: "M 4 9 L 7.5 12.5 L 14 5.5";
                     fill: transparent;
-                    stroke: #181b1c;
+                    stroke: Theme.background;
                     stroke-width: 2px;
                 }
             }
@@ -95,7 +87,7 @@ component NamePreview inherits Rectangle {
     VerticalLayout {
         alignment: center;
         spacing: 2px;
-        Text { text: root.item.label; color: #a6adaa; font-size: 11px; height: 15px; }
+        Text { text: UiText.item-label(root.item); color: Theme.text-secondary; font-size: 11px; height: 15px; }
         NameImage {
             source: root.item.picture;
             height: 21px;
@@ -115,13 +107,13 @@ component StratagemPreview inherits Rectangle {
         spacing: root.compact ? 5px : 8px;
         for item[index] in root.items: HorizontalLayout {
             spacing: root.compact ? 5px : 12px;
-            if (index == 4 && !root.compact): Rectangle { width: 1px; background: #383d3b; }
+            if (index == 4 && !root.compact): Rectangle { width: 1px; background: Theme.border; }
             if (!root.compact || index < 5): Image {
                 source: item.picture;
                 width: root.icon-size;
                 height: root.icon-size;
                 image-fit: contain;
-                Tooltip { text: @markdown("\{item.label}"); }
+                Tooltip { text: @markdown("\{UiText.item-label(item)}"); }
             }
         }
     }
@@ -149,6 +141,8 @@ export component PresetPanel inherits Window {
     in property <[PresetRow]> presets;
     in property <string> status;
     in-out property <string> failure-details;
+    in property <string> failure-label;
+    in property <string> failure-number;
     in property <string> shortcut-warning;
     in property <bool> pending;
     in property <bool> loading: true;
@@ -157,8 +151,11 @@ export component PresetPanel inherits Window {
     in-out property <bool> delete-open;
     in property <[ShortcutRow]> shortcut-rows;
     in property <[MonitorChoice]> monitor-choices;
-    in property <[string]> monitor-labels;
+    private property <[string]> monitor-labels: root.project-monitor-labels(
+        root.monitor-choices, @tr("Follow game (automatic)"),
+        @tr("Saved display (unavailable)"), @tr("Display"), @tr("Primary display"));
     in-out property <int> selected-monitor;
+    in-out property <int> selected-language;
     in-out property <bool> draft-apply-in-saved-order;
     in-out property <bool> draft-auto-ready-up;
     in-out property <bool> draft-save-fallback-when-taken;
@@ -196,6 +193,7 @@ export component PresetPanel inherits Window {
     callback clear-shortcut(int);
     callback add-preset();
     callback dismiss();
+    pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() { root.hovered-index = -1; keyboard.focus(); }
     public function focus-settings() { root.hovered-index = -1; settings.focus-dialog(); }
     function begin-delete() {
@@ -292,12 +290,12 @@ export component PresetPanel inherits Window {
                     Text {
                         width: parent.width;
                         text: "HD2 Preset Helper";
-                        color: #e9e9e4;
+                        color: Theme.text;
                         vertical-alignment: center;
                     }
                 }
                 IconButton {
-                    label: "Settings";
+                    label: @tr("Settings");
                     path: "M 10 2 L 14 2 L 14.6 5 L 17.2 6.5 L 20 5.5 L 22 9 L 19.6 11 L 19.6 13 L 22 15 L 20 18.5 L 17.2 17.5 L 14.6 19 L 14 22 L 10 22 L 9.4 19 L 6.8 17.5 L 4 18.5 L 2 15 L 4.4 13 L 4.4 11 L 2 9 L 4 5.5 L 6.8 6.5 L 9.4 5 Z M 15.5 12 A 3.5 3.5 0 1 1 8.5 12 A 3.5 3.5 0 1 1 15.5 12 Z";
                     enabled: root.interactive;
                     clicked => { root.finish-rename(true); root.edit-settings(); }
@@ -308,14 +306,14 @@ export component PresetPanel inherits Window {
                     PanelButton {
                         height: 20px;
                         text: "—";
-                        accessible-label: "Hide panel";
-                        Tooltip { text: @markdown("Hide panel · Esc in this panel"); }
+                        accessible-label: @tr("Hide panel");
+                        Tooltip { text: @markdown("\{parent.accessible-label}"); }
                         clicked => { root.dismiss(); }
                     }
-                    Text { text: "Esc"; color: #a6adaa; font-size: 9px; height: 12px; horizontal-alignment: center; }
+                    Text { text: "Esc"; color: Theme.text-secondary; font-size: 9px; height: 12px; horizontal-alignment: center; }
                 }
             }
-            Rectangle { height: 1px; background: #383d3b; }
+            Rectangle { height: 1px; background: Theme.border; }
             HorizontalLayout {
                 min-height: 0px;
                 vertical-stretch: 1;
@@ -336,11 +334,11 @@ export component PresetPanel inherits Window {
                                 height: root.row-height;
                                 background: index == root.current-index ? #302e22 : touch.has-hover ? #2d3032 : transparent;
                                 border-width: 1px;
-                                border-color: index == root.current-index ? #e9d778 : transparent;
+                                border-color: index == root.current-index ? Theme.accent : transparent;
                                 border-radius: 5px;
                                 accessible-role: button;
-                                accessible-label: preset.title;
-                                accessible-description: preset.stratagems.message + " " + preset.equipment.message;
+                                accessible-label: UiText.preset-title(preset.label, preset.number);
+                                accessible-description: UiText.section-message(preset.stratagems) + " " + UiText.section-message(preset.equipment);
                                 accessible-enabled: root.interactive;
                                 accessible-action-default => { root.current-index = index; }
                                 VerticalLayout {
@@ -350,11 +348,11 @@ export component PresetPanel inherits Window {
                                     HorizontalLayout {
                                         height: 18px;
                                         spacing: 8px;
-                                        Text { text: preset.title; color: #e9e9e4; overflow: elide; horizontal-stretch: 1; }
+                                        Text { text: UiText.preset-title(preset.label, preset.number); color: Theme.text; overflow: elide; horizontal-stretch: 1; }
                                         Text {
                                             text: preset.shortcut;
                                             max-width: 112px;
-                                            color: #a6adaa;
+                                            color: Theme.text-secondary;
                                             font-size: 10px;
                                             overflow: elide;
                                             vertical-alignment: center;
@@ -371,12 +369,12 @@ export component PresetPanel inherits Window {
                                     if (preset.equipment.ready): NameImage {
                                         source: preset.equipment.items[3].picture;
                                         height: 14px;
-                                        colorize: #c5cac7;
+                                        colorize: Theme.control-text;
                                         opacity: root.scope-equipment ? 1 : 0.65;
                                     }
                                     if (!preset.stratagems.ready && !preset.equipment.ready): Text {
-                                        text: preset.stratagems.saved || preset.equipment.saved ? "Preview unavailable" : "Not saved";
-                                        color: #a6adaa;
+                                        text: preset.stratagems.saved || preset.equipment.saved ? @tr("Preview unavailable") : @tr("Not saved");
+                                        color: Theme.text-secondary;
                                         font-size: 11px;
                                         overflow: elide;
                                     }
@@ -401,21 +399,22 @@ export component PresetPanel inherits Window {
                         spacing: 8px;
                         PanelButton {
                             horizontal-stretch: 1;
-                            text: "+ New preset";
+                            text: @tr("+ New preset");
                             filled: true;
                             enabled: root.interactive;
                             clicked => { root.finish-rename(true); root.add-preset(); }
                         }
                         Text {
                             text: "↑↓ / W S";
-                            color: #a6adaa;
+                            color: Theme.text-secondary;
                             font-size: 10px;
                             vertical-alignment: center;
-                            Tooltip { text: @markdown("Select a preset"); }
+                            property <string> hint: @tr("Select a preset");
+                            Tooltip { text: @markdown("\{parent.hint}"); }
                         }
                     }
                 }
-                Rectangle { width: 1px; background: #383d3b; }
+                Rectangle { width: 1px; background: Theme.border; }
                 ScrollView {
                     min-width: 0px;
                     min-height: 0px;
@@ -444,7 +443,7 @@ export component PresetPanel inherits Window {
                                     y: parent.height - 1px;
                                     width: parent.width + 12px;
                                     height: 1px;
-                                    background: root.editing-name ? #cdbf84 : transparent;
+                                    background: root.editing-name ? Theme.accent-soft : transparent;
                                     animate background { duration: 120ms; easing: ease-out; }
                                 }
                                 name-title := Text {
@@ -452,8 +451,8 @@ export component PresetPanel inherits Window {
                                     width: min(self.preferred-width, parent.width - 72px);
                                     height: parent.height;
                                     visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
-                                    text: root.presets.length > 0 ? root.preview.title : "No presets";
-                                    color: root.editing-name ? #8c9398 : #e9e9e4;
+                                    text: root.presets.length > 0 ? UiText.preset-title(root.preview.label, root.preview.number) : @tr("No presets");
+                                    color: root.editing-name ? Theme.text-disabled : Theme.text;
                                     font-size: 21px;
                                     overflow: elide;
                                     vertical-alignment: center;
@@ -466,10 +465,10 @@ export component PresetPanel inherits Window {
                                     clip: true;
                                     ContextMenuArea {
                                         Menu {
-                                            MenuItem { title: "Cut"; activated => { name-input.cut(); } }
-                                            MenuItem { title: "Copy"; activated => { name-input.copy(); } }
-                                            MenuItem { title: "Paste"; activated => { name-input.paste(); } }
-                                            MenuItem { title: "Select all"; activated => { name-input.select-all(); } }
+                                            MenuItem { title: @tr("Cut"); activated => { name-input.cut(); } }
+                                            MenuItem { title: @tr("Copy"); activated => { name-input.copy(); } }
+                                            MenuItem { title: @tr("Paste"); activated => { name-input.paste(); } }
+                                            MenuItem { title: @tr("Select all"); activated => { name-input.select-all(); } }
                                         }
                                         name-input := TextInput {
                                             property <length> scroll-offset;
@@ -479,12 +478,12 @@ export component PresetPanel inherits Window {
                                             enabled: root.interactive;
                                             single-line: true;
                                             text <=> root.name-draft;
-                                            color: #e9e9e4;
+                                            color: Theme.text;
                                             font-size: name-title.font-size;
                                             vertical-alignment: center;
                                             selection-background-color: #786c38;
                                             selection-foreground-color: #fff8d4;
-                                            accessible-label: "Preset name";
+                                            accessible-label: @tr("Preset name");
                                             cursor-position-changed(position) => {
                                                 if (position.x + self.x < 0px) {
                                                     self.scroll-offset = -position.x;
@@ -510,7 +509,7 @@ export component PresetPanel inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     visible: !root.editing-name && root.presets.length > 0;
                                     enabled: root.interactive;
-                                    label: "Rename preset";
+                                    label: @tr("Rename preset");
                                     path: "M 4 16 L 15 5 L 19 9 L 8 20 L 3 21 Z M 13 7 L 17 11";
                                     clicked => { root.begin-rename(); }
                                 }
@@ -519,14 +518,14 @@ export component PresetPanel inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     visible: !root.editing-name && root.presets.length > 0;
                                     enabled: root.interactive;
-                                    label: "Delete preset";
+                                    label: @tr("Delete preset");
                                     path: "M 4 6 L 20 6 M 9 6 L 9 3 L 15 3 L 15 6 M 6 6 L 7 21 L 17 21 L 18 6 M 10 10 L 10 17 M 14 10 L 14 17";
                                     clicked => { root.begin-delete(); }
                                 }
                             }
                         }
                         SelectableSection {
-                            text: "Stratagems & Booster";
+                            text: @tr("Stratagems & Booster");
                             checked: root.scope-stratagems;
                             enabled: root.interactive;
                             toggled => {
@@ -541,17 +540,17 @@ export component PresetPanel inherits Window {
                                     opacity: root.scope-stratagems ? 1 : 0.65;
                                 }
                                 if (!root.preview.stratagems.ready): Text {
-                                    text: root.presets.length > 0 ? root.preview.stratagems.message : "Use + New preset to get started.";
-                                    color: #a6adaa;
+                                    text: root.presets.length > 0 ? UiText.section-message(root.preview.stratagems) : @tr("Use + New preset to get started.");
+                                    color: Theme.text-secondary;
                                     wrap: word-wrap;
                                     font-size: 12px;
                                     vertical-alignment: center;
                                 }
                             }
                         }
-                        Rectangle { height: 1px; background: #383d3b; }
+                        Rectangle { height: 1px; background: Theme.border; }
                         SelectableSection {
-                            text: "Equipment";
+                            text: @tr("Equipment");
                             checked: root.scope-equipment;
                             enabled: root.interactive;
                             toggled => {
@@ -570,8 +569,8 @@ export component PresetPanel inherits Window {
                                     }
                                 }
                                 if (!root.preview.equipment.ready): Text {
-                                    text: root.preview.equipment.message;
-                                    color: #a6adaa;
+                                    text: UiText.section-message(root.preview.equipment);
+                                    color: Theme.text-secondary;
                                     wrap: word-wrap;
                                     font-size: 12px;
                                     vertical-alignment: top;
@@ -581,32 +580,33 @@ export component PresetPanel inherits Window {
                     }
                 }
             }
-            Rectangle { height: 1px; background: #383d3b; }
+            Rectangle { height: 1px; background: Theme.border; }
             VerticalLayout {
                 spacing: 8px;
-                if (root.failure-details != "" && root.status == ""): FailureNotice {
-                    details <=> root.failure-details;
+                if (!root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
+                    details: UiText.preset-title(root.failure-label, root.failure-number) + " — " + root.failure-details;
+                    dismissed => { root.failure-details = ""; }
                 }
-                if (root.failure-details == "" || root.status != ""): Text {
-                    text: root.status != "" ? root.status
-                        : root.scope-stratagems || root.scope-equipment ? "Start from either loadout page."
-                        : "Select sections to save or apply.";
-                    color: #a6adaa;
+                if (root.loading || root.failure-details == "" || root.status != ""): Text {
+                    text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
+                        : root.scope-stratagems || root.scope-equipment ? @tr("Start from either loadout page.")
+                        : @tr("Select sections to save or apply.");
+                    color: Theme.text-secondary;
                     wrap: word-wrap;
                     font-size: 12px;
                 }
                 if (root.shortcut-warning != ""): Text {
-                    text: "Some shortcuts are unavailable. Change them in Settings > Shortcuts.";
-                    color: #e6b975;
+                    text: @tr("Some shortcuts are unavailable. Change them in Settings > Shortcuts.");
+                    color: Theme.warning;
                     font-size: 12px;
                     wrap: word-wrap;
                     Tooltip { text: @markdown("\{root.shortcut-warning}"); }
                 }
                 actions := GridLayout {
-                    property <bool> stacked: root.preferred-width < 800px;
+                    property <bool> stacked: root.preferred-width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
                     height: self.stacked ? 112px : 50px;
                     spacing: 12px;
-                    Rectangle {
+                    shortcut-hint := Rectangle {
                         row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
                         height: 50px;
                         horizontal-stretch: 1;
@@ -625,64 +625,61 @@ export component PresetPanel inherits Window {
                                         width: parent.width;
                                         border-radius: 3px;
                                         border-width: 1px;
-                                        border-color: #69716d;
-                                        background: #242829;
+                                        border-color: Theme.inactive;
+                                        background: Theme.control;
                                     }
                                     panel-key := Text {
                                         text: key;
-                                        color: #e9e9e4;
+                                        color: Theme.text;
                                         font-size: 12px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                     }
                                 }
-                                Text { text: "Show / hide panel"; color: #e9e9e4; font-size: 13px; height: 32px; vertical-alignment: center; }
+                                Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
                             }
-                            Text { text: "Global shortcut"; color: #a6adaa; font-size: 10px; height: 14px; }
+                            Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
                         }
                     }
-                    VerticalLayout {
+                    save-action := VerticalLayout {
                         row: actions.stacked ? 1 : 0; col: 1;
                         height: 50px;
-                        width: 150px;
+                        width: max(150px, save-button.preferred-width);
                         spacing: 4px;
-                        PanelButton {
+                        save-button := PanelButton {
                             height: 32px;
-                            text: root.scope-stratagems ? (root.scope-equipment ? "Save preset" : "Save Stratagems")
-                                : root.scope-equipment ? "Save equipment" : "Select content";
+                            text: root.scope-stratagems ? (root.scope-equipment ? @tr("Save preset") : @tr("Save Stratagems"))
+                                : root.scope-equipment ? @tr("Save equipment") : @tr("Select content");
                             filled: true;
                             enabled: root.save-available;
-                            Tooltip {
-                                text: root.scope-stratagems
-                                    ? @markdown("Overwrite only the checked sections without confirmation. Fill all four Stratagem slots first.")
-                                    : @markdown("Overwrite equipment only, without confirmation.");
-                            }
+                            property <string> hint: @tr("Fill all four Stratagem slots before saving.");
+                            if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
                             clicked => { keyboard.focus(); root.save-current(); }
                         }
                         Text {
                             text: "Ctrl+S";
-                            color: root.save-available ? #a6adaa : #69716d;
+                            color: root.save-available ? Theme.text-secondary : Theme.inactive;
                             font-size: 10px;
                             height: 14px;
                             horizontal-alignment: center;
                         }
                     }
-                    VerticalLayout {
+                    apply-action := VerticalLayout {
                         row: actions.stacked ? 1 : 0; col: 2;
                         height: 50px;
-                        width: 150px;
+                        width: max(150px, apply-button.preferred-width);
                         spacing: 4px;
-                        PanelButton {
+                        apply-button := PanelButton {
                             height: 32px;
-                            text: root.include-stratagems ? (root.include-equipment ? "Apply all" : "Apply Stratagems")
-                                : root.include-equipment ? "Apply equipment" : "Select content";
+                            text: root.include-stratagems ? (root.include-equipment ? @tr("Apply all") : @tr("Apply Stratagems"))
+                                : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
                             accent: true;
                             enabled: root.available;
                             clicked => { keyboard.focus(); root.apply-current(); }
                         }
                         Text {
                             text: "Enter";
-                            color: root.available ? #a6adaa : #69716d;
+                            color: root.available ? Theme.text-secondary : Theme.inactive;
                             font-size: 10px;
                             height: 14px;
                             horizontal-alignment: center;
@@ -707,6 +704,7 @@ export component PresetPanel inherits Window {
         rows: root.shortcut-rows;
         monitor-labels: root.monitor-labels;
         selected-monitor <=> root.selected-monitor;
+        selected-language <=> root.selected-language;
         apply-in-saved-order <=> root.draft-apply-in-saved-order;
         auto-ready-up <=> root.draft-auto-ready-up;
         save-fallback-when-taken <=> root.draft-save-fallback-when-taken;
@@ -730,7 +728,7 @@ export component PresetPanel inherits Window {
         y: (parent.height - self.height) / 2;
         width: min(420px, parent.width - 32px);
         height: 220px;
-        preset-title: root.current.title;
+        preset-title: UiText.preset-title(root.current.label, root.current.number);
         confirm => {
             root.request-delete(root.current.name);
             root.delete-open = false;

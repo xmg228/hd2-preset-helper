@@ -1,0 +1,236 @@
+# Japanese translations for hd2-preset-helper.
+msgid ""
+msgstr ""
+"Project-Id-Version: hd2-preset-helper\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+# Panel and preset previews.
+msgid "Preset {}"
+msgstr "プリセット {}"
+
+msgid "Stratagem {}"
+msgstr "戦略支援 {}"
+
+msgid "Booster"
+msgstr "ブースター"
+
+msgid "Fallback Booster"
+msgstr "予備のブースター"
+
+msgid "Helmet"
+msgstr "ヘルメット"
+
+msgid "Armor"
+msgstr "アーマー"
+
+msgid "Cape"
+msgstr "マント"
+
+msgid "Primary"
+msgstr "メイン武器"
+
+msgid "Secondary"
+msgstr "サブ武器"
+
+msgid "Throwable"
+msgstr "投擲物"
+
+msgid "Settings"
+msgstr "設定"
+
+msgid "Hide panel"
+msgstr "パネルを隠す"
+
+msgid "Preview unavailable"
+msgstr "プレビューを表示できません"
+
+msgid "Not saved"
+msgstr "未保存"
+
+msgid "Loading previews…"
+msgstr "プレビューを読み込み中…"
+
+msgid "+ New preset"
+msgstr "+ 新規プリセット"
+
+msgid "Select a preset"
+msgstr "プリセットを選択"
+
+msgid "No presets"
+msgstr "プリセットがありません"
+
+msgid "Cut"
+msgstr "切り取り"
+
+msgid "Copy"
+msgstr "コピー"
+
+msgid "Paste"
+msgstr "貼り付け"
+
+msgid "Select all"
+msgstr "すべて選択"
+
+msgid "Preset name"
+msgstr "プリセット名"
+
+msgid "Rename preset"
+msgstr "プリセット名を変更"
+
+msgid "Delete preset"
+msgstr "プリセットを削除"
+
+msgid "Stratagems & Booster"
+msgstr "戦略支援とブースター"
+
+msgid "Use + New preset to get started."
+msgstr "「+ 新規プリセット」から始めましょう。"
+
+msgid "Equipment"
+msgstr "装備"
+
+msgid "Start from either loadout page."
+msgstr "どちらの装備選択ページからでも開始できます。"
+
+msgid "Select sections to save or apply."
+msgstr "保存または適用する項目を選択してください。"
+
+msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
+msgstr "一部のショートカットは使用できません。「設定 > ショートカット」で変更してください。"
+
+msgid "Show / hide panel"
+msgstr "パネルを表示 / 非表示"
+
+msgid "Global shortcut"
+msgstr "グローバルショートカット"
+
+msgid "Save preset"
+msgstr "プリセットを保存"
+
+msgid "Save Stratagems"
+msgstr "戦略支援を保存"
+
+msgid "Save equipment"
+msgstr "装備を保存"
+
+msgid "Select content"
+msgstr "内容を選択"
+
+msgid "Fill all four Stratagem slots before saving."
+msgstr "保存する前に、戦略支援の4つのスロットをすべて埋めてください。"
+
+msgid "Apply all"
+msgstr "すべて適用"
+
+msgid "Apply Stratagems"
+msgstr "戦略支援を適用"
+
+msgid "Apply equipment"
+msgstr "装備を適用"
+
+# General settings.
+msgid "General"
+msgstr "一般"
+
+msgid "Shortcuts"
+msgstr "ショートカット"
+
+msgid "Apply Stratagems in saved order"
+msgstr "保存した順序で戦略支援を適用"
+
+msgid "Only when all four slots start empty."
+msgstr "開始時に4つのスロットがすべて空の場合のみ有効です。"
+
+msgid "Auto ready up"
+msgstr "自動で準備完了"
+
+msgid "Ready up after successfully applying a Booster."
+msgstr "ブースターの適用に成功したら準備完了にします。"
+
+msgid "Save fallback Booster when taken"
+msgstr "他の隊員が使用中なら予備のブースターを保存"
+
+msgid "Wait for your selection, then save it as a fallback."
+msgstr "選択を待ち、予備のブースターとして保存します。"
+
+msgid "Display"
+msgstr "ディスプレイ"
+
+msgid "Follow game (automatic)"
+msgstr "ゲームに合わせる（自動）"
+
+msgid "Saved display (unavailable)"
+msgstr "保存済みのディスプレイ（使用不可）"
+
+msgid "Primary display"
+msgstr "メインディスプレイ"
+
+msgid "Used for the panel and action status."
+msgstr "パネルと操作状況の表示に使用します。"
+
+msgid "Language"
+msgstr "言語"
+
+msgid "Follow system"
+msgstr "システムに合わせる"
+
+msgid "Currently unavailable:\n"
+msgstr "現在使用できません：\n"
+
+msgid "Saving…"
+msgstr "保存中…"
+
+msgid "Save"
+msgstr "保存"
+
+# Shortcut settings.
+msgid "Open panel"
+msgstr "パネルを開く"
+
+msgid "Press keys…"
+msgstr "キーを押してください…"
+
+msgid "Unassigned"
+msgstr "未割り当て"
+
+msgid "Clear shortcut"
+msgstr "ショートカットを解除"
+
+msgid "Click a shortcut and press your keys. Esc cancels recording."
+msgstr "ショートカットをクリックしてキーを押してください。Esc で記録をキャンセルします。"
+
+msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
+msgstr "パネルのショートカットはどこでも使えます。プリセットのショートカットはゲーム内かパネル内で使えます。"
+
+msgid "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."
+msgstr "Num0–Num9 はテンキーです。Num Lock をオンにし、テンキーの数字キーと Shift の組み合わせは避けてください。"
+
+# Dialogs and fixed error controls.
+msgid "Delete preset?"
+msgstr "プリセットを削除しますか？"
+
+msgid "Its saved content and shortcut will be deleted. This cannot be undone."
+msgstr "保存した内容とショートカットも削除されます。この操作は元に戻せません。"
+
+msgid "Cancel"
+msgstr "キャンセル"
+
+msgid "Delete"
+msgstr "削除"
+
+msgid "Copied"
+msgstr "コピーしました"
+
+msgid "Copy details"
+msgstr "詳細をコピー"
+
+msgid "Dismiss last failure"
+msgstr "前回のエラー表示を閉じる"
+
+# Tray.
+msgid "Exit"
+msgstr "終了"

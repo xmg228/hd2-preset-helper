@@ -9,14 +9,35 @@ use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
-use super::{MonitorChoice, PresetPanel, ShortcutRow, UiRequest};
-use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings};
+use super::{MonitorChoice, MonitorRole, PresetPanel, ShortcutRow, UiRequest};
+use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::input::Shortcut;
 
 pub(super) fn connect(
     panel: &PresetPanel,
     send: Sender<UiRequest>,
 ) -> impl FnMut(&WindowEvent) -> EventResult + use<> {
+    // ComboBox accepts strings; Slint supplies the translated parts reactively.
+    panel.on_project_monitor_labels(|choices, automatic, unavailable, display, primary| {
+        let labels = choices
+            .iter()
+            .map(|monitor| match monitor.role {
+                MonitorRole::Automatic => automatic.clone(),
+                MonitorRole::Unavailable => unavailable.clone(),
+                MonitorRole::Available => {
+                    let mut label = format!("{display} {}", monitor.number);
+                    if !monitor.name.is_empty() {
+                        label.push_str(&format!(" — {}", monitor.name));
+                    }
+                    if monitor.primary {
+                        label.push_str(&format!(" ({primary})"));
+                    }
+                    label.into()
+                }
+            })
+            .collect::<Vec<_>>();
+        Rc::new(VecModel::from(labels)).into()
+    });
     let open_send = send.clone();
     panel.on_edit_settings(move || {
         let _ = open_send.send(UiRequest::OpenSettings);
@@ -39,6 +60,7 @@ pub(super) fn connect(
         let _ = send.send(UiRequest::SaveSettings(SettingsDraft {
             shortcuts: bindings(&panel),
             monitor: monitor.id.to_string(),
+            language: UiLanguage::ALL[panel.get_selected_language() as usize],
             apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
             auto_ready_up: panel.get_draft_auto_ready_up(),
             save_fallback_when_taken: panel.get_draft_save_fallback_when_taken(),
@@ -112,8 +134,8 @@ pub(super) fn connect(
 pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
     let rows = std::iter::once(ShortcutRow {
         name: "".into(),
-        title: "Open panel".into(),
         binding: draft.shortcuts.panel.as_str().into(),
+        ..Default::default()
     })
     .chain(panel.get_presets().iter().map(|row| {
         ShortcutRow {
@@ -125,13 +147,15 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
                 .unwrap_or("")
                 .into(),
             name: row.name,
-            title: row.title,
+            label: row.label,
+            number: row.number,
         }
     }))
     .collect::<Vec<_>>();
     let mut monitors = vec![MonitorChoice {
         id: AUTO_MONITOR.into(),
-        label: "Follow game (automatic)".into(),
+        role: MonitorRole::Automatic,
+        ..Default::default()
     }];
     #[cfg(target_os = "windows")]
     match super::windows::monitor_choices() {
@@ -144,21 +168,19 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
         .unwrap_or_else(|| {
             monitors.push(MonitorChoice {
                 id: draft.monitor.as_str().into(),
-                label: "Saved display (unavailable)".into(),
+                role: MonitorRole::Unavailable,
+                ..Default::default()
             });
             monitors.len() - 1
         });
-    panel.set_monitor_labels(
-        Rc::new(VecModel::from(
-            monitors
-                .iter()
-                .map(|monitor| monitor.label.clone())
-                .collect::<Vec<_>>(),
-        ))
-        .into(),
-    );
     panel.set_monitor_choices(Rc::new(VecModel::from(monitors)).into());
     panel.set_selected_monitor(selected as i32);
+    panel.set_selected_language(
+        UiLanguage::ALL
+            .iter()
+            .position(|&language| language == draft.language)
+            .unwrap_or_default() as i32,
+    );
     panel.set_draft_apply_in_saved_order(draft.apply_in_saved_order);
     panel.set_draft_auto_ready_up(draft.auto_ready_up);
     panel.set_draft_save_fallback_when_taken(draft.save_fallback_when_taken);

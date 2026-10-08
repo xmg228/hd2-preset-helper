@@ -7,7 +7,7 @@ export component AppTray inherits SystemTrayIcon {
     clicked => { root.open-panel(); }
     Menu {
         MenuItem {
-            title: "Exit";
+            title: @tr("Exit");
             activated => { root.exit(); }
         }
     }

@@ -113,7 +113,12 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
             shortcut: slot.shortcut.clone(),
         })
         .collect();
-    let ui = ui::AppUi::new(preset_info, config.ui.monitor, paths.presets.clone())?;
+    let ui = ui::AppUi::new(
+        preset_info,
+        config.ui.monitor,
+        config.ui.language,
+        paths.presets.clone(),
+    )?;
     ui.set_scope(config.presets.scope);
     ui.set_panel_shortcut(&shortcut_bindings.panel);
     let mut app = AppController {

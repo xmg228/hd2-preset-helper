@@ -1,0 +1,236 @@
+# Polish translations for hd2-preset-helper.
+msgid ""
+msgstr ""
+"Project-Id-Version: hd2-preset-helper\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n == 1 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 1 : 2);\n"
+
+# Panel and preset previews.
+msgid "Preset {}"
+msgstr "Zestaw {}"
+
+msgid "Stratagem {}"
+msgstr "Manewr {}"
+
+msgid "Booster"
+msgstr "Premia"
+
+msgid "Fallback Booster"
+msgstr "Premia zapasowa"
+
+msgid "Helmet"
+msgstr "Hełm"
+
+msgid "Armor"
+msgstr "Pancerz"
+
+msgid "Cape"
+msgstr "Peleryna"
+
+msgid "Primary"
+msgstr "Broń główna"
+
+msgid "Secondary"
+msgstr "Broń boczna"
+
+msgid "Throwable"
+msgstr "Broń miotana"
+
+msgid "Settings"
+msgstr "Ustawienia"
+
+msgid "Hide panel"
+msgstr "Ukryj panel"
+
+msgid "Preview unavailable"
+msgstr "Podgląd niedostępny"
+
+msgid "Not saved"
+msgstr "Nie zapisano"
+
+msgid "Loading previews…"
+msgstr "Wczytywanie podglądów…"
+
+msgid "+ New preset"
+msgstr "+ Nowy zestaw"
+
+msgid "Select a preset"
+msgstr "Wybierz zestaw"
+
+msgid "No presets"
+msgstr "Brak zestawów"
+
+msgid "Cut"
+msgstr "Wytnij"
+
+msgid "Copy"
+msgstr "Kopiuj"
+
+msgid "Paste"
+msgstr "Wklej"
+
+msgid "Select all"
+msgstr "Zaznacz wszystko"
+
+msgid "Preset name"
+msgstr "Nazwa zestawu"
+
+msgid "Rename preset"
+msgstr "Zmień nazwę zestawu"
+
+msgid "Delete preset"
+msgstr "Usuń zestaw"
+
+msgid "Stratagems & Booster"
+msgstr "Manewry i premia"
+
+msgid "Use + New preset to get started."
+msgstr "Aby zacząć, użyj „+ Nowy zestaw”."
+
+msgid "Equipment"
+msgstr "Wyposażenie"
+
+msgid "Start from either loadout page."
+msgstr "Możesz zacząć na dowolnej z dwóch stron wyposażenia."
+
+msgid "Select sections to save or apply."
+msgstr "Wybierz sekcje do zapisania lub zastosowania."
+
+msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
+msgstr "Niektóre skróty są niedostępne. Zmień je w Ustawienia > Skróty klawiszowe."
+
+msgid "Show / hide panel"
+msgstr "Pokaż / ukryj panel"
+
+msgid "Global shortcut"
+msgstr "Globalny skrót klawiszowy"
+
+msgid "Save preset"
+msgstr "Zapisz zestaw"
+
+msgid "Save Stratagems"
+msgstr "Zapisz manewry"
+
+msgid "Save equipment"
+msgstr "Zapisz wyposażenie"
+
+msgid "Select content"
+msgstr "Wybierz zawartość"
+
+msgid "Fill all four Stratagem slots before saving."
+msgstr "Przed zapisem wypełnij wszystkie cztery miejsca na manewry."
+
+msgid "Apply all"
+msgstr "Zastosuj wszystko"
+
+msgid "Apply Stratagems"
+msgstr "Zastosuj manewry"
+
+msgid "Apply equipment"
+msgstr "Zastosuj wyposażenie"
+
+# General settings.
+msgid "General"
+msgstr "Ogólne"
+
+msgid "Shortcuts"
+msgstr "Skróty klawiszowe"
+
+msgid "Apply Stratagems in saved order"
+msgstr "Zastosuj manewry w zapisanej kolejności"
+
+msgid "Only when all four slots start empty."
+msgstr "Tylko gdy wszystkie cztery miejsca są początkowo puste."
+
+msgid "Auto ready up"
+msgstr "Automatyczna gotowość"
+
+msgid "Ready up after successfully applying a Booster."
+msgstr "Zgłoś gotowość po pomyślnym zastosowaniu premii."
+
+msgid "Save fallback Booster when taken"
+msgstr "Zapisz premię zapasową, gdy wybrana jest zajęta"
+
+msgid "Wait for your selection, then save it as a fallback."
+msgstr "Czeka na twój wybór, a następnie zapisuje go jako zapasowy."
+
+msgid "Display"
+msgstr "Monitor"
+
+msgid "Follow game (automatic)"
+msgstr "Jak w grze (automatycznie)"
+
+msgid "Saved display (unavailable)"
+msgstr "Zapisany monitor (niedostępny)"
+
+msgid "Primary display"
+msgstr "Monitor główny"
+
+msgid "Used for the panel and action status."
+msgstr "Używany dla panelu i stanu działań."
+
+msgid "Language"
+msgstr "Język"
+
+msgid "Follow system"
+msgstr "Język systemu"
+
+msgid "Currently unavailable:\n"
+msgstr "Obecnie niedostępne:\n"
+
+msgid "Saving…"
+msgstr "Zapisywanie…"
+
+msgid "Save"
+msgstr "Zapisz"
+
+# Shortcut settings.
+msgid "Open panel"
+msgstr "Otwórz panel"
+
+msgid "Press keys…"
+msgstr "Naciśnij klawisze…"
+
+msgid "Unassigned"
+msgstr "Nieprzypisany"
+
+msgid "Clear shortcut"
+msgstr "Wyczyść skrót"
+
+msgid "Click a shortcut and press your keys. Esc cancels recording."
+msgstr "Kliknij skrót i naciśnij wybrane klawisze. Esc anuluje rejestrowanie."
+
+msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
+msgstr "Skrót panelu działa globalnie; skróty zestawów działają w grze lub panelu."
+
+msgid "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."
+msgstr "Num0–Num9 to klawisze bloku numerycznego. Włącz Num Lock; unikaj Shift z cyframi bloku numerycznego."
+
+# Dialogs and fixed error controls.
+msgid "Delete preset?"
+msgstr "Usunąć zestaw?"
+
+msgid "Its saved content and shortcut will be deleted. This cannot be undone."
+msgstr "Jego zapisana zawartość i skrót zostaną usunięte. Tej operacji nie można cofnąć."
+
+msgid "Cancel"
+msgstr "Anuluj"
+
+msgid "Delete"
+msgstr "Usuń"
+
+msgid "Copied"
+msgstr "Skopiowano"
+
+msgid "Copy details"
+msgstr "Kopiuj szczegóły"
+
+msgid "Dismiss last failure"
+msgstr "Zamknij ostatni komunikat o błędzie"
+
+# Tray.
+msgid "Exit"
+msgstr "Zakończ"

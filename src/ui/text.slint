@@ -1,0 +1,22 @@
+import { PreviewRole, PreviewRow, PreviewSection } from "models.slint";
+
+// Shared labels remain bindings, so changing the language updates every use.
+export global UiText {
+    public pure function preset-title(label: string, number: string) -> string {
+        return label != "" ? label : @tr("Preset {}", number);
+    }
+    public pure function section-message(section: PreviewSection) -> string {
+        return section.saved ? section.error : @tr("Not saved");
+    }
+    public pure function item-label(item: PreviewRow) -> string {
+        if (item.role == PreviewRole.stratagem) { return @tr("Stratagem {}", item.number); }
+        if (item.role == PreviewRole.booster) { return @tr("Booster"); }
+        if (item.role == PreviewRole.fallback-booster) { return @tr("Fallback Booster"); }
+        if (item.role == PreviewRole.helmet) { return @tr("Helmet"); }
+        if (item.role == PreviewRole.armor) { return @tr("Armor"); }
+        if (item.role == PreviewRole.cape) { return @tr("Cape"); }
+        if (item.role == PreviewRole.primary) { return @tr("Primary"); }
+        if (item.role == PreviewRole.secondary) { return @tr("Secondary"); }
+        return @tr("Throwable");
+    }
+}

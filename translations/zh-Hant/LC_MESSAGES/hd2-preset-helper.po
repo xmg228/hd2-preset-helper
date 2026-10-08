@@ -1,0 +1,236 @@
+# Traditional Chinese translations for hd2-preset-helper.
+msgid ""
+msgstr ""
+"Project-Id-Version: hd2-preset-helper\n"
+"Language: zh-Hant\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+# Panel and preset previews.
+msgid "Preset {}"
+msgstr "預設 {}"
+
+msgid "Stratagem {}"
+msgstr "戰略配備 {}"
+
+msgid "Booster"
+msgstr "強化套件"
+
+msgid "Fallback Booster"
+msgstr "備用強化套件"
+
+msgid "Helmet"
+msgstr "頭盔"
+
+msgid "Armor"
+msgstr "裝甲"
+
+msgid "Cape"
+msgstr "披肩"
+
+msgid "Primary"
+msgstr "主武器"
+
+msgid "Secondary"
+msgstr "副武器"
+
+msgid "Throwable"
+msgstr "投擲物"
+
+msgid "Settings"
+msgstr "設定"
+
+msgid "Hide panel"
+msgstr "隱藏面板"
+
+msgid "Preview unavailable"
+msgstr "無法預覽"
+
+msgid "Not saved"
+msgstr "尚未儲存"
+
+msgid "Loading previews…"
+msgstr "正在載入預覽…"
+
+msgid "+ New preset"
+msgstr "+ 新增預設"
+
+msgid "Select a preset"
+msgstr "選擇預設"
+
+msgid "No presets"
+msgstr "尚無預設"
+
+msgid "Cut"
+msgstr "剪下"
+
+msgid "Copy"
+msgstr "複製"
+
+msgid "Paste"
+msgstr "貼上"
+
+msgid "Select all"
+msgstr "全選"
+
+msgid "Preset name"
+msgstr "預設名稱"
+
+msgid "Rename preset"
+msgstr "重新命名預設"
+
+msgid "Delete preset"
+msgstr "刪除預設"
+
+msgid "Stratagems & Booster"
+msgstr "戰略配備與強化套件"
+
+msgid "Use + New preset to get started."
+msgstr "按一下「+ 新增預設」開始使用。"
+
+msgid "Equipment"
+msgstr "裝備"
+
+msgid "Start from either loadout page."
+msgstr "可從任一配裝頁面開始。"
+
+msgid "Select sections to save or apply."
+msgstr "選擇要儲存或套用的內容。"
+
+msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
+msgstr "部分快速鍵無法使用。請至「設定 > 快速鍵」修改。"
+
+msgid "Show / hide panel"
+msgstr "顯示 / 隱藏面板"
+
+msgid "Global shortcut"
+msgstr "全域快速鍵"
+
+msgid "Save preset"
+msgstr "儲存預設"
+
+msgid "Save Stratagems"
+msgstr "儲存戰略配備"
+
+msgid "Save equipment"
+msgstr "儲存裝備"
+
+msgid "Select content"
+msgstr "選擇內容"
+
+msgid "Fill all four Stratagem slots before saving."
+msgstr "儲存前，請填滿四個戰略配備欄位。"
+
+msgid "Apply all"
+msgstr "套用全部"
+
+msgid "Apply Stratagems"
+msgstr "套用戰略配備"
+
+msgid "Apply equipment"
+msgstr "套用裝備"
+
+# General settings.
+msgid "General"
+msgstr "一般"
+
+msgid "Shortcuts"
+msgstr "快速鍵"
+
+msgid "Apply Stratagems in saved order"
+msgstr "依儲存順序套用戰略配備"
+
+msgid "Only when all four slots start empty."
+msgstr "僅在四個欄位初始皆為空白時生效。"
+
+msgid "Auto ready up"
+msgstr "自動準備就緒"
+
+msgid "Ready up after successfully applying a Booster."
+msgstr "成功套用強化套件後，自動準備就緒。"
+
+msgid "Save fallback Booster when taken"
+msgstr "強化套件被佔用時儲存備用套件"
+
+msgid "Wait for your selection, then save it as a fallback."
+msgstr "等待你選擇強化套件，再儲存為備用。"
+
+msgid "Display"
+msgstr "螢幕"
+
+msgid "Follow game (automatic)"
+msgstr "跟隨遊戲（自動）"
+
+msgid "Saved display (unavailable)"
+msgstr "已儲存的螢幕（無法使用）"
+
+msgid "Primary display"
+msgstr "主要螢幕"
+
+msgid "Used for the panel and action status."
+msgstr "用於顯示面板與操作狀態。"
+
+msgid "Language"
+msgstr "語言"
+
+msgid "Follow system"
+msgstr "跟隨系統"
+
+msgid "Currently unavailable:\n"
+msgstr "目前無法使用：\n"
+
+msgid "Saving…"
+msgstr "正在儲存…"
+
+msgid "Save"
+msgstr "儲存"
+
+# Shortcut settings.
+msgid "Open panel"
+msgstr "開啟面板"
+
+msgid "Press keys…"
+msgstr "請按下快速鍵…"
+
+msgid "Unassigned"
+msgstr "尚未指派"
+
+msgid "Clear shortcut"
+msgstr "清除快速鍵"
+
+msgid "Click a shortcut and press your keys. Esc cancels recording."
+msgstr "按一下快速鍵，再按下所需按鍵。按 Esc 取消錄製。"
+
+msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
+msgstr "面板快速鍵全域有效；預設快速鍵僅在遊戲或面板中有效。"
+
+msgid "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."
+msgstr "Num0–Num9 是數字鍵台按鍵。請保持 Num Lock 開啟，避免搭配 Shift 使用。"
+
+# Dialogs and fixed error controls.
+msgid "Delete preset?"
+msgstr "刪除預設？"
+
+msgid "Its saved content and shortcut will be deleted. This cannot be undone."
+msgstr "此預設儲存的內容與快速鍵將一併刪除。此操作無法復原。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Delete"
+msgstr "刪除"
+
+msgid "Copied"
+msgstr "已複製"
+
+msgid "Copy details"
+msgstr "複製詳細資訊"
+
+msgid "Dismiss last failure"
+msgstr "關閉上次錯誤提示"
+
+# Tray.
+msgid "Exit"
+msgstr "結束"

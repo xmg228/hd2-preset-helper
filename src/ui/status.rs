@@ -8,7 +8,7 @@ use anyhow::Result;
 use slint::winit_030::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, VecModel};
 
-use super::{ActionStatus, PresetInfo, StatusItem, place_top_right};
+use super::{ActionStatus, PresetInfo, StatusItem, StatusTone, place_top_right};
 use crate::app_events::{AppEvent, PresetCompletion};
 
 pub(super) struct Status {
@@ -33,10 +33,7 @@ impl Status {
     }
 
     pub fn update(&mut self, event: AppEvent, preset_info: &BTreeMap<String, PresetInfo>) {
-        const WORKING: u32 = 0xffe9d778;
-        const SUCCESS: u32 = 0xff9fd39c;
-        const WARNING: u32 = 0xffe6b975;
-        const ERROR: u32 = 0xffef9b94;
+        use StatusTone::{Error, Success, Warning, Working};
         if let AppEvent::PresetStarted { preset }
         | AppEvent::HotkeyReleaseRequested { preset }
         | AppEvent::PresetCancelled { preset, .. }
@@ -49,8 +46,9 @@ impl Status {
                 .get(preset)
                 .map(|info| info.label.as_str())
                 .unwrap_or("");
+            self.window.set_preset_label(label.into());
             self.window
-                .set_heading(super::preset_title(preset, label).into());
+                .set_preset_number(super::preset_number(preset).into());
         }
         if !matches!(
             &event,
@@ -64,18 +62,18 @@ impl Status {
             self.window.set_booster(StatusItem::default());
             self.window.set_picture(slint::Image::default());
         }
-        let (message, color, seconds) = match event {
-            AppEvent::PresetStarted { .. } => ("Starting".into(), WORKING, None),
+        let (message, tone, seconds) = match event {
+            AppEvent::PresetStarted { .. } => ("Starting".into(), Working, None),
             AppEvent::HotkeyReleaseRequested { .. } => (
-                "Release the shortcut keys and mouse button to continue".into(), WORKING, None),
-            AppEvent::PresetCancelled { reason, .. } => (format!("Cancelled: {reason}"), WARNING, Some(5)),
+                "Release the shortcut keys and mouse button to continue".into(), Working, None),
+            AppEvent::PresetCancelled { reason, .. } => (format!("Cancelled: {reason}"), Warning, Some(5)),
             AppEvent::EquipmentActionStarted { saving } => {
-                (if saving { "Saving equipment" } else { "Applying equipment" }.into(), WORKING, None)
+                (if saving { "Saving equipment" } else { "Applying equipment" }.into(), Working, None)
             }
             AppEvent::EquipmentCaching { category, repairing } => {
                 self.window.set_picture(super::image(&category));
                 (if repairing { "Updating equipment cache" } else { "Building equipment cache" }.into(),
-                    WORKING, None)
+                    Working, None)
             }
             AppEvent::StratagemsApplyStarted { stratagems, booster, booster_confirmed } => {
                 let icons = stratagems.iter().map(|id| self.icon(id)).collect::<Vec<_>>();
@@ -83,7 +81,7 @@ impl Status {
                 let mut booster = booster.map(|id| self.icon(&id)).unwrap_or_default();
                 booster.confirmed = booster_confirmed;
                 self.window.set_booster(booster);
-                (format!("Applying Stratagems · 0/{}", stratagems.len()), WORKING, None)
+                (format!("Applying Stratagems · 0/{}", stratagems.len()), Working, None)
             }
             AppEvent::StratagemsProgress { remaining } => {
                 let icons = self.window.get_stratagems();
@@ -92,7 +90,7 @@ impl Status {
                     icons.set_row_data(index, icon);
                 }
                 let completed = icons.iter().filter(|icon| icon.confirmed).count();
-                (format!("Applying Stratagems · {completed}/{}", icons.row_count()), WORKING, None)
+                (format!("Applying Stratagems · {completed}/{}", icons.row_count()), Working, None)
             }
             AppEvent::BoosterProgress { item_id, confirmed } => {
                 let mut icon = self.window.get_booster();
@@ -101,7 +99,7 @@ impl Status {
                 }
                 icon.confirmed = confirmed;
                 self.window.set_booster(icon);
-                ("Applying Booster".into(), WORKING, None)
+                ("Applying Booster".into(), Working, None)
             }
             AppEvent::EquipmentProgress { kind, confirmed } => {
                 if !confirmed {
@@ -116,25 +114,24 @@ impl Status {
                     });
                 }
                 (format!("Applying equipment · {}/{}", kind.index() + usize::from(confirmed),
-                    crate::item::EquipmentKind::ALL.len()), WORKING, None)
+                    crate::item::EquipmentKind::ALL.len()), Working, None)
             }
             AppEvent::FallbackBoosterRequested { .. } => (
                 "Saved Booster is already in use. Select another to save as your fallback, or return to cancel.".into(),
-                WARNING, None),
+                Warning, None),
             AppEvent::PresetDone { completion, .. } => match completion {
-                PresetCompletion::Complete => ("Done".into(), SUCCESS, Some(2)),
-                PresetCompletion::Saved => ("Saved".into(), SUCCESS, Some(2)),
-                PresetCompletion::EquipmentApplied => ("Equipment applied".into(), SUCCESS, Some(2)),
-                PresetCompletion::BoosterUnavailable => ("Booster already in use".into(), WARNING, Some(5)),
-                PresetCompletion::FallbackBoosterSaved => ("Fallback Booster saved".into(), SUCCESS, Some(2)),
-                PresetCompletion::FallbackBoosterNotSaved => ("Fallback Booster not saved".into(), WARNING, Some(5)),
+                PresetCompletion::Complete => ("Done".into(), Success, Some(2)),
+                PresetCompletion::Saved => ("Saved".into(), Success, Some(2)),
+                PresetCompletion::EquipmentApplied => ("Equipment applied".into(), Success, Some(2)),
+                PresetCompletion::BoosterUnavailable => ("Booster already in use".into(), Warning, Some(5)),
+                PresetCompletion::FallbackBoosterSaved => ("Fallback Booster saved".into(), Success, Some(2)),
+                PresetCompletion::FallbackBoosterNotSaved => ("Fallback Booster not saved".into(), Warning, Some(5)),
             },
             AppEvent::PresetFailed { error, .. } => (
-                format!("Failed: {}", error.lines().next().unwrap_or(&error).trim()), ERROR, Some(5)),
+                format!("Failed: {}", error.lines().next().unwrap_or(&error).trim()), Error, Some(5)),
         };
         self.window.set_message(message.into());
-        self.window
-            .set_accent(slint::Color::from_argb_encoded(color));
+        self.window.set_tone(tone);
         self.hide_at = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     }
 

@@ -1,7 +1,10 @@
 fn main() {
     slint_build::compile_with_config(
         "src/ui/panel.slint",
-        slint_build::CompilerConfiguration::new().with_style("fluent-dark".into()),
+        slint_build::CompilerConfiguration::new()
+            .with_style("fluent-dark".into())
+            .with_default_translation_context(slint_build::DefaultTranslationContext::None)
+            .with_bundled_translations("translations"),
     )
     .expect("failed to compile preset panel");
     println!("cargo:rerun-if-changed=assets/app-icon.ico");

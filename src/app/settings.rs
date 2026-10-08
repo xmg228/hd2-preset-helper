@@ -12,6 +12,7 @@ impl AppController {
         self.ui.open_settings(SettingsDraft {
             shortcuts: self.shortcut_bindings.clone(),
             monitor: self.ui.monitor().to_owned(),
+            language: self.ui.language(),
             apply_in_saved_order: self.settings.apply_in_saved_order,
             auto_ready_up: self.settings.auto_ready_up,
             save_fallback_when_taken: self.settings.save_fallback_when_taken,
@@ -52,7 +53,14 @@ impl AppController {
             auto_ready_up: draft.auto_ready_up,
             save_fallback_when_taken: draft.save_fallback_when_taken,
         };
+        let language_result = self.ui.set_language(draft.language);
         self.ui.settings_saved(&self.shortcut_bindings);
+        if let Err(error) = language_result {
+            tracing::warn!(%error, "settings saved but language change failed");
+            self.ui.set_status(&format!(
+                "Settings saved, but language change failed: {error:#}"
+            ));
+        }
         if self.ui.monitor() != draft.monitor
             && let Err(error) = self.ui.set_monitor(draft.monitor)
         {

@@ -1,0 +1,236 @@
+# Portuguese (Portugal) translations for hd2-preset-helper.
+msgid ""
+msgstr ""
+"Project-Id-Version: hd2-preset-helper\n"
+"Language: pt-PT\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# Panel and preset previews.
+msgid "Preset {}"
+msgstr "Predefinição {}"
+
+msgid "Stratagem {}"
+msgstr "Estratagema {}"
+
+msgid "Booster"
+msgstr "Impulsionador"
+
+msgid "Fallback Booster"
+msgstr "Impulsionador alternativo"
+
+msgid "Helmet"
+msgstr "Capacete"
+
+msgid "Armor"
+msgstr "Armadura"
+
+msgid "Cape"
+msgstr "Capa"
+
+msgid "Primary"
+msgstr "Arma principal"
+
+msgid "Secondary"
+msgstr "Arma secundária"
+
+msgid "Throwable"
+msgstr "Arremessável"
+
+msgid "Settings"
+msgstr "Definições"
+
+msgid "Hide panel"
+msgstr "Ocultar painel"
+
+msgid "Preview unavailable"
+msgstr "Pré-visualização indisponível"
+
+msgid "Not saved"
+msgstr "Não guardado"
+
+msgid "Loading previews…"
+msgstr "A carregar pré-visualizações…"
+
+msgid "+ New preset"
+msgstr "+ Nova predefinição"
+
+msgid "Select a preset"
+msgstr "Seleciona uma predefinição"
+
+msgid "No presets"
+msgstr "Não há predefinições"
+
+msgid "Cut"
+msgstr "Cortar"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Paste"
+msgstr "Colar"
+
+msgid "Select all"
+msgstr "Selecionar tudo"
+
+msgid "Preset name"
+msgstr "Nome da predefinição"
+
+msgid "Rename preset"
+msgstr "Mudar nome da predefinição"
+
+msgid "Delete preset"
+msgstr "Eliminar predefinição"
+
+msgid "Stratagems & Booster"
+msgstr "Estratagemas e impulsionador"
+
+msgid "Use + New preset to get started."
+msgstr "Usa «+ Nova predefinição» para começar."
+
+msgid "Equipment"
+msgstr "Equipamento"
+
+msgid "Start from either loadout page."
+msgstr "Começa em qualquer um dos dois ecrãs de equipamento."
+
+msgid "Select sections to save or apply."
+msgstr "Seleciona as secções que queres guardar ou aplicar."
+
+msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
+msgstr "Alguns atalhos estão indisponíveis. Altera-os em Definições > Atalhos."
+
+msgid "Show / hide panel"
+msgstr "Mostrar / ocultar painel"
+
+msgid "Global shortcut"
+msgstr "Atalho global"
+
+msgid "Save preset"
+msgstr "Guardar predefinição"
+
+msgid "Save Stratagems"
+msgstr "Guardar estratagemas"
+
+msgid "Save equipment"
+msgstr "Guardar equipamento"
+
+msgid "Select content"
+msgstr "Selecionar conteúdo"
+
+msgid "Fill all four Stratagem slots before saving."
+msgstr "Preenche os quatro espaços de estratagemas antes de guardar."
+
+msgid "Apply all"
+msgstr "Aplicar tudo"
+
+msgid "Apply Stratagems"
+msgstr "Aplicar estratagemas"
+
+msgid "Apply equipment"
+msgstr "Aplicar equipamento"
+
+# General settings.
+msgid "General"
+msgstr "Geral"
+
+msgid "Shortcuts"
+msgstr "Atalhos"
+
+msgid "Apply Stratagems in saved order"
+msgstr "Aplicar estratagemas pela ordem guardada"
+
+msgid "Only when all four slots start empty."
+msgstr "Só quando os quatro espaços estiverem vazios no início."
+
+msgid "Auto ready up"
+msgstr "Pronto automaticamente"
+
+msgid "Ready up after successfully applying a Booster."
+msgstr "Marca-te como pronto após aplicar um impulsionador com êxito."
+
+msgid "Save fallback Booster when taken"
+msgstr "Guardar alternativa se outro usar o impulsionador"
+
+msgid "Wait for your selection, then save it as a fallback."
+msgstr "Aguarda a tua seleção e guarda-a como alternativa."
+
+msgid "Display"
+msgstr "Ecrã"
+
+msgid "Follow game (automatic)"
+msgstr "Seguir o jogo (automático)"
+
+msgid "Saved display (unavailable)"
+msgstr "Ecrã guardado (indisponível)"
+
+msgid "Primary display"
+msgstr "Ecrã principal"
+
+msgid "Used for the panel and action status."
+msgstr "Usado para o painel e o estado das ações."
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Follow system"
+msgstr "Seguir o sistema"
+
+msgid "Currently unavailable:\n"
+msgstr "Atualmente indisponível:\n"
+
+msgid "Saving…"
+msgstr "A guardar…"
+
+msgid "Save"
+msgstr "Guardar"
+
+# Shortcut settings.
+msgid "Open panel"
+msgstr "Abrir painel"
+
+msgid "Press keys…"
+msgstr "Prime as teclas…"
+
+msgid "Unassigned"
+msgstr "Não atribuído"
+
+msgid "Clear shortcut"
+msgstr "Limpar atalho"
+
+msgid "Click a shortcut and press your keys. Esc cancels recording."
+msgstr "Clica num atalho e prime as teclas. Esc cancela a gravação."
+
+msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
+msgstr "O atalho do painel funciona globalmente; os das predefinições funcionam no jogo ou no painel."
+
+msgid "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."
+msgstr "Num0–Num9 são teclas do teclado numérico. Mantém Num Lock ativado e evita combiná-las com Shift."
+
+# Dialogs and fixed error controls.
+msgid "Delete preset?"
+msgstr "Eliminar predefinição?"
+
+msgid "Its saved content and shortcut will be deleted. This cannot be undone."
+msgstr "O conteúdo guardado e o atalho serão eliminados. Esta ação não pode ser anulada."
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Copied"
+msgstr "Copiado"
+
+msgid "Copy details"
+msgstr "Copiar detalhes"
+
+msgid "Dismiss last failure"
+msgstr "Fechar aviso do último erro"
+
+# Tray.
+msgid "Exit"
+msgstr "Sair"

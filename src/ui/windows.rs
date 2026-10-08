@@ -44,7 +44,10 @@ pub(super) fn monitor_choices() -> Result<Vec<super::MonitorChoice>> {
         .into_iter()
         .map(|monitor| super::MonitorChoice {
             id: monitor.id.into(),
-            label: monitor.label.into(),
+            role: super::MonitorRole::Available,
+            number: monitor.source.trim_start_matches(r"\\.\DISPLAY").into(),
+            name: monitor.name.into(),
+            primary: monitor.primary,
         })
         .collect())
 }

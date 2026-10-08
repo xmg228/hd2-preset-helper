@@ -11,9 +11,10 @@ use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
-use crate::config::{SettingsDraft, ShortcutBindings};
+use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
+use crate::item::EquipmentKind;
 use crate::preset::PresetScope;
-use crate::preset::preview::{PresetPreview, PreviewContent};
+use crate::preset::preview::{PresetPreview, PreviewContent, PreviewRole as PreviewImageRole};
 
 mod settings;
 mod status;
@@ -49,12 +50,18 @@ pub struct AppUi {
     preset_info: BTreeMap<String, PresetInfo>,
     status: status::Status,
     monitor: String,
+    language: UiLanguage,
     anchor: Option<(i32, i32)>,
     placement_dirty: Rc<Cell<bool>>,
 }
 
 impl AppUi {
-    pub fn new(preset_info: Vec<PresetInfo>, monitor: String, presets: PathBuf) -> Result<Self> {
+    pub fn new(
+        preset_info: Vec<PresetInfo>,
+        monitor: String,
+        language: UiLanguage,
+        presets: PathBuf,
+    ) -> Result<Self> {
         // Both surfaces are created without activation. Only the interactive
         // panel explicitly requests focus; status updates never do.
         slint::BackendSelector::new()
@@ -67,6 +74,7 @@ impl AppUi {
             })
             .select()?;
         let window = PresetPanel::new()?;
+        select_language(language)?;
         let (send, requests) = mpsc::channel();
         let tray = AppTray::new()?;
         let icon = image::load_from_memory(include_bytes!("../assets/app-icon.ico"))?.into_rgba8();
@@ -147,6 +155,7 @@ impl AppUi {
         let ui = Self {
             status: status::Status::new(presets)?,
             monitor,
+            language,
             anchor: None,
             placement_dirty,
             window,
@@ -166,7 +175,7 @@ impl AppUi {
         self.status.hide()?;
         self.window.set_pending(false);
         self.window.set_loading(true);
-        self.window.set_status("Loading previews…".into());
+        self.window.set_status("".into());
         self.window.show()?;
         self.reposition()?;
         self.window.window().with_winit_window(|window| {
@@ -224,6 +233,16 @@ impl AppUi {
         &self.monitor
     }
 
+    pub fn language(&self) -> UiLanguage {
+        self.language
+    }
+
+    pub fn set_language(&mut self, language: UiLanguage) -> Result<()> {
+        select_language(language)?;
+        self.language = language;
+        Ok(())
+    }
+
     pub fn open_settings(&self, draft: SettingsDraft) {
         self.window.invoke_finish_rename(true);
         settings::open(&self.window, draft);
@@ -244,11 +263,15 @@ impl AppUi {
                     .preset_info
                     .get(preset)
                     .map_or("", |info| info.label.as_str());
-                self.window.set_failure_details(
-                    format!("{} — {error}", preset_title(preset, label)).into(),
-                );
+                self.window.set_failure_label(label.into());
+                self.window.set_failure_number(preset_number(preset).into());
+                self.window.set_failure_details(error.as_str().into());
             }
-            AppEvent::PresetDone { .. } => self.window.set_failure_details("".into()),
+            AppEvent::PresetDone { .. } => {
+                self.window.set_failure_label("".into());
+                self.window.set_failure_number("".into());
+                self.window.set_failure_details("".into());
+            }
             _ => {}
         }
         self.status.update(event, &self.preset_info);
@@ -347,7 +370,7 @@ impl AppUi {
     pub fn add_preset(&mut self, name: String) {
         let mut rows: Vec<_> = self.window.get_presets().iter().collect();
         rows.push(PresetRow {
-            title: preset_title(&name, "").into(),
+            number: preset_number(&name).into(),
             name: name.as_str().into(),
             stratagems: section(PreviewContent::Missing),
             equipment: section(PreviewContent::Missing),
@@ -379,7 +402,6 @@ impl AppUi {
         let rows = self.window.get_presets();
         if let Some((index, mut row)) = rows.iter().enumerate().find(|(_, row)| row.name == preset)
         {
-            row.title = preset_title(preset, &label).into();
             row.label = label.into();
             rows.set_row_data(index, row);
         }
@@ -444,7 +466,7 @@ impl AppUi {
                     equipment: PreviewContent::Missing,
                 });
                 PresetRow {
-                    title: preset_title(name, &info.label).into(),
+                    number: preset_number(name).into(),
                     label: info.label.as_str().into(),
                     name: name.as_str().into(),
                     shortcut: info.shortcut.as_str().into(),
@@ -476,13 +498,18 @@ impl AppUi {
     }
 }
 
-fn preset_title(name: &str, label: &str) -> String {
-    if !label.is_empty() {
-        return label.to_owned();
-    }
-    name.strip_prefix("preset_")
-        .map(|number| format!("Preset {number}"))
-        .unwrap_or_else(|| name.to_owned())
+fn select_language(language: UiLanguage) -> Result<()> {
+    let locale = language.locale().unwrap_or_else(|| {
+        sys_locale::get_locales()
+            .find_map(|locale| UiLanguage::from_locale(&locale).and_then(UiLanguage::locale))
+            .unwrap_or("en")
+    });
+    slint::select_bundled_translation(locale)?;
+    Ok(())
+}
+
+pub(super) fn preset_number(name: &str) -> &str {
+    name.strip_prefix("preset_").unwrap_or_default()
 }
 
 /// Keep panel navigation available without forbidding these bindings in the game.
@@ -512,25 +539,43 @@ pub fn uses_shortcut(shortcut: &crate::input::HotkeySpec) -> bool {
 
 fn section(content: PreviewContent) -> PreviewSection {
     match content {
-        PreviewContent::Missing => PreviewSection {
-            message: "Not saved".into(),
-            ..Default::default()
-        },
+        PreviewContent::Missing => PreviewSection::default(),
         PreviewContent::Invalid(error) => PreviewSection {
             saved: true,
-            message: error.into(),
+            error: error.into(),
             ..Default::default()
         },
         PreviewContent::Ready(images) => PreviewSection {
             ready: true,
             saved: true,
-            message: Default::default(),
+            error: Default::default(),
             items: Rc::new(VecModel::from(
                 images
                     .into_iter()
-                    .map(|item| PreviewRow {
-                        label: item.label.into(),
-                        picture: image(&item.image),
+                    .map(|item| {
+                        let (role, number) = match item.role {
+                            PreviewImageRole::Stratagem(number) => {
+                                (PreviewRole::Stratagem, number as i32)
+                            }
+                            PreviewImageRole::Booster => (PreviewRole::Booster, 0),
+                            PreviewImageRole::FallbackBooster => (PreviewRole::FallbackBooster, 0),
+                            PreviewImageRole::Equipment(kind) => (
+                                match kind {
+                                    EquipmentKind::Helmet => PreviewRole::Helmet,
+                                    EquipmentKind::Armor => PreviewRole::Armor,
+                                    EquipmentKind::Cape => PreviewRole::Cape,
+                                    EquipmentKind::Primary => PreviewRole::Primary,
+                                    EquipmentKind::Secondary => PreviewRole::Secondary,
+                                    EquipmentKind::Throwable => PreviewRole::Throwable,
+                                },
+                                0,
+                            ),
+                        };
+                        PreviewRow {
+                            role,
+                            number,
+                            picture: image(&item.image),
+                        }
                     })
                     .collect::<Vec<_>>(),
             ))

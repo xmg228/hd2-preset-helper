@@ -8,6 +8,9 @@ panel_shortcut = "Ctrl + Shift + Space"
 # To use a fixed display, select it in Settings > General.
 monitor = "auto"
 
+# "auto" follows the system language. Select a fixed language in Settings > General.
+language = "auto"
+
 [presets]
 # Shared scope for saving and applying, remembered by the panel.
 # Unchecked sections stay unchanged. Applying skips unsaved sections.

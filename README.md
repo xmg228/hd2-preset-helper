@@ -68,8 +68,8 @@ if this occurs.
 
 ## Configuration
 
-Open **Settings** to customize shortcuts, selection order, automatic ready-up,
-fallback Booster saving, and the display used for the panel and status window.
+The interface follows your system language. Open **Settings** to change the language,
+shortcuts, and other preferences.
 
 The panel shortcut works globally. Preset shortcuts support single keys and work
 while the game or panel is in the foreground.

@@ -3,11 +3,12 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::ShortcutBindings;
+use super::{ShortcutBindings, UiLanguage};
 
 pub struct SettingsDraft {
     pub shortcuts: ShortcutBindings,
     pub monitor: String,
+    pub language: UiLanguage,
     pub apply_in_saved_order: bool,
     pub auto_ready_up: bool,
     pub save_fallback_when_taken: bool,
@@ -23,6 +24,12 @@ impl SettingsDraft {
                 self.shortcuts.panel.as_str(),
             )?;
             super::write_setting(document, "ui", "monitor", self.monitor.as_str())?;
+            super::write_setting(
+                document,
+                "ui",
+                "language",
+                self.language.locale().unwrap_or("auto"),
+            )?;
             for (key, value) in [
                 ("apply_in_saved_order", self.apply_in_saved_order),
                 ("auto_ready_up", self.auto_ready_up),

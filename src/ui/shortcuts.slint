@@ -1,7 +1,8 @@
+import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PanelButton } from "controls.slint";
-
-export struct ShortcutRow { name: string, title: string, binding: string }
+import { ShortcutRow } from "models.slint";
+import { UiText } from "text.slint";
 
 component BindingRow inherits Rectangle {
     in property <ShortcutRow> item;
@@ -12,15 +13,18 @@ component BindingRow inherits Rectangle {
     height: 40px;
     HorizontalLayout {
         spacing: 8px;
-        Text { text: root.item.title; color: #e9e9e4; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+        Text {
+            text: root.item.name == "" ? @tr("Open panel") : UiText.preset-title(root.item.label, root.item.number);
+            color: Theme.text; overflow: elide; vertical-alignment: center; horizontal-stretch: 1;
+        }
         Rectangle {
             width: 218px;
             border-radius: 4px;
             border-width: 1px;
-            border-color: root.recording ? #e9d778 : #424846;
+            border-color: root.recording ? Theme.accent : #424846;
             background: root.recording ? #302e22 : #202526;
             PanelButton {
-                text: root.recording ? "Press keys…" : root.item.binding == "" ? "Unassigned" : root.item.binding;
+                text: root.recording ? @tr("Press keys…") : root.item.binding == "" ? @tr("Unassigned") : root.item.binding;
                 enabled: root.enabled;
                 clicked => { root.record(); }
             }
@@ -28,7 +32,7 @@ component BindingRow inherits Rectangle {
         PanelButton {
             width: 28px;
             text: "×";
-            accessible-label: "Clear shortcut";
+            accessible-label: @tr("Clear shortcut");
             enabled: root.enabled && root.item.binding != "";
             clicked => { root.clear(); }
         }
@@ -41,7 +45,7 @@ export component ShortcutEditor inherits VerticalLayout {
     in-out property <int> recording: -1;
     callback clear(int);
     spacing: 10px;
-    Text { text: "Click a shortcut and press your keys. Esc cancels recording."; color: #a6adaa; font-size: 12px; wrap: word-wrap; }
+    Text { text: @tr("Click a shortcut and press your keys. Esc cancels recording."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
     BindingRow {
         item: root.rows[0];
         recording: root.recording == 0;
@@ -49,8 +53,8 @@ export component ShortcutEditor inherits VerticalLayout {
         record => { root.recording = 0; }
         clear => { root.clear(0); }
     }
-    Text { text: "The panel shortcut works globally; preset shortcuts work in the game or panel."; color: #a6adaa; font-size: 11px; wrap: word-wrap; }
-    Rectangle { height: 1px; background: #383d3b; }
+    Text { text: @tr("The panel shortcut works globally; preset shortcuts work in the game or panel."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+    Rectangle { height: 1px; background: Theme.border; }
     ScrollView {
         enabled: root.enabled;
         content-width: self.visible-width - 8px;
@@ -66,5 +70,5 @@ export component ShortcutEditor inherits VerticalLayout {
             }
         }
     }
-    Text { text: "Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."; color: #8c9398; font-size: 11px; wrap: word-wrap; }
+    Text { text: @tr("Num0–Num9 are keypad keys. Keep Num Lock on; avoid Shift with keypad digits."); color: Theme.text-disabled; font-size: 11px; wrap: word-wrap; }
 }
