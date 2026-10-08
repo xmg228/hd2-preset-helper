@@ -195,13 +195,16 @@ export component PanelButton inherits Rectangle {
 export component IconButton inherits Rectangle {
     in property <string> label;
     in property <string> path;
+    in property <bool> outlined;
     in property <bool> enabled: true;
+    out property <bool> hovered: touch.has-hover;
     callback clicked();
     width: 28px;
     height: 28px;
     border-radius: 4px;
-    border-width: keys.has-focus ? 1px : 0px;
-    border-color: Theme.accent-soft;
+    border-width: outlined || keys.has-focus ? 1px : 0px;
+    border-color: keys.has-focus ? Theme.accent-soft
+        : touch.has-hover && enabled ? Theme.border-strong : Theme.border;
     background: touch.has-hover && enabled ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: label;
@@ -209,16 +212,18 @@ export component IconButton inherits Rectangle {
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
     forward-focus: keys;
     Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         width: 16px;
         height: 16px;
         viewbox-width: 24;
         viewbox-height: 24;
         commands: root.path;
         fill: transparent;
-        stroke: root.enabled ? Theme.text-secondary : Theme.inactive;
+        stroke: !root.enabled ? Theme.inactive
+            : touch.has-hover || keys.has-focus ? Theme.accent : Theme.text-secondary;
         stroke-width: 1.5px;
     }
-    Tooltip { text: @markdown("\{root.label}"); }
     keys := FocusScope {
         enabled: root.enabled;
         key-pressed(event) => {
@@ -230,9 +235,10 @@ export component IconButton inherits Rectangle {
         }
     }
     touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => { keys.focus(); root.clicked(); }
+        // Disabled icons still consume clicks over a clickable parent.
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { if (root.enabled) { keys.focus(); root.clicked(); } }
+        Tooltip { text: @markdown("\{root.label}"); }
     }
 }
 
@@ -241,13 +247,14 @@ export component DeletePresetDialog inherits Rectangle {
     in property <bool> enabled;
     callback confirm();
     callback cancel();
+    forward-focus: keys;
     public function focus-dialog() { cancel-button.focus(); }
     background: Theme.surface;
     border-color: Theme.border-strong;
     border-width: 1px;
     border-radius: 8px;
     TouchArea { }
-    FocusScope {
+    keys := FocusScope {
         enabled: root.enabled;
         key-pressed(event) => {
             if (event.text == Key.Escape) { root.cancel(); return accept; }

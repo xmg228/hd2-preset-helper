@@ -302,7 +302,7 @@ impl AppController {
             .find(|binding| binding.hotkey.id == id)
             .with_context(|| format!("unknown hotkey id: {id}"))?;
         let preset = binding.preset.clone();
-        self.begin_action(preset, false, Some(id))
+        self.begin_action(preset, false, self.scope, Some(id))
     }
 
     fn request_exit(&mut self) -> Result<()> {

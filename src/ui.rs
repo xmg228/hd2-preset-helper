@@ -33,9 +33,16 @@ pub struct PresetInfo {
 pub enum UiRequest {
     OpenPanel,
     Exit,
-    Action { preset: String, saving: bool },
+    Action {
+        preset: String,
+        saving: bool,
+        scope: Option<PresetScope>,
+    },
     SetScope(PresetScope),
-    Rename { preset: String, label: String },
+    Rename {
+        preset: String,
+        label: String,
+    },
     OpenSettings,
     SaveSettings(SettingsDraft),
     AddPreset,
@@ -106,18 +113,27 @@ impl AppUi {
         });
         let weak = window.as_weak();
         let action_send = send.clone();
-        window.on_request_action(move |index, saving| {
+        window.on_request_action(move |saving, scope| {
             if let Some(window) = weak.upgrade()
-                && let Some(entry) = window.get_presets().row_data(index as usize)
-                && if saving {
-                    window.get_save_available()
-                } else {
-                    window.get_available()
-                }
+                && window.invoke_action_available(saving, scope)
+                && let Some(entry) = window
+                    .get_presets()
+                    .row_data(window.get_current_index() as usize)
             {
                 let _ = action_send.send(UiRequest::Action {
                     preset: entry.name.to_string(),
                     saving,
+                    scope: match scope {
+                        ActionScope::Selected => None,
+                        ActionScope::Stratagems => Some(PresetScope {
+                            stratagems: true,
+                            equipment: false,
+                        }),
+                        ActionScope::Equipment => Some(PresetScope {
+                            stratagems: false,
+                            equipment: true,
+                        }),
+                    },
                 });
             }
         });
@@ -173,6 +189,7 @@ impl AppUi {
     pub fn show_panel(&mut self, anchor: Option<(i32, i32)>) -> Result<()> {
         self.anchor = anchor;
         self.status.hide()?;
+        self.window.invoke_focus_list();
         self.window.set_pending(false);
         self.window.set_loading(true);
         self.window.set_status("".into());
@@ -188,9 +205,7 @@ impl AppUi {
 
     pub fn hide_panel(&self) -> Result<()> {
         self.window.invoke_finish_rename(true);
-        self.window.set_settings_open(false);
-        self.window.set_delete_open(false);
-        self.window.set_recording_shortcut(-1);
+        self.window.invoke_close_dialogs();
         self.window.hide()?;
         Ok(())
     }
@@ -336,8 +351,7 @@ impl AppUi {
             rows.set_row_data(index, row);
         }
         self.window.set_settings_saving(false);
-        self.window.set_settings_open(false);
-        self.window.invoke_focus_list();
+        self.window.invoke_close_dialogs();
     }
 
     pub fn settings_failed(&self, error: &str) {
@@ -452,6 +466,9 @@ impl AppUi {
         self.set_status(message);
     }
     pub fn set_pending(&self, pending: bool) {
+        if pending {
+            self.window.invoke_focus_list();
+        }
         self.window.set_pending(pending);
     }
 

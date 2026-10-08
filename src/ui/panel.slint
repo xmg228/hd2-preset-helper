@@ -2,9 +2,9 @@ import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice } from "controls.slint";
 import { SettingsDialog } from "settings.slint";
-import { PreviewRole, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
+import { ActionScope, PreviewRole, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
 import { UiText } from "text.slint";
-export { PreviewRole, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
+export { ActionScope, PreviewRole, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
 export { ActionStatus, StatusItem, StatusTone } from "status.slint";
 
@@ -12,30 +12,27 @@ component SelectableSection inherits Rectangle {
     in property <string> text;
     in property <bool> checked;
     in property <bool> enabled: true;
+    in property <string> apply-label;
+    in property <bool> apply-enabled;
+    private property <bool> hovered: touch.has-hover && !apply-button.hovered;
     callback toggled();
+    callback apply();
     vertical-stretch: 0;
     border-radius: 5px;
     border-width: 1px;
     border-color: keys.has-focus ? Theme.text-secondary : transparent;
-    background: touch.has-hover && enabled ? #222627 : transparent;
-    accessible-role: checkbox;
-    accessible-label: text;
-    accessible-enabled: enabled;
-    accessible-checkable: true;
-    accessible-checked: checked;
-    accessible-action-default => { if (root.enabled) { root.toggled(); } }
+    background: hovered && enabled ? #222627 : transparent;
     forward-focus: keys;
     touch := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
-        clicked => { root.toggled(); }
+        clicked => { keys.focus(); root.toggled(); }
     }
     VerticalLayout {
         padding: 8px;
         spacing: 10px;
         HorizontalLayout {
-            height: 24px;
-            alignment: start;
+            height: 28px;
             spacing: 8px;
             Text {
                 text: root.text;
@@ -51,7 +48,7 @@ component SelectableSection inherits Rectangle {
                 height: 16px;
                 border-radius: 3px;
                 border-width: 1px;
-                border-color: touch.has-hover && root.enabled ? Theme.accent
+                border-color: root.hovered && root.enabled ? Theme.accent
                     : root.checked ? (root.enabled ? #bdb078 : #59605d) : Theme.inactive;
                 background: root.checked ? (root.enabled ? Theme.accent-soft : #59605d) : transparent;
                 if (root.checked): Path {
@@ -65,14 +62,33 @@ component SelectableSection inherits Rectangle {
                     stroke-width: 2px;
                 }
             }
+            Rectangle { horizontal-stretch: 1; }
+            apply-button := IconButton {
+                label: root.apply-label;
+                outlined: true;
+                enabled: root.enabled && root.apply-enabled;
+                path: "M 7 4 L 20 12 L 7 20 Z";
+                clicked => { root.apply(); }
+            }
         }
         @children
     }
     keys := FocusScope {
-        width: 0px;
+        width: parent.width;
+        height: parent.height;
+        focus-on-click: false;
         enabled: root.enabled;
+        accessible-role: checkbox;
+        accessible-label: root.text;
+        accessible-enabled: root.enabled;
+        accessible-checkable: true;
+        accessible-checked: root.checked;
+        accessible-action-default => { if (root.enabled) { root.toggled(); } }
         key-pressed(event) => {
-            if (event.text == Key.Space) { root.toggled(); return accept; }
+            if (event.text == Key.Space) {
+                if (!event.repeat) { root.toggled(); }
+                return accept;
+            }
             return reject;
         }
     }
@@ -168,12 +184,8 @@ export component PresetPanel inherits Window {
     private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
     private property <bool> include-equipment: scope-equipment && current.equipment.saved;
     out property <bool> editing-name: editing-preset != "";
-    out property <bool> save-available: presets.length > 0 && interactive
-        && (scope-stratagems || scope-equipment);
-    out property <bool> available: save-available
-        && (include-stratagems || include-equipment)
-        && (!include-stratagems || current.stratagems.ready)
-        && (!include-equipment || current.equipment.ready);
+    out property <bool> save-available: root.action-available(true, ActionScope.selected);
+    out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
     private property <PresetRow> preview: presets[!editing-name && hovered-index >= 0 ? hovered-index : current-index];
@@ -184,7 +196,7 @@ export component PresetPanel inherits Window {
     private property <length> row-height: 68px;
     private property <length> row-spacing: 4px;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
-    callback request-action(int, bool);
+    callback request-action(bool, ActionScope);
     callback request-scope(bool, bool);
     callback request-rename(string, string);
     callback request-delete(string);
@@ -194,13 +206,25 @@ export component PresetPanel inherits Window {
     callback add-preset();
     callback dismiss();
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
-    public function focus-list() { root.hovered-index = -1; keyboard.focus(); }
+    public function focus-list() {
+        root.hovered-index = -1;
+        if (!root.settings-open && !root.delete-open) { keyboard.focus(); }
+    }
     public function focus-settings() { root.hovered-index = -1; settings.focus-dialog(); }
+    public function close-dialogs() {
+        if (root.settings-open) { settings.focus(); }
+        if (root.delete-open) { delete-dialog.focus(); }
+        root.settings-open = false;
+        root.delete-open = false;
+        root.recording-shortcut = -1;
+        root.focus-list();
+    }
     function begin-delete() {
         if (!root.interactive || root.presets.length == 0) { return; }
         root.finish-rename(true);
         root.hovered-index = -1;
         root.apply-key-down = false;
+        keyboard.focus();
         root.delete-open = true;
         delete-dialog.focus-dialog();
     }
@@ -228,16 +252,27 @@ export component PresetPanel inherits Window {
             preset-list.content-y = preset-list.visible-height - top - root.row-height;
         }
     }
-    function apply-current() {
-        if (root.available) {
+    public pure function action-available(saving: bool, scope: ActionScope) -> bool {
+        let stratagems = scope == ActionScope.stratagems || (scope == ActionScope.selected && root.scope-stratagems);
+        let equipment = scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment);
+        if (!root.interactive || root.presets.length == 0 || (!stratagems && !equipment)) { return false; }
+        if (saving) { return true; }
+        let include-stratagems = stratagems && root.current.stratagems.saved;
+        let include-equipment = equipment && root.current.equipment.saved;
+        return (include-stratagems || include-equipment)
+            && (!include-stratagems || root.current.stratagems.ready)
+            && (!include-equipment || root.current.equipment.ready);
+    }
+    function apply-current(scope: ActionScope) {
+        if (root.action-available(false, scope)) {
             root.finish-rename(true);
-            root.request-action(root.current-index, false);
+            root.request-action(false, scope);
         }
     }
     function save-current() {
         if (root.save-available) {
             root.finish-rename(true);
-            root.request-action(root.current-index, true);
+            root.request-action(true, ActionScope.selected);
         }
     }
 
@@ -274,7 +309,9 @@ export component PresetPanel inherits Window {
                 // Editing may end on key-down; its key-up must not apply a preset.
                 let apply = root.apply-key-down;
                 root.apply-key-down = false;
-                if (apply && !root.editing-name && root.interactive) { root.apply-current(); }
+                if (apply && !root.editing-name && root.interactive) {
+                    root.apply-current(ActionScope.selected);
+                }
                 return accept;
             }
             return reject;
@@ -341,6 +378,18 @@ export component PresetPanel inherits Window {
                                 accessible-description: UiText.section-message(preset.stratagems) + " " + UiText.section-message(preset.equipment);
                                 accessible-enabled: root.interactive;
                                 accessible-action-default => { root.current-index = index; }
+                                touch := TouchArea {
+                                    enabled: root.interactive;
+                                    changed has-hover => {
+                                        if (self.has-hover) { root.hovered-index = index; }
+                                        else if (root.hovered-index == index) { root.hovered-index = -1; }
+                                    }
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                    }
+                                    clicked => { root.current-index = index; keyboard.focus(); }
+                                    double-clicked => { root.apply-current(ActionScope.selected); }
+                                }
                                 VerticalLayout {
                                     padding: 5px;
                                     spacing: 2px;
@@ -378,18 +427,6 @@ export component PresetPanel inherits Window {
                                         font-size: 11px;
                                         overflow: elide;
                                     }
-                                }
-                                touch := TouchArea {
-                                    enabled: root.interactive;
-                                    changed has-hover => {
-                                        if (self.has-hover) { root.hovered-index = index; }
-                                        else if (root.hovered-index == index) { root.hovered-index = -1; }
-                                    }
-                                    pointer-event(event) => {
-                                        if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
-                                    }
-                                    clicked => { root.current-index = index; keyboard.focus(); }
-                                    double-clicked => { root.apply-current(); }
                                 }
                             }
                         }
@@ -528,6 +565,9 @@ export component PresetPanel inherits Window {
                             text: @tr("Stratagems & Booster");
                             checked: root.scope-stratagems;
                             enabled: root.interactive;
+                            apply-label: @tr("Apply Stratagems");
+                            apply-enabled: root.action-available(false, ActionScope.stratagems);
+                            apply => { root.apply-current(ActionScope.stratagems); }
                             toggled => {
                                 root.finish-rename(true);
                                 root.request-scope(!root.scope-stratagems, root.scope-equipment);
@@ -553,6 +593,9 @@ export component PresetPanel inherits Window {
                             text: @tr("Equipment");
                             checked: root.scope-equipment;
                             enabled: root.interactive;
+                            apply-label: @tr("Apply equipment");
+                            apply-enabled: root.action-available(false, ActionScope.equipment);
+                            apply => { root.apply-current(ActionScope.equipment); }
                             toggled => {
                                 root.finish-rename(true);
                                 root.request-scope(root.scope-stratagems, !root.scope-equipment);
@@ -654,7 +697,7 @@ export component PresetPanel inherits Window {
                             enabled: root.save-available;
                             property <string> hint: @tr("Fill all four Stratagem slots before saving.");
                             if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
-                            clicked => { keyboard.focus(); root.save-current(); }
+                            clicked => { root.save-current(); }
                         }
                         Text {
                             text: "Ctrl+S";
@@ -675,7 +718,7 @@ export component PresetPanel inherits Window {
                                 : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
                             accent: true;
                             enabled: root.available;
-                            clicked => { keyboard.focus(); root.apply-current(); }
+                            clicked => { root.apply-current(ActionScope.selected); }
                         }
                         Text {
                             text: "Enter";
@@ -714,7 +757,7 @@ export component PresetPanel inherits Window {
         saving: root.settings-saving;
         clear(index) => { root.clear-shortcut(index); }
         save => { root.save-settings(); }
-        cancel => { root.settings-open = false; root.recording-shortcut = -1; root.focus-list(); }
+        cancel => { root.close-dialogs(); }
     }
     if (root.delete-open): Rectangle {
         background: #00000099;
@@ -731,9 +774,8 @@ export component PresetPanel inherits Window {
         preset-title: UiText.preset-title(root.current.label, root.current.number);
         confirm => {
             root.request-delete(root.current.name);
-            root.delete-open = false;
-            root.focus-list();
+            root.close-dialogs();
         }
-        cancel => { root.delete-open = false; root.focus-list(); }
+        cancel => { root.close-dialogs(); }
     }
 }

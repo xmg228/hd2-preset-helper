@@ -85,6 +85,7 @@ export component SettingsDialog inherits Rectangle {
     callback clear(int);
     callback save();
     callback cancel();
+    forward-focus: keys;
     public function focus-dialog() { root.general = root.shortcut-warning == ""; keys.focus(); }
     background: Theme.surface;
     border-color: Theme.border-strong;
@@ -174,7 +175,7 @@ export component SettingsDialog inherits Rectangle {
                 rows: root.rows;
                 recording <=> root.recording;
                 enabled: root.enabled && !root.saving;
-                clear(index) => { root.clear(index); }
+                clear(index) => { keys.focus(); root.clear(index); }
             }
             if (!root.general && root.shortcut-warning != "" && root.error == ""): Text {
                 text: @tr("Currently unavailable:\n") + root.shortcut-warning;
@@ -200,7 +201,7 @@ export component SettingsDialog inherits Rectangle {
                 alignment: end;
                 spacing: 10px;
                 PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled && !root.saving; clicked => { root.cancel(); } }
-                PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { root.save(); } }
+                PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { keys.focus(); root.save(); } }
             }
         }
     }

@@ -7,8 +7,8 @@ use super::{
     ACTION_COOLDOWN, ActionState, AppController, HOTKEY_RELEASE_TIMEOUT, Work, preset_hotkeys,
 };
 use crate::{
-    app_events::AppEvent, game_window, input, preset_action::PresetCommand, ui::UiRequest,
-    window::WindowTarget,
+    app_events::AppEvent, game_window, input, preset::PresetScope, preset_action::PresetCommand,
+    ui::UiRequest, window::WindowTarget,
 };
 
 impl AppController {
@@ -42,6 +42,7 @@ impl AppController {
         &mut self,
         preset: String,
         saving: bool,
+        scope: PresetScope,
         hotkey_id: Option<i32>,
     ) -> Result<()> {
         if self.exiting
@@ -50,7 +51,6 @@ impl AppController {
         {
             return Ok(());
         }
-        let scope = self.scope;
         let command = match (saving, scope.stratagems, scope.equipment) {
             (_, false, false) => {
                 self.ui.event(AppEvent::PresetCancelled {
@@ -114,8 +114,12 @@ impl AppController {
                     self.ui.set_pending(false);
                     self.close_panel()?;
                 }
-                UiRequest::Action { preset, saving } if self.ui.is_panel_active() => {
-                    self.begin_action(preset, saving, None)?;
+                UiRequest::Action {
+                    preset,
+                    saving,
+                    scope,
+                } if self.ui.is_panel_active() => {
+                    self.begin_action(preset, saving, scope.unwrap_or(self.scope), None)?;
                 }
                 UiRequest::Action { .. } => {}
                 UiRequest::SetScope(scope) => {

@@ -188,6 +188,7 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
     panel.set_settings_error("".into());
     panel.set_settings_saving(false);
     panel.set_recording_shortcut(-1);
+    panel.invoke_focus_list();
     panel.set_settings_open(true);
     panel.invoke_focus_settings();
 }
