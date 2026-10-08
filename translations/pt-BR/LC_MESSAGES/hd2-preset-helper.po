@@ -1,4 +1,5 @@
 # Portuguese (Brazil) translations for hd2-preset-helper.
+# Game terms checked against Steam build 25480438.
 msgid ""
 msgstr ""
 "Project-Id-Version: hd2-preset-helper\n"
@@ -31,13 +32,13 @@ msgid "Cape"
 msgstr "Capa"
 
 msgid "Primary"
-msgstr "Arma primária"
+msgstr "Principal"
 
 msgid "Secondary"
-msgstr "Arma secundária"
+msgstr "Secundário"
 
 msgid "Throwable"
-msgstr "Arremessável"
+msgstr "Arremessáveis"
 
 msgid "Settings"
 msgstr "Configurações"

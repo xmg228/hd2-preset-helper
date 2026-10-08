@@ -1,4 +1,5 @@
 # Polish translations for hd2-preset-helper.
+# Game terms checked against Steam build 25480438.
 msgid ""
 msgstr ""
 "Project-Id-Version: hd2-preset-helper\n"
@@ -31,13 +32,13 @@ msgid "Cape"
 msgstr "Peleryna"
 
 msgid "Primary"
-msgstr "Broń główna"
+msgstr "Podstawowa"
 
 msgid "Secondary"
-msgstr "Broń boczna"
+msgstr "Dodatkowa"
 
 msgid "Throwable"
-msgstr "Broń miotana"
+msgstr "Do rzucania"
 
 msgid "Settings"
 msgstr "Ustawienia"
@@ -91,7 +92,7 @@ msgid "Use + New preset to get started."
 msgstr "Aby zacząć, użyj „+ Nowy zestaw”."
 
 msgid "Equipment"
-msgstr "Wyposażenie"
+msgstr "Sprzęt"
 
 msgid "Start from either loadout page."
 msgstr "Możesz zacząć na dowolnej z dwóch stron wyposażenia."
@@ -115,7 +116,7 @@ msgid "Save Stratagems"
 msgstr "Zapisz manewry"
 
 msgid "Save equipment"
-msgstr "Zapisz wyposażenie"
+msgstr "Zapisz sprzęt"
 
 msgid "Select content"
 msgstr "Wybierz zawartość"
@@ -130,7 +131,7 @@ msgid "Apply Stratagems"
 msgstr "Zastosuj manewry"
 
 msgid "Apply equipment"
-msgstr "Zastosuj wyposażenie"
+msgstr "Zastosuj sprzęt"
 
 # General settings.
 msgid "General"

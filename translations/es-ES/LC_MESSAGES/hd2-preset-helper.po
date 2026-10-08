@@ -1,4 +1,5 @@
 # Spanish (Spain) translations for hd2-preset-helper.
+# Game terms checked against Steam build 25480438.
 msgid ""
 msgstr ""
 "Project-Id-Version: hd2-preset-helper\n"
@@ -31,13 +32,13 @@ msgid "Cape"
 msgstr "Capa"
 
 msgid "Primary"
-msgstr "Arma principal"
+msgstr "Principal"
 
 msgid "Secondary"
-msgstr "Arma secundaria"
+msgstr "Secundaria"
 
 msgid "Throwable"
-msgstr "Arma arrojadiza"
+msgstr "Objeto arrojadizo"
 
 msgid "Settings"
 msgstr "Ajustes"
@@ -146,10 +147,10 @@ msgid "Only when all four slots start empty."
 msgstr "Solo si las cuatro ranuras están vacías al empezar."
 
 msgid "Auto ready up"
-msgstr "Listo automáticamente"
+msgstr "Prepararse automáticamente"
 
 msgid "Ready up after successfully applying a Booster."
-msgstr "Activa «Listo» tras aplicar un potenciador con éxito."
+msgstr "Activa «Prepárate» automáticamente tras aplicar un potenciador con éxito."
 
 msgid "Save fallback Booster when taken"
 msgstr "Guardar alternativa si otro usa el potenciador"

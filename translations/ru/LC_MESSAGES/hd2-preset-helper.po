@@ -1,4 +1,5 @@
 # Russian translations for hd2-preset-helper.
+# Game terms checked against Steam build 25480438.
 msgid ""
 msgstr ""
 "Project-Id-Version: hd2-preset-helper\n"
@@ -146,10 +147,10 @@ msgid "Only when all four slots start empty."
 msgstr "Только если в начале все четыре ячейки пусты."
 
 msgid "Auto ready up"
-msgstr "Автоподтверждение готовности"
+msgstr "Автоматическая подготовка"
 
 msgid "Ready up after successfully applying a Booster."
-msgstr "Подтвердить готовность после успешного применения усилителя."
+msgstr "Нажимать кнопку «Подготовка» после успешного применения усилителя."
 
 msgid "Save fallback Booster when taken"
 msgstr "Сохранять запасной усилитель, если выбранный занят"

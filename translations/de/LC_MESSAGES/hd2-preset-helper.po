@@ -1,4 +1,5 @@
 # German translations for hd2-preset-helper.
+# Game terms checked against Steam build 25480438.
 msgid ""
 msgstr ""
 "Project-Id-Version: hd2-preset-helper\n"
@@ -146,10 +147,10 @@ msgid "Only when all four slots start empty."
 msgstr "Nur wenn anfangs alle vier Plätze leer sind."
 
 msgid "Auto ready up"
-msgstr "Automatisch bereitmelden"
+msgstr "Automatisch bereitmachen"
 
 msgid "Ready up after successfully applying a Booster."
-msgstr "Nach erfolgreichem Anwenden eines Boosters automatisch bereitmelden."
+msgstr "Wählt nach erfolgreichem Anwenden eines Boosters automatisch „Bereitmachen“."
 
 msgid "Save fallback Booster when taken"
 msgstr "Bei belegtem Booster Ersatz-Booster speichern"
