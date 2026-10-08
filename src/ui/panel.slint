@@ -151,7 +151,8 @@ export component PresetPanel inherits Window {
     min-height: self.preferred-height;
     max-height: self.preferred-height;
     background: transparent;
-    default-font-family: "Segoe UI";
+    in property <string> ui-font-family;
+    default-font-family: root.ui-font-family;
     default-font-size: 14px;
 
     in property <[PresetRow]> presets;

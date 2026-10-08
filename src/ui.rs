@@ -81,7 +81,6 @@ impl AppUi {
             })
             .select()?;
         let window = PresetPanel::new()?;
-        select_language(language)?;
         let (send, requests) = mpsc::channel();
         let tray = AppTray::new()?;
         let icon = image::load_from_memory(include_bytes!("../assets/app-icon.ico"))?.into_rgba8();
@@ -168,7 +167,7 @@ impl AppUi {
             let _ = send.send(UiRequest::HidePanel);
             slint::CloseRequestResponse::KeepWindowShown
         });
-        let ui = Self {
+        let mut ui = Self {
             status: status::Status::new(presets)?,
             monitor,
             language,
@@ -182,6 +181,7 @@ impl AppUi {
                 .map(|info| (info.name.clone(), info))
                 .collect(),
         };
+        ui.set_language(language)?;
         ui.set_previews(BTreeMap::new());
         Ok(ui)
     }
@@ -253,7 +253,18 @@ impl AppUi {
     }
 
     pub fn set_language(&mut self, language: UiLanguage) -> Result<()> {
-        select_language(language)?;
+        let locale = language.locale().unwrap_or_else(|| {
+            sys_locale::get_locales()
+                .find_map(|locale| UiLanguage::from_locale(&locale).and_then(UiLanguage::locale))
+                .unwrap_or("en")
+        });
+        slint::select_bundled_translation(locale)?;
+        #[cfg(target_os = "windows")]
+        let font_family = windows::font_family(locale);
+        #[cfg(not(target_os = "windows"))]
+        let font_family = "";
+        self.window.set_ui_font_family(font_family.into());
+        self.status.set_font_family(font_family);
         self.language = language;
         Ok(())
     }
@@ -513,16 +524,6 @@ impl AppUi {
             self.set_status("");
         }
     }
-}
-
-fn select_language(language: UiLanguage) -> Result<()> {
-    let locale = language.locale().unwrap_or_else(|| {
-        sys_locale::get_locales()
-            .find_map(|locale| UiLanguage::from_locale(&locale).and_then(UiLanguage::locale))
-            .unwrap_or("en")
-    });
-    slint::select_bundled_translation(locale)?;
-    Ok(())
 }
 
 pub(super) fn preset_number(name: &str) -> &str {

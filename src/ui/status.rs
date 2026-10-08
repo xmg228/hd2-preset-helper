@@ -32,6 +32,10 @@ impl Status {
         self.window.get_message().into()
     }
 
+    pub fn set_font_family(&self, family: &str) {
+        self.window.set_ui_font_family(family.into());
+    }
+
     pub fn update(&mut self, event: AppEvent, preset_info: &BTreeMap<String, PresetInfo>) {
         use StatusTone::{Error, Success, Warning, Working};
         if let AppEvent::PresetStarted { preset }

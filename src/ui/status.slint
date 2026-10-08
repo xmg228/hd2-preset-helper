@@ -43,7 +43,8 @@ export component ActionStatus inherits Window {
     width: 380px;
     height: 112px;
     background: Theme.background;
-    default-font-family: "Segoe UI";
+    in property <string> ui-font-family;
+    default-font-family: root.ui-font-family;
     in property <string> preset-label;
     in property <string> preset-number;
     in property <string> message;

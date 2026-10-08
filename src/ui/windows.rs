@@ -1,4 +1,4 @@
-//! Windows display identifiers stay at the UI platform boundary.
+//! Windows-specific window, display and font choices stay at the UI platform boundary.
 use anyhow::Result;
 use slint::winit_030::winit::{
     platform::windows::WindowAttributesExtWindows,
@@ -15,6 +15,16 @@ use windows::Win32::{
 
 pub(super) fn window_attributes(attributes: WindowAttributes) -> WindowAttributes {
     attributes.with_skip_taskbar(true)
+}
+
+pub(super) fn font_family(locale: &str) -> &'static str {
+    match locale {
+        "zh-Hans" => "Microsoft YaHei UI",
+        "zh-Hant" => "Microsoft JhengHei UI",
+        "ja" => "Yu Gothic UI",
+        "ko" => "Malgun Gothic",
+        _ => "Segoe UI",
+    }
 }
 
 pub(super) fn make_passive(window: &Window) -> Result<()> {
