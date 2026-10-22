@@ -232,16 +232,16 @@ impl AppController {
         {
             let preset = preset.clone();
             let command = *command;
-            let activation = if self.ui.is_panel_active() {
-                target.activate()
-            } else {
-                Ok(())
-            };
             // Restore first, then refresh placement; minimized geometry is not useful.
-            let target = match activation.and_then(|()| WindowTarget::from_identity(*target)) {
+            let target = match target
+                .activate()
+                .and_then(|()| WindowTarget::from_identity(*target))
+            {
                 Ok(target) => target,
                 Err(error) => {
                     warn!(%preset, error = %format!("{error:#}"), "could not activate game window for preset action");
+                    self.ui.hide_panel()?;
+                    self.panel_return_target = None;
                     self.ui.event(AppEvent::PresetCancelled {
                         preset,
                         reason: format!("{error:#}"),

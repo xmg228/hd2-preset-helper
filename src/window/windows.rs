@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
@@ -75,31 +76,58 @@ impl WindowIdentity {
             unsafe { IsWindow(Some(hwnd)).as_bool() } && process_id == self.process_id,
             "the target window is no longer available"
         );
+        let foreground_before = unsafe { GetForegroundWindow() };
+        if foreground_before == hwnd {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let mut foreground_before_pid = 0;
         unsafe {
+            GetWindowThreadProcessId(foreground_before, Some(&mut foreground_before_pid));
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
-            let _ = SetForegroundWindow(hwnd);
         }
+        let set_foreground_succeeded = unsafe { SetForegroundWindow(hwnd).as_bool() };
         // Cross-process activation is asynchronous. Wait for the game's message
         // queue to process it before checking foreground ownership.
-        anyhow::ensure!(
+        let message_acknowledged = unsafe {
+            SendMessageTimeoutW(
+                hwnd,
+                WM_NULL,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
+                1000,
+                None,
+            )
+        }
+        .0 != 0;
+        let foreground_after = unsafe { GetForegroundWindow() };
+        if !message_acknowledged || foreground_after != hwnd {
+            let mut foreground_after_pid = 0;
             unsafe {
-                SendMessageTimeoutW(
-                    hwnd,
-                    WM_NULL,
-                    WPARAM(0),
-                    LPARAM(0),
-                    SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
-                    1000,
-                    None,
-                )
+                GetWindowThreadProcessId(foreground_after, Some(&mut foreground_after_pid));
             }
-            .0 != 0,
+            tracing::warn!(
+                target = ?hwnd,
+                target_pid = self.process_id,
+                ?foreground_before,
+                foreground_before_pid,
+                ?foreground_after,
+                foreground_after_pid,
+                set_foreground_succeeded,
+                message_acknowledged,
+                elapsed_s = started.elapsed().as_secs_f64(),
+                "target window activation failed"
+            );
+        }
+        anyhow::ensure!(
+            message_acknowledged,
             "the target window did not acknowledge activation within 1 second, or could not be contacted"
         );
         anyhow::ensure!(
-            unsafe { GetForegroundWindow() } == hwnd,
+            foreground_after == hwnd,
             "Windows could not activate the target window; switch to the game manually and try again"
         );
         Ok(())
