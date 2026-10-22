@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
-use tracing::{debug, debug_span, info, info_span, warn};
+use tracing::{debug, debug_span, info, info_span, trace, warn};
 
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
@@ -238,7 +238,7 @@ fn apply_stratagems_from_home(
             })
             .context("no home slot available for a missing Stratagem")?;
         let count = empty_count + usize::from(entry.kind == SlotKind::Stratagem);
-        info!(
+        debug!(
             kept = equipped.len(),
             missing = missing.len(),
             entry_col = entry.col,
@@ -390,13 +390,15 @@ fn select_items_from_open_list(
         };
         if let Some(target) = target {
             #[cfg(feature = "diagnostics")]
-            if target.fallback {
-                crate::vision::save_fallback_slot(
+            if target.fallback
+                && let Err(error) = crate::vision::save_fallback_slot(
                     &current_page.roi.image,
                     &target.slot,
                     &target.item_id,
                     f64::from(target.match_error),
-                )?;
+                )
+            {
+                warn!(item_id = %target.item_id, error = %format!("{error:#}"), "failed to save fallback slot diagnostics");
             }
             let span = debug_span!("select_visible_item", item_id = %target.item_id);
             let _guard = span.enter();
@@ -565,7 +567,7 @@ fn select_items_from_open_list(
                     }
                     boundary_candidate = None;
                     if !(top_reached && bottom_reached) && !list_map.contains_item(item_id) {
-                        info!(
+                        debug!(
                             ?direction,
                             "list boundary confirmed; searching the other side before enabling fallback"
                         );
@@ -669,10 +671,6 @@ fn select_preset_target(
                 navigator.recognizer(),
                 POST_CLICK_CONFIRM_TIMEOUT,
             )? {
-                debug!(
-                    item_kind = %item_kind.label(),
-                    "terminal item selection returned to the loadout home"
-                );
                 return Ok(TargetSelectionOutcome::Home(home));
             }
 
@@ -682,7 +680,8 @@ fn select_preset_target(
                 debug!(
                     item_id = %item_id,
                     attempt,
-                    "final click left the target unchanged; retrying in place"
+                    retry_remaining = attempt < MAX_TARGET_CLICK_ATTEMPTS,
+                    "final click left the target unchanged"
                 );
                 target = retry_target;
                 continue;
@@ -706,19 +705,14 @@ fn select_preset_target(
         match observe_post_click_state(automation, navigator, list_map, slot_id, &target, &before)?
         {
             PostClickObservation::Selected { page, placement } => {
-                debug!(
-                    item_id = %item_id,
-                    attempt,
-                    vertical_shift = placement.vertical_shift,
-                    "preset item selected state confirmed"
-                );
                 return Ok(TargetSelectionOutcome::List { page, placement });
             }
             PostClickObservation::Unchanged { slot, after_score } => {
                 debug!(
                     item_id = %item_id,
                     attempt,
-                    "click left the target at the same position and brightness; retrying in place"
+                    retry_remaining = attempt < MAX_TARGET_CLICK_ATTEMPTS,
+                    "click left the target at the same position and brightness"
                 );
                 target.slot = slot;
                 last_after_score = Some(after_score);
@@ -767,7 +761,7 @@ fn observe_post_click_state(
         let page = navigator.scan_direct_page(image)?;
 
         let Some(placement) = list_map.locate_after_click(&page, slot_id) else {
-            debug!(
+            trace!(
                 item_id,
                 observation, "post-click page could not be located in the temporary list map"
             );
@@ -775,7 +769,8 @@ fn observe_post_click_state(
                 && observation >= POST_CLICK_MIN_OBSERVATIONS
             {
                 bail!(
-                    "target item {item_id} could not be confirmed because the post-click page could not be located"
+                    "target item {item_id} could not be confirmed because the post-click page could not be located after {observation} observations in {:.3}s",
+                    started.elapsed().as_secs_f64()
                 );
             }
             continue;
@@ -792,14 +787,17 @@ fn observe_post_click_state(
         }
 
         let Some(slot) = list_map.slot_after_placement(&placement, &page.roi, slot_id) else {
-            debug!(
+            trace!(
                 item_id,
                 observation, "post-click target slot is absent after map placement"
             );
             if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
                 && observation >= POST_CLICK_MIN_OBSERVATIONS
             {
-                bail!("target item {item_id} could not be located after clicking");
+                bail!(
+                    "target item {item_id} could not be located after clicking ({observation} observations in {:.3}s)",
+                    started.elapsed().as_secs_f64()
+                );
             }
             continue;
         };
@@ -813,6 +811,7 @@ fn observe_post_click_state(
                 observation,
                 before_score = before.target_score(),
                 after_score = sample.target_score(),
+                required_drop = before.required_score_drop(),
                 "post-click success confirmed by brightness drop"
             );
             return Ok(PostClickObservation::Selected { page, placement });
@@ -826,6 +825,7 @@ fn observe_post_click_state(
                 observation,
                 before_score = before.target_score(),
                 after_score = sample.target_score(),
+                required_drop = before.required_score_drop(),
                 "post-click target remained bright"
             );
             return Ok(PostClickObservation::Unchanged {
@@ -893,8 +893,9 @@ fn relocate_and_wait_hover(
                 debug!(
                     item_id,
                     attempt,
-                    error = %error,
-                    "hover confirmation failed; rescanning and relocating target"
+                    retry_remaining = attempt < MAX_HOVER_ATTEMPTS,
+                    error = %format!("{error:#}"),
+                    "hover confirmation failed"
                 );
                 last_hover_error = Some(error);
             }
@@ -918,8 +919,12 @@ fn unchanged_terminal_target(
     before: &HoverSample,
 ) -> Result<Option<DirectClickTarget>> {
     let image = automation.capture()?;
-    let Ok(page) = navigator.scan_direct_page(image) else {
-        return Ok(None);
+    let page = match navigator.scan_direct_page(image) {
+        Ok(page) => page,
+        Err(error) => {
+            debug!(item_id = %clicked_target.item_id, error = %format!("{error:#}"), "final click target scan unavailable; waiting for home");
+            return Ok(None);
+        }
     };
     let target = find_visible_target(&page.roi, &clicked_target.item_id, navigator.item_kind())
         .or_else(|| {

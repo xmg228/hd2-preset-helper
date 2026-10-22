@@ -112,7 +112,8 @@ impl Status {
                     {
                         Ok(image) => super::image(&image),
                         Err(error) => {
-                            tracing::warn!(%error, "could not load status preview");
+                            tracing::warn!(preset = %self.preset, ?kind,
+                                error = %format!("{error:#}"), "could not load status preview");
                             slint::Image::default()
                         }
                     });
@@ -144,7 +145,8 @@ impl Status {
         let picture = match crate::preset::load_template_image(&self.presets, item_id) {
             Ok(image) => super::image(&image),
             Err(error) => {
-                tracing::warn!(%error, "could not load status preview");
+                tracing::warn!(preset = %self.preset, item_id,
+                    error = %format!("{error:#}"), "could not load status preview");
                 slint::Image::default()
             }
         };

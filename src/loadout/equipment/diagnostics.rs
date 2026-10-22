@@ -2,6 +2,7 @@
 use super::{
     EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, search::Visit,
 };
+use crate::item::EquipmentKind;
 use crate::vision::{
     equipment::{EquipmentEntry, EquipmentObservation, PageChange, equipped_marker_rect},
     text::TextSample,
@@ -11,9 +12,9 @@ use image::{Rgba, RgbaImage};
 use serde_json::{Value, json};
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Default)]
@@ -41,7 +42,7 @@ impl Diagnostics {
         if let Some(output) = &mut self.output
             && let Err(error) = action(output)
         {
-            tracing::warn!(error = %format!("{error:#}"), "equipment diagnostics disabled after write failure");
+            tracing::warn!(path = %output.directory.display(), error = %format!("{error:#}"), "equipment diagnostics disabled after write failure");
             self.output = None;
         }
     }
@@ -75,7 +76,8 @@ impl Diagnostics {
     ) {
         self.write(|output| output.record(json!({
             "event":if matches!(result.action, InputAction::Key(crate::input::Key::Space)) { "equipped" } else { "navigation" },
-            "action":result.action.name(), "elapsed_ms":result.elapsed_ms, "input_ms":result.input_ms,
+            "action":result.action.name(), "column":result.action.column(),
+            "elapsed_ms":result.elapsed_ms, "input_ms":result.input_ms,
             "stable_ms":result.stable_ms, "list_moved":result.list_moved, "retried":result.retried,
             "capture_ms":output.capture_ms, "observe_ms":output.observe_ms,
             "change":result.change, "page":describe(page),
@@ -89,11 +91,38 @@ impl Diagnostics {
     }
 
     pub fn save(&mut self, frame: &RgbaImage, page: &EquipmentObservation, reason: &str) {
-        self.write(|output| output.save(frame, page, reason));
+        let focused = page.focus.map(|index| &page.slots[index]);
+        tracing::debug!(
+            reason,
+            slots = page.slots.len(),
+            focus = page.focus,
+            hover = page.hover,
+            name_support = page.name.response.iter().filter(|&&v| v > 0.0).count(),
+            category_support = page.category.response.iter().filter(|&&v| v > 0.0).count(),
+            equipped = focused.is_some_and(|slot| slot.equipped),
+            focus_response = focused.map(|slot| slot.focus_response),
+            hover_response = focused.map(|slot| slot.hover_response),
+            "equipment observation"
+        );
+        self.write(|output| {
+            output
+                .save(frame, page, reason)
+                .with_context(|| format!("failed to save equipment observation ({reason})"))
+        });
     }
 
     pub fn save_entry(&mut self, frame: &RgbaImage, entry: &EquipmentEntry, reason: &str) {
-        self.write(|output| output.save_entry(frame, entry, reason));
+        tracing::debug!(
+            reason,
+            top_score = entry.scores[..3].iter().copied().fold(0.0, f32::max),
+            bottom_score = entry.scores[3..].iter().copied().fold(0.0, f32::max),
+            "equipment entry observation"
+        );
+        self.write(|output| {
+            output
+                .save_entry(frame, entry, reason)
+                .with_context(|| format!("failed to save equipment entry ({reason})"))
+        });
     }
 
     pub fn start_search(&mut self, item: &EquipmentItem) {
@@ -116,11 +145,16 @@ impl Diagnostics {
         {
             self.best_match = Some((visit.clone(), page.name.clone()));
         }
-        self.write(|output| output.search_visit(visit, page, evaluate_ms));
+        self.write(|output| {
+            output
+                .search_visit(visit, page, evaluate_ms)
+                .with_context(|| format!("failed to save equipment search visit {}", visit.index))
+        });
     }
 
     pub(super) fn finish_search(
         &mut self,
+        kind: EquipmentKind,
         target: &EquipmentItem,
         result: &Result<bool>,
         elapsed_ms: f64,
@@ -128,7 +162,7 @@ impl Diagnostics {
         let found = matches!(result, Ok(true));
         let visits = self.search_visits;
         let error = result.as_ref().err().map(|error| format!("{error:#}"));
-        tracing::info!(
+        tracing::debug!(
             found,
             elapsed_s = elapsed_ms / 1000.0,
             visits,
@@ -139,38 +173,53 @@ impl Diagnostics {
             best_visit = self.best_match.as_ref().map(|(visit, _)| visit.index),
             match_threshold = NAME_MATCH_THRESHOLD,
             identity_threshold = NAME_IDENTITY_THRESHOLD,
-            error,
             "equipment search finished"
         );
         self.write(|output| output.finish_search(found, elapsed_ms, visits));
-        if !found
-            && let Some(directory) = &self.failure_directory
-            && let Some((visit, name)) = &self.best_match
-        {
+        if !found && let Some(directory) = &self.failure_directory {
             let saved = (|| -> Result<()> {
-                fs::create_dir_all(directory)?;
-                name.image.save(directory.join("best-name.png"))?;
-                name.foreground()
-                    .save(directory.join("best-foreground.png"))?;
+                // Replace only this dedicated failed-search report, including when
+                // failure happened before the first candidate was observed.
+                match fs::remove_dir_all(directory) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error)
+                            .context("failed to remove the previous equipment search report");
+                    }
+                }
+                fs::create_dir_all(directory)
+                    .context("failed to create equipment search report directory")?;
                 target.name.image.save(directory.join("target-name.png"))?;
                 target
                     .name
                     .foreground()
                     .save(directory.join("target-foreground.png"))?;
+                if let Some((_, name)) = &self.best_match {
+                    name.image.save(directory.join("best-name.png"))?;
+                    name.foreground()
+                        .save(directory.join("best-foreground.png"))?;
+                }
                 serde_json::to_writer_pretty(
                     File::create(directory.join("summary.json"))?,
-                    &json!({"visits":visits, "elapsed_ms":elapsed_ms, "error":error,
+                    &json!({"created_unix_ms":SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|time| time.as_millis()),
+                        "kind":kind, "target_client_size":target.client_size,
+                        "visits":visits, "elapsed_ms":elapsed_ms, "error":error,
                         "match_threshold":NAME_MATCH_THRESHOLD,
-                        "identity_threshold":NAME_IDENTITY_THRESHOLD, "best":visit,
-                        "target_geometry":target.name.geometry, "best_geometry":name.geometry}),
+                        "identity_threshold":NAME_IDENTITY_THRESHOLD,
+                        "best":self.best_match.as_ref().map(|(visit, _)| visit),
+                        "target_geometry":target.name.geometry,
+                        "best_geometry":self.best_match.as_ref().map(|(_, name)| name.geometry)}),
                 )?;
                 Ok(())
             })();
             match saved {
                 Ok(()) => {
-                    tracing::info!(path = %directory.display(), "saved best equipment search match")
+                    tracing::info!(path = %directory.display(), "saved equipment search failure evidence")
                 }
-                Err(error) => tracing::warn!(%error, "failed to save best equipment search match"),
+                Err(error) => {
+                    tracing::warn!(path = %directory.display(), error = %format!("{error:#}"), "failed to save equipment search failure evidence")
+                }
             }
         }
     }
@@ -203,10 +252,12 @@ struct Output {
 impl Output {
     #[cfg(feature = "diagnostics")]
     pub fn new(directory: &Path) -> Result<Self> {
-        fs::create_dir_all(directory)?;
+        fs::create_dir_all(directory)
+            .context("failed to create equipment diagnostics directory")?;
         Ok(Self {
             directory: directory.to_owned(),
-            events: File::create(directory.join("observations.jsonl"))?,
+            events: File::create(directory.join("observations.jsonl"))
+                .context("failed to create equipment diagnostic events")?,
             snapshot: 0,
             search: 0,
             started: Instant::now(),
@@ -221,8 +272,11 @@ impl Output {
 
     pub fn record(&mut self, mut event: Value) -> Result<()> {
         event["time_ms"] = json!(self.started.elapsed().as_secs_f64() * 1000.0);
-        serde_json::to_writer(&mut self.events, &event)?;
-        self.events.write_all(b"\n")?;
+        serde_json::to_writer(&mut self.events, &event)
+            .context("failed to write equipment diagnostic event")?;
+        self.events
+            .write_all(b"\n")
+            .context("failed to finish equipment diagnostic event")?;
         Ok(())
     }
 
@@ -293,7 +347,7 @@ impl Output {
     pub fn finish_search(&mut self, found: bool, elapsed_ms: f64, visits: usize) -> Result<()> {
         self.record(json!({"event":"search_end", "search":self.search,
             "found":found, "elapsed_ms":elapsed_ms, "visits":visits,
-            "inputs":visits.saturating_sub(1), "last_visit":self.last_visit}))
+            "confirmed_transitions":visits.saturating_sub(1), "last_visit":self.last_visit}))
     }
 
     pub fn save(

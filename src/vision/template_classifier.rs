@@ -285,7 +285,16 @@ impl TemplateClassifier {
             .slots
             .par_iter_mut()
             .filter(|slot| is_candidate_slot(slot, self.item_kind))
-            .map(|slot| self.classify_slot(screenshot, slot))
+            .map(|slot| {
+                self.classify_slot(screenshot, slot).with_context(|| {
+                    format!(
+                        "failed to classify {} slot row {} col {}",
+                        self.item_kind.label(),
+                        slot.row,
+                        slot.col
+                    )
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
         let accepted = results.iter().filter(|result| result.accepted).count();
         let page_candidates = self
@@ -302,7 +311,11 @@ impl TemplateClassifier {
             .collect();
 
         #[cfg(feature = "diagnostics")]
-        super::diagnostics::record_frame(results.iter().map(|result| &result.diagnostics))?;
+        if let Err(error) =
+            super::diagnostics::record_frame(results.iter().map(|result| &result.diagnostics))
+        {
+            tracing::warn!(error = %format!("{error:#}"), "matcher score diagnostics disabled after write failure");
+        }
 
         debug!(
             target: "hd2_preset_helper::perf",
@@ -311,7 +324,7 @@ impl TemplateClassifier {
             templates = self.templates.len(),
             comparisons = results.len() * self.templates.len(),
             accepted,
-            failed = results.len() - accepted,
+            rejected = results.len() - accepted,
             elapsed_s = started.elapsed().as_secs_f64(),
             "template classifier timing"
         );
@@ -401,11 +414,11 @@ impl TemplateClassifier {
             self.match_threshold,
         );
         trace_match(
+            slot,
             best.item_id.as_str(),
             best.category,
             result,
             margin,
-            accepted,
             self.match_threshold,
             best_extraction,
         );
@@ -431,11 +444,11 @@ fn is_candidate_slot(slot: &Slot, item_kind: ItemKind) -> bool {
 }
 
 fn trace_match(
+    slot: &Slot,
     item_id: &str,
     category: Option<StratagemCategory>,
     result: &super::matcher::MatchResult,
     margin: f64,
-    accepted: bool,
     threshold: f64,
     extraction: &SemanticExtraction,
 ) {
@@ -443,8 +456,10 @@ fn trace_match(
         target: "hd2_preset_helper::template",
         algorithm = "template_matcher",
         item_id,
+        row = slot.row,
+        col = slot.col,
         category = category.map(StratagemCategory::label),
-        accepted,
+        accepted = result.score < threshold,
         score = result.score,
         threshold,
         margin,

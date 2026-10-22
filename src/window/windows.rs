@@ -67,18 +67,19 @@ impl WindowIdentity {
     }
 
     pub(crate) fn activate(&self) -> Result<()> {
-        let hwnd = HWND(self.handle as *mut _);
-        let mut process_id = 0;
-        unsafe {
-            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-        }
         anyhow::ensure!(
-            unsafe { IsWindow(Some(hwnd)).as_bool() } && process_id == self.process_id,
-            "the target window is no longer available"
+            self.request_activation()?,
+            "Windows could not activate the target window; switch to the game manually and try again"
         );
+        Ok(())
+    }
+
+    /// Request activation once. False means foreground is NULL and confirmation is pending.
+    pub(crate) fn request_activation(&self) -> Result<bool> {
+        let hwnd = self.checked_handle()?;
         let foreground_before = unsafe { GetForegroundWindow() };
         if foreground_before == hwnd {
-            return Ok(());
+            return Ok(true);
         }
         let started = Instant::now();
         let mut foreground_before_pid = 0;
@@ -109,7 +110,7 @@ impl WindowIdentity {
             unsafe {
                 GetWindowThreadProcessId(foreground_after, Some(&mut foreground_after_pid));
             }
-            tracing::warn!(
+            tracing::debug!(
                 target = ?hwnd,
                 target_pid = self.process_id,
                 ?foreground_before,
@@ -119,7 +120,7 @@ impl WindowIdentity {
                 set_foreground_succeeded,
                 message_acknowledged,
                 elapsed_s = started.elapsed().as_secs_f64(),
-                "target window activation failed"
+                "target window activation result"
             );
         }
         anyhow::ensure!(
@@ -127,10 +128,49 @@ impl WindowIdentity {
             "the target window did not acknowledge activation within 1 second, or could not be contacted"
         );
         anyhow::ensure!(
-            foreground_after == hwnd,
+            foreground_after == hwnd || foreground_after.0.is_null(),
             "Windows could not activate the target window; switch to the game manually and try again"
         );
-        Ok(())
+        Ok(foreground_after == hwnd)
+    }
+
+    /// Recheck without requesting activation again. False means foreground is still NULL.
+    pub(crate) fn confirm_activation(&self) -> Result<bool> {
+        let hwnd = self.checked_handle()?;
+        let foreground = unsafe { GetForegroundWindow() };
+        if foreground.0.is_null() {
+            return Ok(false);
+        }
+        if foreground == hwnd {
+            return Ok(true);
+        }
+        let mut foreground_pid = 0;
+        unsafe {
+            GetWindowThreadProcessId(foreground, Some(&mut foreground_pid));
+        }
+        tracing::debug!(
+            target = ?hwnd,
+            target_pid = self.process_id,
+            ?foreground,
+            foreground_pid,
+            "foreground changed while confirming window activation"
+        );
+        bail!(
+            "another window became foreground while activating the target; automation was cancelled"
+        )
+    }
+
+    fn checked_handle(&self) -> Result<HWND> {
+        let hwnd = HWND(self.handle as *mut _);
+        let mut process_id = 0;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+        }
+        anyhow::ensure!(
+            unsafe { IsWindow(Some(hwnd)).as_bool() } && process_id == self.process_id,
+            "the target window is no longer available"
+        );
+        Ok(hwnd)
     }
 }
 

@@ -17,7 +17,7 @@ use super::semantic_extractor::SemanticExtraction;
 static RECORDER: OnceLock<Mutex<Recorder>> = OnceLock::new();
 
 struct Recorder {
-    writer: BufWriter<File>,
+    writer: Option<BufWriter<File>>,
     next_frame: u64,
     anomaly_dir: PathBuf,
     next_anomaly: u64,
@@ -104,7 +104,7 @@ pub fn init(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to create diagnostic scores {}", path.display()))?;
     RECORDER
         .set(Mutex::new(Recorder {
-            writer: BufWriter::new(file),
+            writer: Some(BufWriter::new(file)),
             next_frame: 1,
             anomaly_dir,
             next_anomaly: 1,
@@ -224,56 +224,61 @@ pub(super) fn record_frame<'a>(slots: impl IntoIterator<Item = &'a SlotDiagnosti
         .map_err(|_| anyhow!("diagnostics lock was poisoned"))?;
     let frame = recorder.next_frame;
     recorder.next_frame += 1;
+    let Some(writer) = recorder.writer.as_mut() else {
+        return Ok(());
+    };
 
-    for slot in slots {
-        for comparison in &slot.comparisons {
-            let result = comparison.result;
-            let record = ScoreRecord {
-                frame,
-                row: slot.row,
-                col: slot.col,
-                x: slot.x,
-                y: slot.y,
-                width: slot.width,
-                height: slot.height,
-                template: &comparison.template,
-                category: comparison.category,
-                rank: comparison.rank,
-                accepted: comparison.accepted,
-                score: result.score,
-                threshold: slot.threshold,
-                best_margin: slot.best_margin,
-                evidence: result.evidence,
-                white_evidence: result.white_evidence,
-                class_evidence: result.class_evidence,
-                spatial: result.spatial,
-                qx: result.qx,
-                qy: result.qy,
-                evaluations: result.evaluations,
-                global_white: result.global_white,
-                local_white: result.local_white,
-                global_class: result.global_class,
-                local_class: result.local_class,
-                overlap_white: result.overlap_white,
-                overlap_class: result.overlap_class,
-                white_gain: result.white_gain,
-                class_gain: result.class_gain,
-                semantic_mode: comparison.semantic_mode,
-                primary_endpoint: comparison.primary_endpoint,
-                secondary_endpoint: comparison.secondary_endpoint,
-                primary_mass: comparison.primary_mass,
-                secondary_mass: comparison.secondary_mass,
-            };
-            serde_json::to_writer(&mut recorder.writer, &record)
-                .context("failed to serialize diagnostic scores")?;
-            recorder
-                .writer
-                .write_all(b"\n")
-                .context("failed to write diagnostic scores")?;
+    let result = (|| -> Result<()> {
+        for slot in slots {
+            for comparison in &slot.comparisons {
+                let result = comparison.result;
+                let record = ScoreRecord {
+                    frame,
+                    row: slot.row,
+                    col: slot.col,
+                    x: slot.x,
+                    y: slot.y,
+                    width: slot.width,
+                    height: slot.height,
+                    template: &comparison.template,
+                    category: comparison.category,
+                    rank: comparison.rank,
+                    accepted: comparison.accepted,
+                    score: result.score,
+                    threshold: slot.threshold,
+                    best_margin: slot.best_margin,
+                    evidence: result.evidence,
+                    white_evidence: result.white_evidence,
+                    class_evidence: result.class_evidence,
+                    spatial: result.spatial,
+                    qx: result.qx,
+                    qy: result.qy,
+                    evaluations: result.evaluations,
+                    global_white: result.global_white,
+                    local_white: result.local_white,
+                    global_class: result.global_class,
+                    local_class: result.local_class,
+                    overlap_white: result.overlap_white,
+                    overlap_class: result.overlap_class,
+                    white_gain: result.white_gain,
+                    class_gain: result.class_gain,
+                    semantic_mode: comparison.semantic_mode,
+                    primary_endpoint: comparison.primary_endpoint,
+                    secondary_endpoint: comparison.secondary_endpoint,
+                    primary_mass: comparison.primary_mass,
+                    secondary_mass: comparison.secondary_mass,
+                };
+                serde_json::to_writer(&mut *writer, &record)
+                    .context("failed to serialize diagnostic scores")?;
+                writer
+                    .write_all(b"\n")
+                    .context("failed to write diagnostic scores")?;
+            }
         }
+        writer.flush().context("failed to flush diagnostic scores")
+    })();
+    if result.is_err() {
+        recorder.writer = None;
     }
-    recorder
-        .writer
-        .flush()
-        .context("failed to flush diagnostic scores")
+    result
 }

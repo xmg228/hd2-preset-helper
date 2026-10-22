@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::item::ItemKind;
 use crate::vision::{RoiObservation, Slot, SlotKind, TemplateMatchCandidate};
@@ -249,8 +249,19 @@ impl ListMap {
         context: &'static str,
     ) -> Option<LocatedPage> {
         let candidates = self.alignment_candidates(page, constraints);
-        let best = candidates.first().copied();
-        let best = best?;
+        let Some(best) = candidates.first().copied() else {
+            debug!(
+                context,
+                direction = ?constraints.direction,
+                excluded = ?constraints.excluded,
+                current_offset_y = self.current.offset_y,
+                current_slots = page.slot_samples.len(),
+                mapped_slots = self.slots.len(),
+                reason = "no_candidates",
+                "continuous slot map alignment rejected"
+            );
+            return None;
+        };
         let runner_up = candidates.get(1).copied();
         let margin = runner_up.map_or(1.0, |runner| best.mean_score - runner.mean_score);
         let accepted = runner_up.is_none_or(|runner| {
@@ -259,6 +270,7 @@ impl ListMap {
         debug!(
             context,
             direction = ?constraints.direction,
+            excluded = ?constraints.excluded,
             current_offset_y = self.current.offset_y,
             best_offset_y = best.offset_y,
             vertical_shift = self.current.offset_y - best.offset_y,
@@ -268,9 +280,14 @@ impl ListMap {
             runner_up_mean_score = runner_up.map(|candidate| candidate.mean_score),
             runner_up_support = runner_up.map(|candidate| candidate.support),
             margin,
+            required_margin = PAGE_ALIGNMENT_MIN_MARGIN,
             accepted,
-            candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
             "continuous slot map alignment evaluated"
+        );
+        trace!(
+            context,
+            candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
+            "continuous slot map alignment candidates"
         );
         accepted.then(|| LocatedPage {
             page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),

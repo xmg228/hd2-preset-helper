@@ -22,7 +22,7 @@ impl Drop for ListMap {
             ),
             Err(error) => warn!(
                 item_kind = self.item_kind.label(),
-                error = %error,
+                error = %format!("{error:#}"),
                 "failed to save temporary list map image"
             ),
         }

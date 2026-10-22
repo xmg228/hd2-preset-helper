@@ -1,3 +1,4 @@
+mod failure;
 mod panel;
 mod settings;
 mod worker;
@@ -7,7 +8,7 @@ use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use tracing::{Level, error, info};
+use tracing::{Level, error, info, warn};
 
 use crate::app_paths::AppPaths;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
@@ -17,6 +18,7 @@ use crate::{game_window, input, platform, ui};
 use worker::{ActionWorker, Work, WorkerEvent};
 
 const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
+const ACTIVATION_CONFIRM_TIMEOUT: Duration = Duration::from_millis(200);
 const ACTION_COOLDOWN: Duration = Duration::from_millis(200);
 
 struct PresetHotkeyBinding {
@@ -62,6 +64,11 @@ pub fn run() -> Result<()> {
             Level::INFO
         },
     )?;
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        diagnostics = cfg!(feature = "diagnostics"),
+        "application starting"
+    );
     #[cfg(feature = "diagnostics")]
     crate::vision::init_diagnostics(&paths.diagnostic_scores)?;
     let config_path = &paths.config;
@@ -137,11 +144,13 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
         panel_return_target: None,
         ui,
     };
-    info!(config = %paths.config.display(), hotkey_count = specs.len(),
+    info!(
+        hotkey_count = specs.len(),
         apply_in_saved_order = settings.apply_in_saved_order,
         auto_ready_up = settings.auto_ready_up,
         save_fallback_when_taken = settings.save_fallback_when_taken,
-        "application ready");
+        "application ready"
+    );
     // Native window placement and focus require an active UI event loop.
     let mut opening = true;
     ui::run(move || {
@@ -161,6 +170,12 @@ enum ActionState {
         preset: String,
         command: PresetCommand,
         deadline: Instant,
+    },
+    Activating {
+        target: crate::window::WindowIdentity,
+        preset: String,
+        command: PresetCommand,
+        started: Instant,
     },
     Running,
 }
@@ -189,7 +204,10 @@ impl AppController {
         let game_active = game_window::is_game_foreground();
         let panel_active = self.ui.is_panel_active();
         let shortcuts_enabled = !self.exiting
-            && !matches!(self.state, ActionState::Running)
+            && !matches!(
+                self.state,
+                ActionState::Activating { .. } | ActionState::Running
+            )
             && !self.ui.shortcuts_blocked();
         self.hotkeys
             .set_enabled_where(|key| {
@@ -264,7 +282,10 @@ impl AppController {
                 }
                 Ok(WorkerEvent::PreviewsLoaded(result)) => match result {
                     Ok(previews) => self.ui.set_previews(previews),
-                    Err(error) => self.ui.preview_failed(&error),
+                    Err(error) => {
+                        warn!(path = %self.paths.presets.display(), %error, "could not load preset previews");
+                        self.ui.preview_failed(&error);
+                    }
                 },
                 Ok(WorkerEvent::Finished { saved }) => {
                     self.hotkeys.discard_pending();
@@ -311,7 +332,10 @@ impl AppController {
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
         self.ui.hide_panel()?;
-        if matches!(self.state, ActionState::Waiting { .. }) {
+        if matches!(
+            self.state,
+            ActionState::Waiting { .. } | ActionState::Activating { .. }
+        ) {
             self.state = ActionState::Idle;
             self.worker.send(Work::Discard)?;
         }

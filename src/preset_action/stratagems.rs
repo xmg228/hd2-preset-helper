@@ -61,12 +61,6 @@ pub(super) fn execute(
 
         PresetCommand::ApplyStratagems => {
             let preset = load(context, preset_name)?;
-            debug!(
-                stratagem_count = preset.stratagems.len(),
-                booster_present = preset.booster.is_some(),
-                fallback_booster_present = preset.fallback_booster.is_some(),
-                "applying preset from home"
-            );
             log_preset_contents(&preset);
             let booster = apply_stratagem_preset_from_home(
                 recognizer,
@@ -147,8 +141,7 @@ pub(super) fn save(
         preset = %preset_name,
         stratagem_count = preset.stratagems.len(),
         booster_present = preset.booster.is_some(),
-        presets_path = %context.presets.display(),
-        "preset saved"
+        "Stratagem section saved"
     );
 
     Ok(())
@@ -213,7 +206,6 @@ fn learn_fallback_booster(
     log_preset_contents(&preset);
     info!(
         preset = %preset_name,
-        presets_path = %context.presets.display(),
         "fallback booster saved"
     );
     Ok(true)

@@ -49,11 +49,17 @@ pub(crate) fn show_page(
         }
         let origin =
             origin.context("open a Stratagem or equipment loadout screen before using a preset")?;
+        tracing::debug!(
+            ?origin,
+            key = "Escape",
+            "returning from item list to loadout home"
+        );
         InputSession::new(target.clone())?.tap_key(Key::Escape, 45)?;
         wait_for_page(capture, runtime, target, colors, origin)?;
         origin
     };
     if origin != page {
+        tracing::debug!(?origin, destination = ?page, key = "R", "switching loadout home");
         InputSession::new(target.clone())?.tap_key(Key::R, 45)?;
         wait_for_page(capture, runtime, target, colors, page)?;
     }

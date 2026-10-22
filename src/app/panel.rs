@@ -1,10 +1,12 @@
 //! Panel-to-automation handoff. Only the controller activates the game.
 use anyhow::{Result, ensure};
 use std::time::Instant;
-use tracing::warn;
+use tracing::{debug, error, warn};
 
+use super::failure::save_failure_report;
 use super::{
-    ACTION_COOLDOWN, ActionState, AppController, HOTKEY_RELEASE_TIMEOUT, Work, preset_hotkeys,
+    ACTION_COOLDOWN, ACTIVATION_CONFIRM_TIMEOUT, ActionState, AppController,
+    HOTKEY_RELEASE_TIMEOUT, Work, preset_hotkeys,
 };
 use crate::{
     app_events::AppEvent, game_window, input, preset::PresetScope, preset_action::PresetCommand,
@@ -31,7 +33,7 @@ impl AppController {
             && let Some(target) = &self.panel_return_target
             && let Err(error) = target.activate()
         {
-            warn!(%error, "could not return focus when closing the preset panel");
+            warn!(error = %format!("{error:#}"), "could not return focus when closing the preset panel");
         }
         self.ui.hide_panel()?;
         self.panel_return_target = None;
@@ -53,6 +55,7 @@ impl AppController {
         }
         let command = match (saving, scope.stratagems, scope.equipment) {
             (_, false, false) => {
+                debug!(%preset, saving, reason = "no sections selected", "preset action cancelled");
                 self.ui.event(AppEvent::PresetCancelled {
                     preset,
                     reason: "no sections selected".into(),
@@ -64,6 +67,9 @@ impl AppController {
             (true, false, true) => PresetCommand::SaveEquipment,
             (false, _, _) => PresetCommand::ApplySaved(scope),
         };
+        // Include window lookup and activation, not just action-worker execution.
+        crate::logging::clear_recent();
+        debug!(%preset, ?command, "preset action requested");
         let target = if hotkey_id.is_some() && !self.ui.is_panel_active() {
             game_window::foreground_game_window().map(|window| {
                 self.ui.set_anchor(Some(window.client_origin()));
@@ -75,7 +81,8 @@ impl AppController {
         let target = match target {
             Ok(target) => target,
             Err(error) => {
-                warn!(%preset, error = %format!("{error:#}"), "could not locate game window for preset action");
+                error!(%preset, ?command, error = %format!("{error:#}"), "could not locate game window for preset action");
+                save_failure_report(&self.paths.last_failure, None);
                 self.ui.event(AppEvent::PresetCancelled {
                     preset,
                     reason: format!("{error:#}"),
@@ -106,7 +113,18 @@ impl AppController {
                 UiRequest::OpenPanel => self.open_panel()?,
                 UiRequest::Exit => self.request_exit()?,
                 UiRequest::HidePanel => {
-                    if matches!(self.state, ActionState::Waiting { .. }) {
+                    if matches!(self.state, ActionState::Activating { .. }) {
+                        // Cancelling activation must not request foreground again.
+                        self.panel_return_target = None;
+                    }
+                    if let ActionState::Waiting {
+                        preset, command, ..
+                    }
+                    | ActionState::Activating {
+                        preset, command, ..
+                    } = &self.state
+                    {
+                        debug!(%preset, ?command, reason = "panel closed", "preset action cancelled");
                         self.state = ActionState::Idle;
                         self.worker.send(Work::Discard)?;
                         self.ready_after = Instant::now() + ACTION_COOLDOWN;
@@ -129,7 +147,7 @@ impl AppController {
                             self.ui.set_scope(scope);
                         }
                         Err(error) => {
-                            warn!(error = %format!("{error:#}"), "failed to save preset scope");
+                            error!(error = %format!("{error:#}"), "failed to save preset scope");
                             self.ui
                                 .set_status(&format!("Could not save preset scope: {error:#}"));
                         }
@@ -162,9 +180,11 @@ impl AppController {
                                 .insert(name.clone(), String::new());
                             self.ui.add_preset(name);
                         }
-                        Err(error) => self
-                            .ui
-                            .set_status(&format!("Could not add preset: {error:#}")),
+                        Err(error) => {
+                            error!(preset = %name, error = %format!("{error:#}"), "failed to add preset");
+                            self.ui
+                                .set_status(&format!("Could not add preset: {error:#}"));
+                        }
                     }
                 }
                 UiRequest::DeletePreset(preset) => {
@@ -200,73 +220,114 @@ impl AppController {
     }
 
     pub(super) fn finish_pending_action(&mut self) -> Result<()> {
-        let ActionState::Waiting {
-            target,
-            preset,
-            command,
-            hotkey_id,
-            deadline,
-        } = &self.state
-        else {
-            return Ok(());
-        };
-        let owned_focus = self.ui.is_panel_active() || crate::game_window::is_game_foreground();
-        if !owned_focus || Instant::now() >= *deadline {
-            let preset = preset.clone();
-            let reason = if owned_focus {
-                "input was not released in time"
-            } else {
-                "focus changed"
-            };
-            self.close_panel()?;
-            self.ui.set_pending(false);
-            self.ui.event(AppEvent::PresetCancelled {
+        let (preset, command, target) = match &self.state {
+            ActionState::Waiting {
+                target,
                 preset,
-                reason: reason.into(),
-            })?;
-            self.worker.send(Work::Discard)?;
-            self.state = ActionState::Idle;
-            self.ready_after = Instant::now() + ACTION_COOLDOWN;
-        } else if input::activation_released()
-            && hotkey_id.is_none_or(|id| self.hotkeys.is_released(id))
-        {
-            let preset = preset.clone();
-            let command = *command;
-            // Restore first, then refresh placement; minimized geometry is not useful.
-            let target = match target
-                .activate()
-                .and_then(|()| WindowTarget::from_identity(*target))
-            {
-                Ok(target) => target,
-                Err(error) => {
-                    warn!(%preset, error = %format!("{error:#}"), "could not activate game window for preset action");
-                    self.ui.hide_panel()?;
-                    self.panel_return_target = None;
+                command,
+                hotkey_id,
+                deadline,
+            } => {
+                let owned_focus = self.ui.is_panel_active() || game_window::is_game_foreground();
+                if !owned_focus || Instant::now() >= *deadline {
+                    let preset = preset.clone();
+                    let reason = if owned_focus {
+                        "input was not released in time"
+                    } else {
+                        "focus changed"
+                    };
+                    debug!(%preset, ?command, reason, "preset action cancelled");
+                    self.close_panel()?;
+                    self.ui.set_pending(false);
                     self.ui.event(AppEvent::PresetCancelled {
                         preset,
-                        reason: format!("{error:#}"),
+                        reason: reason.into(),
                     })?;
-                    self.ui.set_pending(false);
                     self.worker.send(Work::Discard)?;
                     self.state = ActionState::Idle;
                     self.ready_after = Instant::now() + ACTION_COOLDOWN;
                     return Ok(());
                 }
-            };
-            self.ui.set_anchor(Some(target.client_origin()));
-            self.ui.hide_panel()?;
-            self.panel_return_target = None;
-            // Unregister before the worker can inject its first key, not on the next tick.
-            self.hotkeys.set_enabled(false)?;
-            self.panel_hotkey.set_enabled(false)?;
-            self.worker.send(Work::Run {
+                if !input::activation_released()
+                    || hotkey_id.is_some_and(|id| !self.hotkeys.is_released(id))
+                {
+                    return Ok(());
+                }
+                let result = target.request_activation();
+                if matches!(result, Ok(false)) {
+                    self.state = ActionState::Activating {
+                        target: *target,
+                        preset: preset.clone(),
+                        command: *command,
+                        started: Instant::now(),
+                    };
+                    return Ok(());
+                }
+                // Restore first, then refresh placement; minimized geometry is not useful.
+                (
+                    preset.clone(),
+                    *command,
+                    result.and_then(|_| WindowTarget::from_identity(*target)),
+                )
+            }
+            ActionState::Activating {
+                target,
                 preset,
                 command,
-                settings: self.settings,
-                target: target.identity(),
-            })?;
-            self.state = ActionState::Running;
-        }
+                started,
+            } => {
+                let result = if started.elapsed() < ACTIVATION_CONFIRM_TIMEOUT {
+                    target.confirm_activation()
+                } else {
+                    Ok(false)
+                };
+                if matches!(result, Ok(false)) && started.elapsed() < ACTIVATION_CONFIRM_TIMEOUT {
+                    return Ok(());
+                }
+                let target = result.and_then(|confirmed| {
+                    ensure!(
+                        confirmed,
+                        "the target window did not become foreground within {:.3} seconds",
+                        ACTIVATION_CONFIRM_TIMEOUT.as_secs_f64()
+                    );
+                    WindowTarget::from_identity(*target)
+                });
+                debug!(%preset, ?command, confirmed = target.is_ok(), confirmation_wait_s = started.elapsed().as_secs_f64(), "game window activation confirmation finished");
+                (preset.clone(), *command, target)
+            }
+            _ => return Ok(()),
+        };
+        let target = match target {
+            Ok(target) => target,
+            Err(error) => {
+                error!(%preset, ?command, error = %format!("{error:#}"), "could not activate game window for preset action");
+                save_failure_report(&self.paths.last_failure, None);
+                self.ui.hide_panel()?;
+                self.panel_return_target = None;
+                self.ui.event(AppEvent::PresetCancelled {
+                    preset,
+                    reason: format!("{error:#}"),
+                })?;
+                self.ui.set_pending(false);
+                self.worker.send(Work::Discard)?;
+                self.state = ActionState::Idle;
+                self.ready_after = Instant::now() + ACTION_COOLDOWN;
+                return Ok(());
+            }
+        };
+        self.ui.set_anchor(Some(target.client_origin()));
+        self.ui.hide_panel()?;
+        self.panel_return_target = None;
+        // Unregister before the worker can inject its first key, not on the next tick.
+        self.hotkeys.set_enabled(false)?;
+        self.panel_hotkey.set_enabled(false)?;
+        self.worker.send(Work::Run {
+            preset,
+            command,
+            settings: self.settings,
+            target: target.identity(),
+        })?;
+        self.state = ActionState::Running;
         Ok(())
     }
 }

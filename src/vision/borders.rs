@@ -2,7 +2,7 @@
 use image::RgbaImage;
 use rayon::prelude::*;
 use std::time::Instant;
-use tracing::debug;
+use tracing::{debug, trace};
 
 const FRAME_COLOR_RETAIN_RATIO: f32 = 0.50;
 const EDGE_RETAIN_RATIO: f32 = 2.0 / 3.0;
@@ -115,7 +115,7 @@ impl FixedEdgeProfiles {
             })
             .collect::<Vec<_>>();
         let vertical_offsets = vertical_tangent_offsets(params);
-        debug!(
+        trace!(
             horizontal_points = horizontal
                 .iter()
                 .map(|profile| profile.samples.len())
@@ -545,9 +545,16 @@ pub(super) fn select_rows<const N: usize>(
         final_rows = selected.len(),
         rows = %format_args!("{:.3?}", selected
             .iter()
-            .map(|row| (row.y, row.score, row.slots))
+            .map(|row| (row.y, row.score))
             .collect::<Vec<_>>()),
         "fixed list rows selected"
+    );
+    trace!(
+        rows = %format_args!("{:.3?}", selected
+            .iter()
+            .map(|row| (row.y, row.score, row.slots))
+            .collect::<Vec<_>>()),
+        "fixed list row evidence"
     );
 
     selected

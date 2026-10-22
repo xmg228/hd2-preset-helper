@@ -56,7 +56,7 @@ impl AppController {
         let language_result = self.ui.set_language(draft.language);
         self.ui.settings_saved(&self.shortcut_bindings);
         if let Err(error) = language_result {
-            tracing::warn!(%error, "settings saved but language change failed");
+            tracing::warn!(error = %format!("{error:#}"), "settings saved but language change failed");
             self.ui.set_status(&format!(
                 "Settings saved, but language change failed: {error:#}"
             ));
@@ -64,7 +64,7 @@ impl AppController {
         if self.ui.monitor() != draft.monitor
             && let Err(error) = self.ui.set_monitor(draft.monitor)
         {
-            tracing::warn!(%error, "settings saved but window placement failed");
+            tracing::warn!(error = %format!("{error:#}"), "settings saved but window placement failed");
             self.ui.set_status(&format!(
                 "Settings saved, but window placement failed: {error:#}"
             ));

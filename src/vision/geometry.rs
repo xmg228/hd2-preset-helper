@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::{Result, bail};
 use image::RgbaImage;
 use rayon::prelude::*;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use super::borders::{
     FixedEdgeProfiles, SamplingParams, SlotScratch, mean_rgb, round_ties_even, score_slot_direct,
@@ -117,8 +117,11 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
     debug!(
         y = best.y,
         home_score = best.score,
-        slots = %format_args!("{:.3?}", best.slots),
         "fixed home frame selected"
+    );
+    trace!(
+        slots = %format_args!("{:.3?}", best.slots),
+        "fixed home frame evidence"
     );
 
     let supported = best.slots.map(|slot| slot.q >= HOME_SCORE_THRESHOLD);
@@ -250,7 +253,7 @@ fn refine_row_aa(
     let raw_y = estimate_row_aa(image, nominal_y, supported, columns, params)?;
     let residual = raw_y - nominal_y;
     if residual.abs() <= AA_MAX_RESIDUAL {
-        debug!(
+        trace!(
             nominal_y,
             residual,
             reanchored = false,

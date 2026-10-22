@@ -101,7 +101,9 @@ pub fn resolve_bounds(id: Option<&str>, fallback_window: Option<HWND>) -> Result
                     return Ok(monitor.bounds);
                 }
             }
-            Err(error) => tracing::debug!(%error, "monitor lookup unavailable; using fallback"),
+            Err(error) => {
+                tracing::debug!(error = %format!("{error:#}"), "monitor lookup unavailable; using fallback")
+            }
         }
     }
     let monitor = unsafe {

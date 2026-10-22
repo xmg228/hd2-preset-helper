@@ -1,5 +1,5 @@
 //! Disposable JSON cache: complete orders plus Base64-encoded PNG foreground signatures.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
@@ -39,10 +39,18 @@ impl EquipmentCache {
             let bytes = match fs::read(path) {
                 Ok(bytes) => bytes,
                 Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Self::default()),
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(error).context("failed to read equipment cache"),
             };
-            let file: File = serde_json::from_slice(&bytes)?;
-            ensure!(file.version == VERSION, "equipment cache format changed");
+            let file: File =
+                serde_json::from_slice(&bytes).context("failed to parse equipment cache")?;
+            if file.version != VERSION {
+                tracing::info!(
+                    saved_version = file.version,
+                    expected_version = VERSION,
+                    "equipment cache format changed; categories will be learned again"
+                );
+                return Ok(Self::default());
+            }
             let mut cache = Self::default();
             for (scale, saved_kinds) in file.scales {
                 let kinds = cache.scales.entry(scale).or_default();
@@ -56,11 +64,15 @@ impl EquipmentCache {
                             "invalid equipment cache references"
                         );
                         categories.push(Category {
-                            title: decode(&entry.title)?,
+                            title: decode(&entry.title)
+                                .context("failed to decode equipment cache category heading")?,
                             names: entry
                                 .names
                                 .iter()
-                                .map(|png| decode(png))
+                                .map(|png| {
+                                    decode(png)
+                                        .context("failed to decode equipment cache item name")
+                                })
                                 .collect::<Result<_>>()?,
                             order: entry.order,
                             previous: entry.previous,
@@ -71,6 +83,7 @@ impl EquipmentCache {
                 }
             }
             tracing::info!(
+                version = VERSION,
                 scales = cache.scales.len(),
                 categories = cache
                     .scales
@@ -84,7 +97,7 @@ impl EquipmentCache {
             Ok(cache)
         })();
         result.unwrap_or_else(|error| {
-            tracing::warn!(%error, "equipment cache ignored; categories will be learned again");
+            tracing::warn!(path = %path.display(), error = %format!("{error:#}"), "equipment cache ignored; categories will be learned again");
             Self::default()
         })
     }
@@ -115,11 +128,15 @@ impl EquipmentCache {
                 }
             }
             if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent).context("failed to create equipment cache directory")?;
             }
             let temporary = path.with_extension("tmp");
-            fs::write(&temporary, serde_json::to_vec(&file)?)?;
-            fs::rename(temporary, path)?;
+            fs::write(
+                &temporary,
+                serde_json::to_vec(&file).context("failed to serialize equipment cache")?,
+            )
+            .with_context(|| format!("failed to write {}", temporary.display()))?;
+            fs::rename(temporary, path).context("failed to replace equipment cache")?;
             Ok(())
         })();
         match result {
@@ -127,7 +144,9 @@ impl EquipmentCache {
                 self.dirty = false;
                 tracing::debug!("equipment cache saved");
             }
-            Err(error) => tracing::warn!(%error, "equipment cache could not be saved"),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), error = %format!("{error:#}"), "equipment cache could not be saved")
+            }
         }
     }
 }
@@ -136,7 +155,8 @@ fn encode(signature: &TextSignature) -> Result<String> {
     let mut bytes = Cursor::new(Vec::new());
     signature
         .foreground()
-        .write_to(&mut bytes, ImageFormat::Png)?;
+        .write_to(&mut bytes, ImageFormat::Png)
+        .context("failed to encode equipment cache signature")?;
     Ok(STANDARD.encode(bytes.into_inner()))
 }
 

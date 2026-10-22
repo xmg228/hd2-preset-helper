@@ -1,7 +1,7 @@
 //! Connect equipment automation to persistent presets and application feedback.
 use std::path::Path;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 
 use super::{PresetActionContext, PresetActionOutcome, PresetCommand};
 use crate::{
@@ -26,10 +26,12 @@ pub(super) fn execute(
 ) -> Result<(PresetActionOutcome, PresetCompletion)> {
     if command == PresetCommand::SaveEquipment {
         let items = sample(capture, target, colors, context)?;
-        storage::save(context.presets, preset, &items)?;
+        storage::save(context.presets, preset, &items)
+            .context("failed to save equipment preset")?;
         Ok((PresetActionOutcome::Saved, PresetCompletion::Saved))
     } else {
-        let items = storage::load(context.presets, preset)?;
+        let items =
+            storage::load(context.presets, preset).context("failed to load equipment preset")?;
         apply(capture, target, colors, context, preset, &items)?;
         Ok((
             PresetActionOutcome::Applied,
@@ -91,9 +93,9 @@ pub(super) fn apply(
                             client_size,
                         ) {
                             Ok(()) => {
-                                tracing::info!(preset, ?kind, "saved corrected equipment category")
+                                tracing::info!("saved corrected equipment category")
                             }
-                            Err(error) => tracing::warn!(preset, ?kind, %error,
+                            Err(error) => tracing::warn!(path = %context.presets.display(), error = %format!("{error:#}"),
                                 "equipment applied, but its corrected category could not be saved"),
                         }
                     }
@@ -131,7 +133,7 @@ fn with_session<T>(
             .join("equipment")
             .join(stamp.to_string());
         Diagnostics::new(&directory).unwrap_or_else(|error| {
-            tracing::warn!(%error, "equipment diagnostics unavailable");
+            tracing::warn!(path = %directory.display(), error = %format!("{error:#}"), "equipment diagnostics unavailable");
             Diagnostics::default()
         })
     };

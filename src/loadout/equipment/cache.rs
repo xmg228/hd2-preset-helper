@@ -83,8 +83,18 @@ impl Category {
             .first()
             .filter(|(_, s)| *s >= NAME_IDENTITY_THRESHOLD)
         {
-            return (score - scores.get(1).map_or(0.0, |entry| entry.1) >= NAME_MATCH_MARGIN)
-                .then_some(index);
+            let margin = score - scores.get(1).map_or(0.0, |entry| entry.1);
+            if margin < NAME_MATCH_MARGIN {
+                tracing::debug!(
+                    best_name = index,
+                    best_cosine = score,
+                    runner_up_cosine = scores.get(1).map(|entry| entry.1),
+                    margin,
+                    required_margin = NAME_MATCH_MARGIN,
+                    "equipment cache identity is ambiguous"
+                );
+            }
+            return (margin >= NAME_MATCH_MARGIN).then_some(index);
         }
         // A moderately similar name may be a different item. Keep its own evidence.
         self.names.push(name.clone());
@@ -157,9 +167,14 @@ impl SearchCache<'_> {
                 .first()
                 .is_some_and(|entry| entry.title.cosine(title) < CATEGORY_IDENTITY_THRESHOLD)
         {
+            tracing::debug!(
+                heading_cosine = self.categories[0].title.cosine(title),
+                identity_threshold = CATEGORY_IDENTITY_THRESHOLD,
+                "equipment cache heading rejected"
+            );
             self.categories.clear();
             *self.dirty = true;
-            tracing::info!(kind = ?self.kind, "equipment heading changed; rebuilding this cache");
+            tracing::info!("equipment heading changed; rebuilding this cache");
         }
         // Only a strong, same-scale heading match can reuse a map identity.
         let category = if self.kind.has_categories() {
@@ -182,7 +197,7 @@ impl SearchCache<'_> {
         let width = page.slots.iter().filter(|s| s.row == focus.row).count();
         let name = self.categories[category]
             .identify(page.name.signature())
-            .context("equipment name matches multiple cached identities; search stopped")?;
+            .with_context(|| format!("equipment name matches multiple cached identities in category {category}; search stopped"))?;
         let key = navigation.and_then(|n| match n.action {
             InputAction::Key(k) => Some(k),
             _ => None,
@@ -433,9 +448,21 @@ impl SearchCache<'_> {
             .collect::<Vec<_>>();
         scores.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
         let best = *scores.first()?;
-        (best.score >= NAME_MATCH_THRESHOLD
-            && best.score - scores.get(1).map_or(0.0, |entry| entry.score) >= NAME_MATCH_MARGIN)
-            .then_some(best)
+        let margin = best.score - scores.get(1).map_or(0.0, |entry| entry.score);
+        let accepted = best.score >= NAME_MATCH_THRESHOLD && margin >= NAME_MATCH_MARGIN;
+        if !accepted {
+            tracing::debug!(
+                category = best.category,
+                best_name = best.name,
+                best_cosine = best.score,
+                runner_up_cosine = scores.get(1).map(|entry| entry.score),
+                margin,
+                match_threshold = NAME_MATCH_THRESHOLD,
+                required_margin = NAME_MATCH_MARGIN,
+                "equipment cache target rejected"
+            );
+        }
+        accepted.then_some(best)
     }
 
     pub fn take_order(&mut self, category: usize) -> Vec<Name> {
@@ -541,6 +568,11 @@ impl SearchCache<'_> {
         let (cost, action) = best?;
         tracing::debug!(
             action = action.name(),
+            column = action.column(),
+            category = current.category,
+            observed_position = current.position,
+            target_category = target.category,
+            target_name = target.name,
             estimated_inputs = cost,
             "using cached equipment route"
         );

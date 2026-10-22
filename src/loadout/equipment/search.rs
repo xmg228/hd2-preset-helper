@@ -118,6 +118,23 @@ impl<'a> Search<'a> {
         if let Next::Input(InputAction::ClickColumn(col)) = next {
             self.expected_col = Some(col);
         }
+        tracing::debug!(
+            visit = self.visits,
+            phase = ?self.phase,
+            category = location.category,
+            row = focus.row,
+            col = focus.col,
+            observed_position = location.position,
+            target_cosine = score,
+            category_cosine,
+            next = match next {
+                Next::Input(action) => action.name(),
+                Next::Found => "found",
+                Next::NotFound => "not_found",
+            },
+            column = match next { Next::Input(action) => action.column(), _ => None },
+            "equipment search observation"
+        );
         Ok((
             Visit {
                 index: self.visits,
@@ -261,9 +278,20 @@ impl<'a> Search<'a> {
                     && navigation.is_none_or(|n| !n.retried)
                 {
                     self.phase = Phase::Repair;
+                    tracing::info!(
+                        category = location.category,
+                        mode = "repair",
+                        known_slots = old.len(),
+                        "equipment category survey started"
+                    );
                     Survey::repair(location, self.cache.kind.list_columns(), old)
                 } else {
                     self.phase = Phase::Scan;
+                    tracing::info!(
+                        category = location.category,
+                        mode = "build",
+                        "equipment category survey started"
+                    );
                     Survey::build(location, self.cache.kind.list_columns())
                 },
             );
@@ -302,6 +330,16 @@ impl<'a> Search<'a> {
     fn route(&mut self, location: Location, target: Target, score: f32) -> Result<Next> {
         self.phase = Phase::Cached;
         if location.name == target.name {
+            if score < NAME_MATCH_THRESHOLD {
+                tracing::debug!(
+                    category = location.category,
+                    name = location.name,
+                    position = location.position,
+                    target_cosine = score,
+                    match_threshold = NAME_MATCH_THRESHOLD,
+                    "mapped equipment target rejected"
+                );
+            }
             ensure!(
                 score >= NAME_MATCH_THRESHOLD,
                 "mapped equipment target did not match its saved name"

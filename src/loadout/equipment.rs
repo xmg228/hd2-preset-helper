@@ -50,6 +50,13 @@ impl InputAction {
             Self::ClickColumn(_) => "Click",
         }
     }
+
+    pub fn column(self) -> Option<usize> {
+        match self {
+            Self::ClickColumn(col) => Some(col),
+            Self::Key(_) => None,
+        }
+    }
 }
 
 const NAVIGATION_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -154,6 +161,8 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         self.diagnostics
             .record(|| json!({"event":"remember_all_start", "client_size":self.client_size}));
         for kind in EquipmentKind::ALL {
+            let span = tracing::info_span!("equipment_item", ?kind);
+            let _guard = span.enter();
             let item = (|| -> Result<EquipmentItem> {
                 self.check_active()?;
                 self.diagnostics
@@ -172,7 +181,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 format!("failed to remember {kind:?}; previous equipment records retained")
             })?;
             items[kind.index()] = Some(item);
-            tracing::info!(?kind, completed = kind.index() + 1, "equipped item sampled");
+            tracing::debug!(completed = kind.index() + 1, "equipped item sampled");
         }
         self.check_active()?;
         self.diagnostics.record(|| {
@@ -200,6 +209,8 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             || json!({"event":"apply_start", "kinds":EquipmentKind::ALL, "from_entry":true}),
         );
         for kind in EquipmentKind::ALL {
+            let span = tracing::info_span!("equipment_item", ?kind);
+            let _guard = span.enter();
             progress(ApplyProgress::Selecting(kind));
             self.diagnostics
                 .record(|| json!({"event":"apply_item_start", "kind":kind}));
@@ -218,13 +229,13 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             });
             self.diagnostics
                 .record(|| json!({"event":"apply_item_completed", "kind":kind}));
-            tracing::info!(?kind, "equipment item applied");
+            tracing::info!("equipment item applied");
         }
         self.diagnostics.record(|| {
             json!({"event":"apply_completed", "from_entry":true,
             "elapsed_ms":started.elapsed().as_secs_f64()*1000.0})
         });
-        tracing::info!("equipment application completed");
+        tracing::debug!("equipment application completed");
         Ok(())
     }
 
@@ -295,8 +306,12 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 }
             }
         })();
-        self.diagnostics
-            .finish_search(target, &result, started.elapsed().as_secs_f64() * 1000.0);
+        self.diagnostics.finish_search(
+            kind,
+            target,
+            &result,
+            started.elapsed().as_secs_f64() * 1000.0,
+        );
         result
     }
 }

@@ -139,12 +139,13 @@ pub fn wait_for_stable_ui_state(
         let current_state = detect_ui_state(&result);
 
         // Content requirements must hold on both stable observations.
-        if current_state == target_state && accept(&result) {
+        let content_accepted = current_state == target_state && accept(&result);
+        let distance = if content_accepted {
             let signature = ui_stability_signature(&result)?;
-            if let Some(distance) = stable_candidate
+            let distance = stable_candidate
                 .as_ref()
-                .and_then(|previous| signature_distance(previous, &signature))
-            {
+                .and_then(|previous| signature_distance(previous, &signature));
+            if let Some(distance) = distance {
                 if distance <= stable_distance {
                     debug!(
                         target: "hd2_preset_helper::perf",
@@ -174,9 +175,11 @@ pub fn wait_for_stable_ui_state(
             }
 
             stable_candidate = Some(signature);
+            distance
         } else {
             stable_candidate = None;
-        }
+            None
+        };
 
         trace!(
             attempt,
@@ -190,6 +193,18 @@ pub fn wait_for_stable_ui_state(
                 target_state = %target_state.label(),
                 last_state = %current_state.label(),
                 last_slot_count = result.slots.len(),
+                content_accepted,
+                distance,
+                threshold = stable_distance,
+                reason = if current_state != target_state {
+                    "state_not_detected"
+                } else if !content_accepted {
+                    "content_not_accepted"
+                } else if distance.is_none() {
+                    "awaiting_second_observation"
+                } else {
+                    "unstable"
+                },
                 elapsed_s = start.elapsed().as_secs_f64(),
                 "timed out waiting for stable UI state"
             );

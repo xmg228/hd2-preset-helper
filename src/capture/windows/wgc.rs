@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use image::RgbaImage;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 use windows::Foundation::TypedEventHandler;
 use windows::Graphics::Capture::{
     Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureAccess,
@@ -293,15 +293,13 @@ impl WgcCapture {
             .CreateCaptureSession(&item)
             .context("failed to create WGC session")?;
         let _ = session.SetIsCursorCaptureEnabled(false);
-        if request_wgc_borderless_access() {
-            if let Err(error) = session.SetIsBorderRequired(false) {
-                warn!(
-                    error = ?error,
-                    "WGC borderless access was allowed but SetIsBorderRequired(false) failed"
-                );
-            }
-        } else {
-            debug!("WGC borderless access is unavailable; the yellow border may remain visible");
+        if request_wgc_borderless_access()
+            && let Err(error) = session.SetIsBorderRequired(false)
+        {
+            warn!(
+                error = ?error,
+                "WGC borderless access was allowed but SetIsBorderRequired(false) failed"
+            );
         }
         session
             .StartCapture()
@@ -685,7 +683,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
                 height,
                 "saved raw WGC FP16 frame"
             ),
-            Err(error) => warn!(error = ?error, "failed to save raw WGC FP16 frame"),
+            Err(error) => warn!(error = %format!("{error:#}"), "failed to save raw WGC FP16 frame"),
         }
     }
 
@@ -693,7 +691,7 @@ fn read_d3d11_texture_region_to_rgba_cached(
         .context("failed to build RGBA image from D3D11 texture")?;
 
     let total = t0.elapsed();
-    debug!(
+    trace!(
         target: "hd2_preset_helper::perf",
         total_s = total.as_secs_f64(),
         staging_s = t_staging.as_secs_f64(),

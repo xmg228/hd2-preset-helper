@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail, ensure};
-use tracing::{debug, info, info_span};
+use tracing::{debug, info};
 
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::capture::CaptureSessionManager;
@@ -57,11 +57,8 @@ pub fn execute_preset(
     capture_session: &mut CaptureSessionManager,
     expected_window: crate::window::WindowIdentity,
 ) -> Result<PresetActionOutcome> {
-    let span = info_span!("preset_action");
-    let _guard = span.enter();
-
     let action_start = Instant::now();
-    info!(preset = %preset_name, ?command, "preset action started");
+    info!("preset action started");
     context.events.emit(AppEvent::PresetStarted {
         preset: preset_name.to_string(),
     });
@@ -79,6 +76,7 @@ pub fn execute_preset(
     } else {
         command
     };
+    debug!(resolved_command = ?command, "preset action scope resolved");
 
     let game_window =
         wait_for_foreground_game_window().context("failed to locate Helldivers window")?;
@@ -147,10 +145,14 @@ pub fn execute_preset(
         }
         PresetCommand::ApplySaved(_) => unreachable!("saved sections are resolved before dispatch"),
     };
+    info!(
+        elapsed_s = action_start.elapsed().as_secs_f64(),
+        ?completion,
+        "preset action completed"
+    );
     context.events.emit(AppEvent::PresetDone {
         preset: preset_name.to_string(),
         completion,
     });
-    info!(preset = %preset_name, elapsed_s = action_start.elapsed().as_secs_f64(), "preset action completed");
     Ok(outcome)
 }

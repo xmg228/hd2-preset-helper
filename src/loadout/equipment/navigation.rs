@@ -31,6 +31,13 @@ impl Session<'_, '_> {
         let previous_release_ms = self
             .last_release
             .map(|released| started.duration_since(released).as_secs_f64() * 1000.0);
+        tracing::debug!(
+            action = action.name(),
+            column = action.column(),
+            x = point.map(|point| point.0),
+            y = point.map(|point| point.1),
+            "sending equipment input"
+        );
         match action {
             InputAction::Key(key) => self.automation.tap_key(key, INPUT_HOLD_MS)?,
             InputAction::ClickColumn(_) => self.automation.click_current(INPUT_HOLD_MS)?,
@@ -39,7 +46,7 @@ impl Session<'_, '_> {
         self.last_release = Some(released);
         let input_ms = released.duration_since(started).as_secs_f64() * 1000.0;
         self.diagnostics.record(|| {
-            json!({"event":"input", "action":action.name(), "point":point,
+            json!({"event":"input", "action":action.name(), "column":action.column(), "point":point,
             "input_ms":input_ms, "previous_release_ms":previous_release_ms})
         });
         Ok((started, input_ms))
@@ -115,6 +122,7 @@ impl Session<'_, '_> {
         };
         self.check_active()?;
         let point = entry.point(kind);
+        tracing::debug!(x = point.0, y = point.1, "opening equipment list");
         self.automation.click(point, INPUT_HOLD_MS)?;
         self.diagnostics
             .record(|| json!({"event":"entry_open_sent", "point":point, "entry":entry}));
@@ -172,7 +180,10 @@ impl Session<'_, '_> {
                     .save_entry(&frame, &entry, "entry-returned");
                 self.page = self.observer.observe(&frame);
                 self.frame = frame;
-                tracing::debug!("equipment entry confirmed");
+                tracing::debug!(
+                    elapsed_s = started.elapsed().as_secs_f64(),
+                    "equipment entry confirmed"
+                );
                 return Ok(());
             }
             if started.elapsed() >= NAVIGATION_TIMEOUT {
@@ -203,6 +214,7 @@ impl Session<'_, '_> {
     }
 
     fn hover_column(&mut self, col: usize) -> Result<(u32, u32)> {
+        tracing::debug!(column = col, "waiting for equipment column hover");
         let started = Instant::now();
         let mut cursor: Option<(u32, u32)> = None;
         loop {
@@ -220,7 +232,11 @@ impl Session<'_, '_> {
                     .iter()
                     .enumerate()
                     .find(|(_, slot)| slot.row == row && slot.col == col)
-                    .context("requested equipment column is no longer visible")?;
+                    .with_context(|| {
+                        format!(
+                            "requested equipment column {col} is no longer visible in row {row}"
+                        )
+                    })?;
                 let point = slot.center();
                 if cursor.is_none_or(|old| {
                     point.0.abs_diff(old.0).max(point.1.abs_diff(old.1)) as f64
@@ -330,6 +346,11 @@ impl Session<'_, '_> {
                     };
                 tracing::debug!(
                     action = action.name(),
+                    column = action.column(),
+                    focus = self.page.focus,
+                    hover = self.page.hover,
+                    row = self.page.focus.map(|index| self.page.slots[index].row),
+                    col = self.page.focus.map(|index| self.page.slots[index].col),
                     elapsed_s = elapsed_ms / 1000.0,
                     stable_s = stable_ms.map(|ms| ms / 1000.0),
                     name_cosine = change.name_cosine,
@@ -345,6 +366,18 @@ impl Session<'_, '_> {
                 });
             }
             if started.elapsed() >= timeout {
+                tracing::debug!(
+                    action = action.name(),
+                    column = action.column(),
+                    elapsed_s = started.elapsed().as_secs_f64(),
+                    name_cosine = change.name_cosine,
+                    category_cosine = change.category_cosine,
+                    focus_changed = change.focus_changed,
+                    list_moved,
+                    responded,
+                    retried,
+                    "equipment input confirmation timed out"
+                );
                 self.diagnostics.save(
                     &self.frame,
                     &self.page,
@@ -403,7 +436,7 @@ impl Session<'_, '_> {
             self.diagnostics.record(
                 || json!({"event":"already_equipped", "page":diagnostics::describe(&self.page)}),
             );
-            tracing::info!("target already equipped; skipping Space");
+            tracing::debug!("target already equipped; skipping Space");
         } else {
             let before = self.page.clone();
             let action = InputAction::Key(Key::Space);
@@ -423,10 +456,20 @@ impl Session<'_, '_> {
     }
 
     fn confirm_target(&mut self, target: &EquipmentItem, require_equipped: bool) -> Result<()> {
-        let matches =
-            self.page.ready() && self.page.name.cosine(&target.name) >= NAME_MATCH_THRESHOLD;
+        let score = self
+            .page
+            .ready()
+            .then(|| self.page.name.cosine(&target.name));
+        let matches = score.is_some_and(|score| score >= NAME_MATCH_THRESHOLD);
         let equipped = self.page.focus.is_some_and(|i| self.page.slots[i].equipped);
         if !matches || require_equipped && !equipped {
+            tracing::debug!(
+                name_cosine = score,
+                match_threshold = NAME_MATCH_THRESHOLD,
+                require_equipped,
+                equipped,
+                "equipment target confirmation rejected"
+            );
             self.diagnostics
                 .save(&self.frame, &self.page, "equip-target-lost");
             bail!("equipment target or its confirmed marker changed; input was not sent");

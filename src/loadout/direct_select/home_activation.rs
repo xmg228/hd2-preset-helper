@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use tracing::{debug, debug_span, warn};
+use tracing::{debug, debug_span};
 
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
@@ -72,7 +72,7 @@ pub(super) fn open_slot_list(
             let home = scan_loadout_home(automation, recognizer)?;
             if detect_ui_state(&home) == UiState::Home && started.elapsed() < LIST_OPEN_TIMEOUT {
                 click_attempts += 1;
-                warn!(
+                debug!(
                     item_kind = %target.item_kind.label(),
                     click_attempts,
                     elapsed_s = started.elapsed().as_secs_f64(),

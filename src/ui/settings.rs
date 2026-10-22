@@ -160,7 +160,9 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
     #[cfg(target_os = "windows")]
     match super::windows::monitor_choices() {
         Ok(available) => monitors.extend(available),
-        Err(error) => tracing::warn!(%error, "could not list displays for settings"),
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "could not list displays for settings")
+        }
     }
     let selected = monitors
         .iter()

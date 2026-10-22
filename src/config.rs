@@ -390,7 +390,7 @@ pub fn load_app_config(config_path: &Path) -> Result<(AppConfig, bool)> {
         }
         fs::write(config_path, DEFAULT_CONFIG_TOML)
             .with_context(|| format!("failed to create {}", config_path.display()))?;
-        info!(path = %config_path.display(), "default configuration created");
+        info!("default configuration created");
     }
     let text = fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;

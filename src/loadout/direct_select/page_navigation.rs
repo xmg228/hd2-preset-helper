@@ -238,6 +238,14 @@ impl PageNavigator {
             } else {
                 same_viewport_frames = 0;
                 if start.elapsed() >= PAGE_TURN_ALIGNMENT_TIMEOUT && observations >= 2 {
+                    debug!(
+                        observations,
+                        slots = page.slot_samples.len(),
+                        fingerprint_distance = distance,
+                        elapsed_s = start.elapsed().as_secs_f64(),
+                        timeout_s = PAGE_TURN_ALIGNMENT_TIMEOUT.as_secs_f64(),
+                        "page turn placement remained unconfirmed"
+                    );
                     return Ok((page, None));
                 }
             }
@@ -275,7 +283,16 @@ impl PageNavigator {
                 let response = if slot.kind == SlotKind::NoBoosterOption {
                     vec![0; (core.w * core.h) as usize]
                 } else {
-                    self.classifier.alignment_response(&roi.image, slot)?
+                    self.classifier
+                        .alignment_response(&roi.image, slot)
+                        .with_context(|| {
+                            format!(
+                                "failed to sample {} slot row {} col {} for map alignment",
+                                self.item_kind.label(),
+                                slot.row,
+                                slot.col
+                            )
+                        })?
                 };
                 let (center_x, center_y) = slot.center_f32();
                 Ok(SlotSample {

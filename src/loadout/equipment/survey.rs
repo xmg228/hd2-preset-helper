@@ -44,10 +44,6 @@ pub(super) struct Survey {
 
 impl Survey {
     pub fn build(location: Location, columns: usize) -> Self {
-        tracing::info!(
-            category = location.category,
-            "scanning complete equipment category"
-        );
         Self {
             category: location.category,
             columns,
@@ -76,12 +72,6 @@ impl Survey {
             .chain(location.known)
             .max()
             .unwrap_or(0);
-        tracing::info!(
-            category = location.category,
-            left_limit,
-            right_limit,
-            "repairing equipment order from live rows"
-        );
         Self {
             purpose: Purpose::Repair {
                 old,
@@ -96,6 +86,11 @@ impl Survey {
 
     pub fn advance(&mut self, location: Location, navigation: Option<Navigation>) -> Step {
         if navigation.is_some_and(|n| n.retried) {
+            tracing::debug!(
+                category = self.category,
+                reason = "input_retried",
+                "equipment survey continuity rejected"
+            );
             return Step::Rebuild;
         }
         let key = navigation.and_then(|n| match n.action {
@@ -105,6 +100,12 @@ impl Survey {
         if self.returning {
             self.returning = false;
             if location.category != self.category {
+                tracing::debug!(
+                    category = self.category,
+                    observed_category = location.category,
+                    reason = "return_category_changed",
+                    "equipment survey continuity rejected"
+                );
                 return Step::Rebuild;
             }
             self.row.clear();
@@ -140,13 +141,27 @@ impl Survey {
                 Purpose::Repair { .. } if direction == Key::Down => {
                     return self.finish_tail(location);
                 }
-                _ => return Step::Rebuild,
+                _ => {
+                    tracing::debug!(
+                        category = self.category,
+                        ?direction,
+                        reason = "unexpected_boundary",
+                        "equipment survey continuity rejected"
+                    );
+                    return Step::Rebuild;
+                }
             }
         } else if matches!(key, Some(Key::Up | Key::Down)) {
             self.at += if key == Some(Key::Down) { 1 } else { -1 };
             self.row.clear();
         }
         if location.category != self.category {
+            tracing::debug!(
+                category = self.category,
+                observed_category = location.category,
+                reason = "category_changed",
+                "equipment survey continuity rejected"
+            );
             return Step::Rebuild;
         }
         if self.row.is_empty() {
@@ -160,6 +175,13 @@ impl Survey {
             self.reverse = location.col * 2 > location.width - 1;
         }
         if self.row.len() != location.width {
+            tracing::debug!(
+                category = self.category,
+                expected_width = self.row.len(),
+                observed_width = location.width,
+                reason = "row_width_changed",
+                "equipment survey continuity rejected"
+            );
             return Step::Rebuild;
         }
         self.row[location.col] = Some(location.name);
@@ -258,7 +280,8 @@ impl Survey {
         {
             return None;
         }
-        tracing::info!(
+        tracing::debug!(
+            category = self.category,
             old_start,
             old_end,
             old_slots = old.len(),
@@ -279,15 +302,29 @@ impl Survey {
             ..
         } = &self.purpose
         else {
+            tracing::debug!(
+                category = self.category,
+                reason = "tail_without_left_anchor",
+                "equipment survey continuity rejected"
+            );
             return Step::Rebuild;
         };
         let observed = self.flatten(*start, self.at + 1);
         if !real_head && !subsequence(&old[*old_start..], &observed) {
+            tracing::debug!(
+                category = self.category,
+                old_start,
+                old_slots = old.len(),
+                observed_slots = observed.len(),
+                reason = "old_tail_order_changed",
+                "equipment survey continuity rejected"
+            );
             return Step::Rebuild;
         }
         let mut order = old[..*old_start].to_vec();
         order.extend(observed);
-        tracing::info!(
+        tracing::debug!(
+            category = self.category,
             old_start,
             old_slots = old.len(),
             slots = order.len(),
