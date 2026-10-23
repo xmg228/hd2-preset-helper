@@ -82,7 +82,7 @@ impl AppController {
             Ok(target) => target,
             Err(error) => {
                 error!(%preset, ?command, error = %format!("{error:#}"), "could not locate game window for preset action");
-                save_failure_report(&self.paths.last_failure, None);
+                save_failure_report(&self.paths.last_failure, &preset, command, &error, None);
                 self.ui.event(AppEvent::PresetCancelled {
                     preset,
                     reason: format!("{error:#}"),
@@ -301,7 +301,7 @@ impl AppController {
             Ok(target) => target,
             Err(error) => {
                 error!(%preset, ?command, error = %format!("{error:#}"), "could not activate game window for preset action");
-                save_failure_report(&self.paths.last_failure, None);
+                save_failure_report(&self.paths.last_failure, &preset, command, &error, None);
                 self.ui.hide_panel()?;
                 self.panel_return_target = None;
                 self.ui.event(AppEvent::PresetCancelled {

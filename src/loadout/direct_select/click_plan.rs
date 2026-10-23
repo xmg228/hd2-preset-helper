@@ -8,8 +8,6 @@ pub(super) struct DirectClickTarget {
     pub(super) match_margin: f32,
     pub(super) gate_quality: f32,
     pub(super) slot: Slot,
-    #[cfg(feature = "diagnostics")]
-    pub(super) fallback: bool,
 }
 
 pub(super) fn next_visible_target(
@@ -47,8 +45,6 @@ pub(super) fn find_visible_target(
                 match_margin: classification.match_margin,
                 gate_quality: classification.gate_quality,
                 slot: slot.clone(),
-                #[cfg(feature = "diagnostics")]
-                fallback: false,
             })
         })
         .max_by(|left, right| {

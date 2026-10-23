@@ -64,36 +64,32 @@ pub fn clear_recent() {
     }
 }
 
-pub fn save_recent(path: &Path) -> Result<()> {
-    let snapshot = {
-        let recent = RECENT_LOG
-            .lock()
-            .map_err(|_| anyhow::anyhow!("recent log lock was poisoned"))?;
-        let mut bytes = Vec::with_capacity(recent.bytes + 256);
+pub fn recent_snapshot() -> Result<Vec<u8>> {
+    let recent = RECENT_LOG
+        .lock()
+        .map_err(|_| anyhow::anyhow!("recent log lock was poisoned"))?;
+    let mut bytes = Vec::with_capacity(recent.bytes + 256);
+    writeln!(
+        bytes,
+        "# HD2 Preset Helper v{} diagnostics={}",
+        env!("CARGO_PKG_VERSION"),
+        cfg!(feature = "diagnostics")
+    )?;
+    writeln!(
+        bytes,
+        "# Logs since request start; up to 1 MiB, may be truncated."
+    )?;
+    if recent.omitted > 0 {
         writeln!(
             bytes,
-            "# HD2 Preset Helper v{} diagnostics={}",
-            env!("CARGO_PKG_VERSION"),
-            cfg!(feature = "diagnostics")
+            "# {} earlier or oversized events omitted.",
+            recent.omitted
         )?;
-        writeln!(
-            bytes,
-            "# Logs since request start; up to 1 MiB, may be truncated."
-        )?;
-        if recent.omitted > 0 {
-            writeln!(
-                bytes,
-                "# {} earlier or oversized events omitted.",
-                recent.omitted
-            )?;
-        }
-        for event in &recent.events {
-            bytes.extend_from_slice(event);
-        }
-        bytes
-    };
-    fs::write(path, snapshot)
-        .with_context(|| format!("failed to write recent log {}", path.display()))
+    }
+    for event in &recent.events {
+        bytes.extend_from_slice(event);
+    }
+    Ok(bytes)
 }
 
 struct RecentLog {

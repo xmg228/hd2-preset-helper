@@ -7,7 +7,7 @@ mod windows;
 #[cfg(target_os = "windows")]
 use windows::settings_path as platform_settings_path;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct GameColorSettings {
     pub hdr_enabled: bool,
     pub screen_brightness: f32,

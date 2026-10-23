@@ -81,7 +81,8 @@ folder to keep them.
 
 If a shortcut does not work, check for conflicts in **Settings → Shortcuts**.
 
-For bug reports, include `data/app.log`, the resolution and display mode,
+For save or apply failures, attach `data/last_failure.zip` to your bug report.
+For other bug reports, include `data/app.log`, the resolution and display mode,
 Windows scaling and HDR status, and a screenshot of the affected screen.
 
 ## Building from source

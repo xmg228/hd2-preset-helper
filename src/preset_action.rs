@@ -47,6 +47,7 @@ pub(crate) struct PresetActionContext<'a> {
     pub options: PresetActionOptions,
     pub events: &'a AppEventSink,
     pub equipment_cache: &'a mut crate::loadout::equipment::EquipmentCache,
+    pub evidence: &'a crate::evidence::OperationEvidence,
 }
 
 pub fn execute_preset(
@@ -98,6 +99,14 @@ pub fn execute_preset(
     );
     let game_color_settings =
         read_color_settings().context("failed to read Helldivers color settings")?;
+    context.evidence.record(
+        "action-context",
+        None,
+        serde_json::json!({
+            "client_size": [client_w, client_h], "game_colors": game_color_settings,
+            "resolved_command": format!("{command:?}"),
+        }),
+    );
     let (outcome, completion) = match command {
         PresetCommand::SaveFull | PresetCommand::ApplyFull => combined::execute(
             runtime,
@@ -115,6 +124,7 @@ pub fn execute_preset(
                 &game_window,
                 game_color_settings,
                 Page::Stratagems,
+                context.evidence,
             )?;
             stratagems::execute(
                 runtime,
@@ -133,6 +143,7 @@ pub fn execute_preset(
                 &game_window,
                 game_color_settings,
                 Page::Equipment,
+                context.evidence,
             )?;
             equipment::execute(
                 capture,

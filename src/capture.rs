@@ -3,6 +3,7 @@ mod windows;
 
 use anyhow::Result;
 use image::RgbaImage;
+use std::{ops::Deref, sync::Arc, time::Instant};
 
 use crate::game_settings::GameColorSettings;
 use crate::image_rect::ImageRect;
@@ -18,6 +19,25 @@ use windows::{ColorNormalizer as PlatformColors, WindowsCapture as PlatformCaptu
 
 pub struct CaptureSource {
     platform: PlatformCapture,
+    next_frame: u64,
+}
+
+/// The exact normalized ROI delivered to recognition. Cloning shares pixels.
+#[derive(Clone, Debug)]
+pub struct CapturedFrame {
+    pub id: u64,
+    pub rect: ImageRect,
+    pub output_size: (u32, u32),
+    pub captured_at: Instant,
+    image: Arc<RgbaImage>,
+}
+
+impl Deref for CapturedFrame {
+    type Target = RgbaImage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
+    }
 }
 
 pub struct CaptureRegion<'a> {
@@ -30,6 +50,7 @@ impl CaptureSource {
     fn new_for_window_target(target: &WindowTarget) -> Result<Self> {
         Ok(Self {
             platform: PlatformCapture::new(target)?,
+            next_frame: 0,
         })
     }
 
@@ -62,8 +83,19 @@ impl CaptureRegion<'_> {
     /// Pixels are top-down RGBA8 with opaque alpha, in the recognizer's encoded
     /// UI color space after game brightness/HDR correction. Native pixel layout,
     /// transfer functions and compositor white levels stay in the backend.
-    pub fn capture(&mut self) -> Result<RgbaImage> {
-        self.source.platform.capture_region(self.rect, &self.colors)
+    pub fn capture(&mut self) -> Result<CapturedFrame> {
+        let image = self
+            .source
+            .platform
+            .capture_region(self.rect, &self.colors)?;
+        self.source.next_frame += 1;
+        Ok(CapturedFrame {
+            id: self.source.next_frame,
+            rect: self.rect,
+            output_size: self.source.output_size(),
+            captured_at: Instant::now(),
+            image: Arc::new(image),
+        })
     }
 
     pub fn map_to_client(&self, local: (u32, u32)) -> ClientPoint {

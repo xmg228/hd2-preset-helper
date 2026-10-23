@@ -67,7 +67,7 @@ impl HoverVerifier {
         automation: &mut AutomationSession<'_>,
         slots: &[Slot],
         target: &Slot,
-    ) -> Result<(HoverSample, RgbaImage)> {
+    ) -> Result<(HoverSample, crate::capture::CapturedFrame)> {
         let started = Instant::now();
 
         loop {
@@ -87,6 +87,14 @@ impl HoverVerifier {
             );
 
             if sample.confirmed() {
+                automation.evidence().record(
+                    "hover-confirmed",
+                    Some(&image),
+                    serde_json::json!({
+                        "row": target.row, "col": target.col, "target_score": sample.target_score,
+                        "baseline": sample.baseline, "required_gap": sample.required_gap,
+                    }),
+                );
                 debug!(
                     target_row = target.row,
                     target_col = target.col,
@@ -101,6 +109,14 @@ impl HoverVerifier {
             }
 
             if started.elapsed() >= HOVER_TIMEOUT {
+                automation.evidence().record(
+                    "hover-timeout",
+                    Some(&image),
+                    serde_json::json!({
+                        "row": target.row, "col": target.col, "target_score": sample.target_score,
+                        "baseline": sample.baseline, "required_gap": sample.required_gap,
+                    }),
+                );
                 bail!(
                     "hover was not confirmed for target slot row {} col {} after {:.3}s (target={:.1}, baseline={:.1}, gap={:.1}/{:.1})",
                     target.row,

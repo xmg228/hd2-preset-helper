@@ -36,10 +36,6 @@ impl CaptureSessionManager {
         }
     }
 
-    pub fn active_capture(&mut self) -> Option<&mut CaptureSource> {
-        self.cached.as_mut()
-    }
-
     pub fn acquire(&mut self, target: &WindowTarget) -> Result<&mut CaptureSource> {
         if let Some(mut capture) = self.cached.take() {
             if capture.try_reuse_for_window_target(target) {

@@ -1,41 +1,60 @@
-//! Replace the last failure report; reporting must never replace the action error.
-use std::{fs, io::ErrorKind, path::Path};
+//! Publish the last failure ZIP. Never capture or re-run recognition here.
+use std::{fs, io::Write, path::Path};
 
 use anyhow::{Context, Result};
+use serde_json::json;
 use tracing::{info, warn};
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
-use crate::{capture::CaptureSource, game_settings::read_color_settings, image_rect::ImageRect};
+use crate::{evidence::OperationEvidence, preset_action::PresetCommand};
 
-pub(super) fn save_failure_report(directory: &Path, capture: Option<&mut CaptureSource>) {
+pub(super) fn save_failure_report(
+    path: &Path,
+    preset: &str,
+    command: PresetCommand,
+    error: &anyhow::Error,
+    evidence: Option<&OperationEvidence>,
+) {
+    let pending = path.with_extension("zip.pending");
+    // Freeze execution timing before PNG encoding and report publication.
+    let evidence_report = evidence.map(OperationEvidence::report);
     let result = (|| -> Result<()> {
-        // This dedicated directory contains only the previous failure report.
-        match fs::remove_dir_all(directory) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).context("failed to remove the previous failure report");
-            }
-        }
-        fs::create_dir_all(directory).context("failed to create the failure report directory")?;
-        crate::logging::save_recent(&directory.join("recent.log"))
+        let mut archive = ZipWriter::new(fs::File::create(&pending)?);
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .compression_level(Some(1));
+        archive.start_file("recent.log", options)?;
+        archive.write_all(&crate::logging::recent_snapshot()?)?;
+        let image_error = evidence.and_then(|evidence| {
+            evidence
+                .encode_images(|name, png| {
+                    archive.start_file(name, options)?;
+                    archive.write_all(png)?;
+                    Ok(())
+                })
+                .err()
+        });
+        let report = json!({
+            "version": env!("CARGO_PKG_VERSION"), "diagnostics": cfg!(feature = "diagnostics"),
+            "preset": preset, "command": format!("{command:?}"),
+            "errors": error.chain().map(ToString::to_string).collect::<Vec<_>>(),
+            "evidence": evidence_report,
+            "image_save_error": image_error.map(|error| format!("{error:#}")),
+        });
+        archive.start_file("report.json", options)?;
+        archive.write_all(&serde_json::to_vec_pretty(&report)?)?;
+        drop(archive.finish()?);
+        // Replace only after the new ZIP is complete; failures leave the old one intact.
+        fs::rename(&pending, path).context("failed to publish the new failure ZIP")?;
+        Ok(())
     })();
-    if let Err(error) = result {
-        warn!(path = %directory.display(), error = %format!("{error:#}"), "failed to save failure report");
-        return;
+    if result.is_err() {
+        let _ = fs::remove_file(&pending);
     }
-
-    if let Some(capture) = capture {
-        let result = (|| -> Result<()> {
-            // A fresh post-failure frame, not necessarily the failed observation.
-            let (w, h) = capture.output_size();
-            let mut region =
-                capture.region(ImageRect { x: 0, y: 0, w, h }, read_color_settings()?)?;
-            region.capture()?.save(directory.join("frame.png"))?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            warn!(path = %directory.display(), error = %format!("{error:#}"), "failed to add a frame to the failure report");
+    match result {
+        Ok(()) => info!(path = %path.display(), "failure report saved"),
+        Err(error) => {
+            warn!(path = %path.display(), error = %format!("{error:#}"), "failed to save failure report")
         }
     }
-    info!(path = %directory.display(), "failure report saved");
 }

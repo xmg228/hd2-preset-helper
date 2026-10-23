@@ -89,7 +89,11 @@ pub fn scan_loadout_home(
     recognizer: RecognizerSession,
 ) -> Result<RoiObservation> {
     let image = automation.capture()?;
-    recognizer.detect(image, SlotLayout::Home)
+    let result = recognizer.detect(image, SlotLayout::Home)?;
+    automation
+        .evidence()
+        .record("loadout-home", Some(&result.image), &result.slots);
+    Ok(result)
 }
 
 pub(super) fn wait_for_filled_home(
@@ -123,7 +127,7 @@ pub fn wait_for_stable_ui_state(
     };
 
     let start = Instant::now();
-    let mut stable_candidate: Option<UiStabilitySignature> = None;
+    let mut stable_candidate: Option<(UiStabilitySignature, crate::capture::CapturedFrame)> = None;
     let mut attempt = 0usize;
 
     loop {
@@ -140,13 +144,23 @@ pub fn wait_for_stable_ui_state(
 
         // Content requirements must hold on both stable observations.
         let content_accepted = current_state == target_state && accept(&result);
+        let reference = stable_candidate.as_ref().map(|(_, frame)| frame.clone());
         let distance = if content_accepted {
             let signature = ui_stability_signature(&result)?;
             let distance = stable_candidate
                 .as_ref()
-                .and_then(|previous| signature_distance(previous, &signature));
+                .and_then(|(previous, _)| signature_distance(previous, &signature));
             if let Some(distance) = distance {
                 if distance <= stable_distance {
+                    automation.evidence().record(
+                        "ui-state-reference",
+                        reference.as_ref(),
+                        serde_json::json!({"target": target_state.label()}),
+                    );
+                    automation.evidence().record("ui-state-stable", Some(&result.image), serde_json::json!({
+                        "target": target_state.label(), "slots": result.slots,
+                        "distance": distance, "threshold": stable_distance, "observations": attempt,
+                    }));
                     debug!(
                         target: "hd2_preset_helper::perf",
                         attempt,
@@ -174,7 +188,7 @@ pub fn wait_for_stable_ui_state(
                 );
             }
 
-            stable_candidate = Some(signature);
+            stable_candidate = Some((signature, result.image.clone()));
             distance
         } else {
             stable_candidate = None;
@@ -189,6 +203,22 @@ pub fn wait_for_stable_ui_state(
         );
 
         if start.elapsed() >= timeout {
+            if reference.is_some() {
+                automation.evidence().record(
+                    "ui-state-reference",
+                    reference.as_ref(),
+                    serde_json::json!({"target": target_state.label()}),
+                );
+            }
+            automation.evidence().record(
+                "ui-state-timeout",
+                Some(&result.image),
+                serde_json::json!({
+                    "target": target_state.label(), "observed": current_state.label(),
+                    "content_accepted": content_accepted, "slots": result.slots,
+                    "distance": distance, "threshold": stable_distance, "observations": attempt,
+                }),
+            );
             debug!(
                 target_state = %target_state.label(),
                 last_state = %current_state.label(),

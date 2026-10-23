@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use image::RgbaImage;
 use tracing::{debug, debug_span};
 
 use crate::assets::{default_calibration, parse_json_asset};
@@ -50,7 +49,11 @@ impl RecognizerSession {
         self.geometry.scale as f32
     }
 
-    pub fn detect(&self, image: RgbaImage, expected_layout: SlotLayout) -> Result<RoiObservation> {
+    pub fn detect(
+        &self,
+        image: crate::capture::CapturedFrame,
+        expected_layout: SlotLayout,
+    ) -> Result<RoiObservation> {
         let span = debug_span!("detect_layout");
         let _guard = span.enter();
 

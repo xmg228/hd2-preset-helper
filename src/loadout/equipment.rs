@@ -1,13 +1,13 @@
 //! Equipment capture/application, independent of the UI and preset persistence.
 mod cache;
-pub(crate) mod diagnostics;
+mod evidence;
 mod navigation;
 mod search;
 mod survey;
 
 pub(crate) use crate::preset::equipment::{EquipmentItem, EquipmentSet};
 pub(crate) use cache::EquipmentCache;
-pub(crate) use diagnostics::Diagnostics;
+use evidence::EquipmentEvidence;
 
 use crate::{
     automation::AutomationSession,
@@ -18,9 +18,7 @@ use crate::{
     vision::text::TextSample,
 };
 use anyhow::{Context, Result, bail, ensure};
-use image::RgbaImage;
 use search::{Next, Search};
-use serde_json::json;
 use std::time::{Duration, Instant};
 
 // Candidate/continuity tolerance is not enough to merge identities or skip a search.
@@ -66,12 +64,12 @@ const INPUT_HOLD_MS: u64 = 45;
 const INPUT_RELEASE_INTERVAL: Duration = Duration::from_millis(20);
 const PAGE_STABLE_INTERVAL: Duration = Duration::from_millis(40);
 
-pub(crate) struct Session<'capture, 'operation> {
-    automation: AutomationSession<'capture>,
+pub(crate) struct Session<'a> {
+    automation: AutomationSession<'a>,
     observer: EquipmentObserver,
-    frame: RgbaImage,
+    frame: crate::capture::CapturedFrame,
     page: EquipmentObservation,
-    diagnostics: &'operation mut Diagnostics,
+    evidence: EquipmentEvidence<'a>,
     client_size: (u32, u32),
     last_release: Option<Instant>,
 }
@@ -88,29 +86,22 @@ pub(crate) enum ApplyProgress<'a> {
     },
 }
 
-impl<'capture, 'operation> Session<'capture, 'operation> {
+impl<'a> Session<'a> {
     pub fn new(
-        mut automation: AutomationSession<'capture>,
+        mut automation: AutomationSession<'a>,
         observer: EquipmentObserver,
         client_size: (u32, u32),
-        diagnostics: &'operation mut Diagnostics,
     ) -> Result<Self> {
         let frame = automation.capture()?;
         let page = observer.observe(&frame);
-        diagnostics.record(|| {
-            json!({"event":"timing", "input_hold_ms":INPUT_HOLD_MS,
-            "input_release_ms":INPUT_RELEASE_INTERVAL.as_millis(),
-            "page_stable_ms":PAGE_STABLE_INTERVAL.as_millis(),
-            "navigation_timeout_ms":NAVIGATION_TIMEOUT.as_millis(),
-            "navigation_retry_after_ms":NAVIGATION_RETRY_AFTER.as_millis(),
-            "equip_timeout_ms":EQUIP_TIMEOUT.as_millis()})
-        });
+        let evidence = EquipmentEvidence::new(automation.evidence());
+
         Ok(Self {
             automation,
             observer,
             frame,
             page,
-            diagnostics,
+            evidence,
             client_size,
             last_release: None,
         })
@@ -132,7 +123,8 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         let started = Instant::now();
         self.page = self.observer.observe(&self.frame);
         let observe_ms = started.elapsed().as_secs_f64() * 1000.0;
-        self.diagnostics.observe(&self.page, capture_ms, observe_ms);
+        self.evidence
+            .observe(&self.frame, &self.page, capture_ms, observe_ms);
         Ok(())
     }
 
@@ -142,11 +134,13 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
 
     fn sample_current(&mut self) -> Result<EquipmentItem> {
         if !self.page.ready() {
-            self.diagnostics.save(&self.frame, &self.page, "not-ready");
+            self.evidence
+                .checkpoint(&self.frame, &self.page, "not-ready");
             bail!("equipment focus or name is not readable; operation stopped");
         }
         self.sync_category()?;
-        self.diagnostics.save(&self.frame, &self.page, "remembered");
+        self.evidence
+            .checkpoint(&self.frame, &self.page, "remembered");
         Ok(EquipmentItem {
             name: self.page.name.clone(),
             category: Some(self.page.category.clone()),
@@ -156,23 +150,17 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
 
     /// The caller replaces its old set only after all six samples and returns succeed.
     pub fn sample_all(&mut self) -> Result<EquipmentSet> {
-        let started = Instant::now();
         let mut items = std::array::from_fn(|_| None);
-        self.diagnostics
-            .record(|| json!({"event":"remember_all_start", "client_size":self.client_size}));
+
         for kind in EquipmentKind::ALL {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
             let item = (|| -> Result<EquipmentItem> {
                 self.check_active()?;
-                self.diagnostics
-                    .record(|| json!({"event":"remember_item_start", "kind":kind}));
+
                 self.open(kind)?;
                 let item = self.sample_current()?;
-                self.diagnostics.record(|| {
-                    json!({"event":"remember_item_sampled", "kind":kind,
-                    "page":diagnostics::describe(&self.page)})
-                });
+
                 self.return_to_entry()?;
                 self.check_active()?;
                 Ok(item)
@@ -184,10 +172,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             tracing::debug!(completed = kind.index() + 1, "equipped item sampled");
         }
         self.check_active()?;
-        self.diagnostics.record(|| {
-            json!({"event":"remember_all", "count":items.len(),
-            "client_size":self.client_size, "elapsed_ms":started.elapsed().as_secs_f64()*1000.0})
-        });
+
         Ok(items)
     }
 
@@ -204,16 +189,11 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
         {
             bail!("no saved item for {kind:?}; remember it before applying");
         }
-        let started = Instant::now();
-        self.diagnostics.record(
-            || json!({"event":"apply_start", "kinds":EquipmentKind::ALL, "from_entry":true}),
-        );
         for kind in EquipmentKind::ALL {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
             progress(ApplyProgress::Selecting(kind));
-            self.diagnostics
-                .record(|| json!({"event":"apply_item_start", "kind":kind}));
+
             self.open(kind)
                 .with_context(|| format!("failed to open {kind:?} for application"))?;
             let corrected_category = self
@@ -227,14 +207,10 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 kind,
                 corrected_category,
             });
-            self.diagnostics
-                .record(|| json!({"event":"apply_item_completed", "kind":kind}));
+
             tracing::info!("equipment item applied");
         }
-        self.diagnostics.record(|| {
-            json!({"event":"apply_completed", "from_entry":true,
-            "elapsed_ms":started.elapsed().as_secs_f64()*1000.0})
-        });
+
         tracing::debug!("equipment application completed");
         Ok(())
     }
@@ -260,7 +236,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
     ) -> Result<bool> {
         let kind = cache.kind;
         let mut search = Search::new(target, cache);
-        self.diagnostics.start_search(target);
+        self.evidence.start_search(target);
         let started = Instant::now();
         let mut navigation = None;
         let mut caching = None;
@@ -270,12 +246,13 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
             let (visit, next) = match search.advance(&self.page, navigation.take()) {
                 Ok(step) => step,
                 Err(error) => {
-                    self.diagnostics
-                        .save(&self.frame, &self.page, "search-error");
+                    self.evidence
+                        .checkpoint(&self.frame, &self.page, "search-error");
                     return Err(error);
                 }
             };
-            self.diagnostics.search_visit(
+            self.evidence.search_visit(
+                &self.frame,
                 &visit,
                 &self.page,
                 evaluate_started.elapsed().as_secs_f64() * 1000.0,
@@ -297,7 +274,7 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 Next::Input(action) => navigation = Some(self.navigate(action)?),
                 Next::Found | Next::NotFound => {
                     let found = matches!(next, Next::Found);
-                    self.diagnostics.save(
+                    self.evidence.checkpoint(
                         &self.frame,
                         &self.page,
                         if found { "found" } else { "not-found" },
@@ -306,12 +283,8 @@ impl<'capture, 'operation> Session<'capture, 'operation> {
                 }
             }
         })();
-        self.diagnostics.finish_search(
-            kind,
-            target,
-            &result,
-            started.elapsed().as_secs_f64() * 1000.0,
-        );
+        self.evidence
+            .finish_search(&result, started.elapsed().as_secs_f64() * 1000.0);
         result
     }
 }

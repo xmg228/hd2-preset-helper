@@ -7,8 +7,6 @@ pub struct AppPaths {
     pub config: PathBuf,
     pub presets: PathBuf,
     pub log: PathBuf,
-    #[cfg(feature = "diagnostics")]
-    pub diagnostic_scores: PathBuf,
     pub last_failure: PathBuf,
 }
 

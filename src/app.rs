@@ -69,8 +69,6 @@ pub fn run() -> Result<()> {
         diagnostics = cfg!(feature = "diagnostics"),
         "application starting"
     );
-    #[cfg(feature = "diagnostics")]
-    crate::vision::init_diagnostics(&paths.diagnostic_scores)?;
     let config_path = &paths.config;
     let presets_path = &paths.presets;
     let result = load_app_config(config_path).and_then(|(config, migrated)| {

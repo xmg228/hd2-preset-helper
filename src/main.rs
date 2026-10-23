@@ -7,8 +7,7 @@ mod assets;
 mod automation;
 mod capture;
 mod config;
-#[cfg(feature = "diagnostics")]
-mod equipment_probe;
+mod evidence;
 mod game_settings;
 mod game_window;
 mod image_rect;
@@ -28,19 +27,6 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     platform::initialize();
-    #[cfg(feature = "diagnostics")]
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|arg| arg == "--equipment-probe")
-    {
-        return match equipment_probe::run() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error:#}");
-                ExitCode::FAILURE
-            }
-        };
-    }
     match app::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

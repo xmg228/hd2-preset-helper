@@ -5,8 +5,8 @@
 /debug/
 /data/debug/
 /data/app.log
+/data/last_failure.zip.pending
 /data/diagnostics/
-/data/equipment-probe/
 /data/equipment-cache.json
 /data/wgc-f16/
 /data/presets.json

@@ -91,25 +91,27 @@ impl ActionWorker {
                         Work::Run { preset, command, settings, target } => {
                             let span = info_span!("preset_action", %preset, ?command);
                             let _guard = span.enter();
+                            let evidence = crate::evidence::OperationEvidence::new();
                             let mut context = PresetActionContext {
                                 presets: &paths.presets,
                                 options: settings,
                                 events: &sink,
                                 equipment_cache: &mut equipment_cache,
+                                evidence: &evidence,
                             };
                             let start = Instant::now();
                             let outcome = execute_preset(&runtime, &mut context, &preset, command, &mut capture_session, target);
                             if let Err(error) = &outcome {
-                                error!(elapsed_s = start.elapsed().as_secs_f64(), error = %format!("{error:#}"), "preset action failed");
-                                save_failure_report(&paths.last_failure, capture_session.active_capture());
+                                let message = format!("{error:#}");
+                                error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
+                                sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message });
                             }
                             capture_session.finish_action();
+                            if let Err(error) = &outcome {
+                                save_failure_report(&paths.last_failure, &preset, command, error, Some(&evidence));
+                            }
                             equipment_cache.save_if_changed(&cache_path);
                             let saved = matches!(&outcome, Ok(PresetActionOutcome::Saved));
-                            if let Err(error) = outcome {
-                                let error = format!("{error:#}");
-                                sink.emit(AppEvent::PresetFailed { preset, error });
-                            }
                             // Completion follows all progress on the same FIFO channel.
                             if event_tx.send(WorkerEvent::Finished { saved }).is_err() { break; }
                         }

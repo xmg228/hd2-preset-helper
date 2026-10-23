@@ -14,8 +14,6 @@ use crate::loadout::{
     wait_for_stable_ui_state,
 };
 use crate::preset::stratagems::{self as storage, CapturedStratagemPreset, StratagemPreset};
-#[cfg(feature = "diagnostics")]
-use crate::vision::log_home_tone;
 use crate::vision::{RecognizerRuntime, RecognizerSession};
 
 const READY_UP_HOLD_MS: u64 = 45;
@@ -33,8 +31,9 @@ pub(super) fn execute(
     let bound_region = bind_loadout_region(capture, runtime.calibration(), game_color_settings)
         .context("failed to bind loadout capture region")?;
     let recognizer = runtime.bind(bound_region.geometry);
-    let mut automation = AutomationSession::new(bound_region.region, game_window.clone())
-        .context("failed to start automation session")?;
+    let mut automation =
+        AutomationSession::new(bound_region.region, game_window.clone(), context.evidence)
+            .context("failed to start automation session")?;
 
     let (initial_result, ui_state) = {
         let initial_result = scan_loadout_home(&mut automation, recognizer)
@@ -48,8 +47,6 @@ pub(super) fn execute(
         ui_state == UiState::Home,
         "loadout home not detected; return to the loadout home before using a preset"
     );
-    #[cfg(feature = "diagnostics")]
-    log_home_tone(&initial_result);
 
     let (outcome, ready_up_after_apply, completion) = match command {
         PresetCommand::SaveStratagems => {

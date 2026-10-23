@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use tracing::{debug, trace};
+use serde::Serialize;
+use tracing::debug;
 
 use crate::item::ItemKind;
 use crate::vision::{RoiObservation, Slot, SlotKind, TemplateMatchCandidate};
@@ -9,18 +10,16 @@ use super::ScrollDirection;
 use super::click_plan::DirectClickTarget;
 use super::page_navigation::{PageSnapshot, SlotSample};
 
-#[cfg(feature = "diagnostics")]
-#[path = "list_map_diagnostics.rs"]
-mod diagnostics;
+mod evidence;
 
 const PAGE_ALIGNMENT_MIN_SCORE: f32 = 0.70;
 const PAGE_ALIGNMENT_MIN_MARGIN: f32 = 0.04;
 const POSITION_TOLERANCE_PX: f32 = 2.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub(super) struct SlotId(usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 struct LocalPosition {
     row: u32,
     col: u32,
@@ -89,13 +88,13 @@ struct MapSlot {
     edge_clearance: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 struct PlacedSlot {
     local: LocalPosition,
     id: SlotId,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 struct PagePlacement {
     offset_y: f32,
     mean_score: f32,
@@ -103,22 +102,54 @@ struct PagePlacement {
     slots: Vec<PlacedSlot>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize)]
 struct AlignmentConstraints {
     direction: Option<ScrollDirection>,
     excluded: Option<SlotId>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Serialize)]
 struct AlignmentCandidate {
-    #[cfg(feature = "diagnostics")]
     hypothesis_y: f32,
     offset_y: f32,
     mean_score: f32,
     support: usize,
+    pairs: Vec<AlignmentPair>,
+    rejection: Option<AlignmentRejection>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Serialize)]
+struct AlignmentPair {
+    current: usize,
+    mapped: usize,
+    cosine: f32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+enum AlignmentRejection {
+    NoPairs,
+    WrongDirection,
+    GeometryConflict {
+        current: usize,
+        mapped: usize,
+        center_distance: f32,
+        overlap: f32,
+    },
+}
+
+#[derive(Serialize)]
+pub(super) struct AlignmentAssessment {
+    constraints: AlignmentConstraints,
+    current_offset_y: f32,
+    required_score: f32,
+    required_margin: f32,
+    reason: &'static str,
+    candidates: Vec<AlignmentCandidate>,
+    pub(super) placement: Option<LocatedPage>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(super) struct LocatedPage {
     page: PagePlacement,
     pub(super) vertical_shift: f32,
@@ -149,7 +180,11 @@ pub(super) struct ListMap {
 }
 
 impl ListMap {
-    pub(super) fn new(page: &PageSnapshot, item_kind: ItemKind) -> Self {
+    pub(super) fn new(
+        page: &PageSnapshot,
+        item_kind: ItemKind,
+        evidence: &crate::evidence::OperationEvidence,
+    ) -> Self {
         let mut map = Self {
             item_kind,
             slots: Vec::new(),
@@ -173,6 +208,7 @@ impl ListMap {
             .iter()
             .find(|slot| slot.kind == SlotKind::NoBoosterOption)
             .and_then(|slot| map.current_slot_id(slot));
+        evidence::record_commit(evidence, &map, page, "initial");
         map
     }
 
@@ -180,57 +216,54 @@ impl ListMap {
         &self,
         page: &PageSnapshot,
         direction: Option<ScrollDirection>,
-    ) -> Option<LocatedPage> {
+    ) -> AlignmentAssessment {
         self.find_placement(
             page,
             AlignmentConstraints {
                 direction,
                 excluded: None,
             },
-            if direction.is_some() {
-                "page-turn"
-            } else {
-                "recovery"
-            },
         )
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn save_alignment_case(
-        &self,
-        page: &PageSnapshot,
-        direction: Option<ScrollDirection>,
-        reason: &str,
-    ) {
-        let constraints = AlignmentConstraints {
-            direction,
-            excluded: None,
-        };
-        let candidates = self.alignment_candidates(page, constraints);
-        diagnostics::save_alignment_case(self, page, constraints, &candidates, reason);
     }
 
     pub(super) fn locate_after_click(
         &self,
         page: &PageSnapshot,
         clicked_id: SlotId,
-    ) -> Option<LocatedPage> {
+    ) -> AlignmentAssessment {
         let clicked_y = self.slots[clicked_id.0].content_y;
-        let (visible_min, visible_max) = self.visible_content_y_range()?;
-        let visible_midpoint = 0.5 * (visible_min + visible_max);
-        let expected_direction = if clicked_y <= visible_midpoint {
-            ScrollDirection::Up
-        } else {
-            ScrollDirection::Down
-        };
-        self.find_placement(
+        let midpoint = self
+            .visible_content_y_range()
+            .map(|(min, max)| 0.5 * (min + max));
+        let direction = midpoint.map(|midpoint| {
+            if clicked_y <= midpoint {
+                ScrollDirection::Up
+            } else {
+                ScrollDirection::Down
+            }
+        });
+        let mut assessment = self.find_placement(
             page,
             AlignmentConstraints {
-                direction: Some(expected_direction),
+                direction,
                 excluded: Some(clicked_id),
             },
-            "post-click",
-        )
+        );
+        if midpoint.is_none() {
+            assessment.reason = "no_visible_map";
+            assessment.placement = None;
+        }
+        assessment
+    }
+
+    pub(super) fn record_assessment(
+        &self,
+        evidence: &crate::evidence::OperationEvidence,
+        page: &PageSnapshot,
+        assessment: &AlignmentAssessment,
+        context: &str,
+    ) {
+        evidence::record(evidence, self, page, assessment, context);
     }
 
     pub(super) fn slot_after_placement(
@@ -256,67 +289,68 @@ impl ListMap {
         page: &PageSnapshot,
         placement: LocatedPage,
         context: &'static str,
+        evidence: &crate::evidence::OperationEvidence,
     ) {
         self.commit_page(page, placement.page, context);
+        evidence::record_commit(evidence, self, page, context);
     }
 
     fn find_placement(
         &self,
         page: &PageSnapshot,
         constraints: AlignmentConstraints,
-        context: &'static str,
-    ) -> Option<LocatedPage> {
-        let candidates = self.alignment_candidates(page, constraints);
-        let Some(best) = candidates.first().copied() else {
-            debug!(
-                context,
-                direction = ?constraints.direction,
-                excluded = ?constraints.excluded,
-                current_offset_y = self.current.offset_y,
-                current_slots = page.slot_samples.len(),
-                mapped_slots = self.slots.len(),
-                reason = "no_candidates",
-                "continuous slot map alignment rejected"
-            );
-            return None;
+    ) -> AlignmentAssessment {
+        let mut candidates = self.alignment_candidates(page, constraints);
+        candidates.sort_by(|left, right| {
+            left.rejection
+                .is_some()
+                .cmp(&right.rejection.is_some())
+                .then_with(|| compare_alignment(left, right))
+        });
+        let best = candidates
+            .first()
+            .filter(|candidate| candidate.rejection.is_none());
+        let runner_up = candidates
+            .get(1)
+            .filter(|candidate| candidate.rejection.is_none());
+        let margin = best
+            .zip(runner_up)
+            .map(|(best, runner)| best.mean_score - runner.mean_score);
+        let reason = match best {
+            None => "no_eligible_candidates",
+            Some(best) if best.mean_score < PAGE_ALIGNMENT_MIN_SCORE => "low_score",
+            Some(_) if margin.is_some_and(|margin| margin < PAGE_ALIGNMENT_MIN_MARGIN) => {
+                "ambiguous"
+            }
+            Some(_) => "accepted",
         };
-        let runner_up = candidates.get(1).copied();
-        let margin = runner_up.map(|runner| best.mean_score - runner.mean_score);
-        let accepted = best.mean_score >= PAGE_ALIGNMENT_MIN_SCORE
-            && margin.is_none_or(|margin| margin >= PAGE_ALIGNMENT_MIN_MARGIN);
+        let placement = best
+            .filter(|_| reason == "accepted")
+            .map(|best| LocatedPage {
+                page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),
+                vertical_shift: self.current.offset_y - best.offset_y,
+            });
         debug!(
-            context,
-            direction = ?constraints.direction,
-            excluded = ?constraints.excluded,
+            direction = ?constraints.direction, excluded = ?constraints.excluded,
             current_offset_y = self.current.offset_y,
-            best_offset_y = best.offset_y,
-            vertical_shift = self.current.offset_y - best.offset_y,
-            algorithm = "semantic_cosine",
-            best_mean_score = best.mean_score,
-            best_support = best.support,
-            required_score = PAGE_ALIGNMENT_MIN_SCORE,
-            runner_up_mean_score = runner_up.map(|candidate| candidate.mean_score),
-            runner_up_offset_y = runner_up.map(|candidate| candidate.offset_y),
-            runner_up_support = runner_up.map(|candidate| candidate.support),
-            margin,
-            required_margin = PAGE_ALIGNMENT_MIN_MARGIN,
-            accepted,
+            best_offset_y = best.map(|best| best.offset_y),
+            best_mean_score = best.map(|best| best.mean_score),
+            best_support = best.map(|best| best.support),
+            runner_up_mean_score = runner_up.map(|runner| runner.mean_score),
+            runner_up_offset_y = runner_up.map(|runner| runner.offset_y),
+            margin, required_score = PAGE_ALIGNMENT_MIN_SCORE,
+            required_margin = PAGE_ALIGNMENT_MIN_MARGIN, reason,
             "continuous slot map alignment evaluated"
         );
-        trace!(
-            context,
-            candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
-            "continuous slot map alignment candidates"
-        );
-        // This threshold only captures evidence; it does not change acceptance.
-        #[cfg(feature = "diagnostics")]
-        if accepted && context == "page-turn" && best.mean_score < 0.8 {
-            self.save_alignment_case(page, constraints.direction, "low-score-accepted");
+        AlignmentAssessment {
+            constraints,
+            current_offset_y: self.current.offset_y,
+            required_score: PAGE_ALIGNMENT_MIN_SCORE,
+            required_margin: PAGE_ALIGNMENT_MIN_MARGIN,
+            reason,
+            placement,
+            candidates,
         }
-        accepted.then(|| LocatedPage {
-            page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),
-            vertical_shift: self.current.offset_y - best.offset_y,
-        })
     }
 
     fn alignment_candidates(
@@ -337,18 +371,20 @@ impl ListMap {
                 })
                 .map(move |(_, mapped)| mapped.content_y - current.page_y)
         });
-        let mut candidates = offset_hypotheses(offsets)
+        offset_hypotheses(offsets)
             .into_iter()
-            .filter_map(|offset_y| self.evaluate_alignment(page, offset_y, constraints.excluded))
-            .filter(|candidate| {
-                constraints
-                    .direction
-                    .is_none_or(|direction| self.direction_allows(candidate.offset_y, direction))
+            .map(|offset_y| {
+                let mut candidate = self.evaluate_alignment(page, offset_y, constraints.excluded);
+                if candidate.rejection.is_none()
+                    && constraints.direction.is_some_and(|direction| {
+                        !self.direction_allows(candidate.offset_y, direction)
+                    })
+                {
+                    candidate.rejection = Some(AlignmentRejection::WrongDirection);
+                }
+                candidate
             })
-            .collect::<Vec<_>>();
-
-        candidates.sort_by(compare_alignment);
-        candidates
+            .collect()
     }
 
     fn evaluate_alignment(
@@ -356,53 +392,68 @@ impl ListMap {
         page: &PageSnapshot,
         offset_y: f32,
         excluded: Option<SlotId>,
-    ) -> Option<AlignmentCandidate> {
-        let mut scores = Vec::new();
+    ) -> AlignmentCandidate {
+        let mut pairs = Vec::new();
         let mut offsets = Vec::new();
-
-        for current in &page.slot_samples {
+        for (current_index, current) in page.slot_samples.iter().enumerate() {
             let Some(index) = self.nearest_mapped_slot(current, offset_y, excluded) else {
                 continue;
             };
             let mapped = &self.slots[index];
-            let Some(score) = best_shifted_response_cosine(&mapped.sample, current) else {
+            let Some(cosine) = best_shifted_response_cosine(&mapped.sample, current) else {
                 continue;
             };
-            scores.push(score);
+            pairs.push(AlignmentPair {
+                current: current_index,
+                mapped: index,
+                cosine,
+            });
             offsets.push(mapped.content_y - current.page_y);
         }
-
-        if scores.is_empty() {
-            return None;
+        let mut candidate = AlignmentCandidate {
+            hypothesis_y: offset_y,
+            offset_y,
+            mean_score: 0.0,
+            support: pairs.len(),
+            pairs,
+            rejection: None,
+        };
+        if offsets.is_empty() {
+            candidate.rejection = Some(AlignmentRejection::NoPairs);
+            return candidate;
         }
         offsets.sort_unstable_by(f32::total_cmp);
-        let refined_offset_y = interpolated_median(&offsets);
-        // Even slots excluded from image matching must fit the page's geometry.
-        if page.slot_samples.iter().any(|current| {
-            let content_y = current.page_y + refined_offset_y;
+        candidate.offset_y = interpolated_median(&offsets);
+        candidate.mean_score =
+            candidate.pairs.iter().map(|pair| pair.cosine).sum::<f32>() / candidate.support as f32;
+        // Excluded/selected cells still constrain geometry. Preserve the first
+        // actual conflict, rather than losing it in an Option/filter chain.
+        for (current_index, current) in page.slot_samples.iter().enumerate() {
+            let content_y = current.page_y + candidate.offset_y;
             let top = content_y - current.center_y;
             let bottom = top + current.height as f32;
-            self.slots
+            for (mapped_index, mapped) in self
+                .slots
                 .iter()
-                .filter(|mapped| {
-                    mapped.col == current.col
-                        && (mapped.content_y - content_y).abs() > POSITION_TOLERANCE_PX
-                })
-                .any(|mapped| {
-                    let mapped_top = mapped.content_y - mapped.sample.center_y;
-                    let mapped_bottom = mapped_top + mapped.sample.height as f32;
-                    bottom.min(mapped_bottom) - top.max(mapped_top) > POSITION_TOLERANCE_PX
-                })
-        }) {
-            return None;
+                .enumerate()
+                .filter(|(_, mapped)| mapped.col == current.col)
+            {
+                let center_distance = (mapped.content_y - content_y).abs();
+                let mapped_top = mapped.content_y - mapped.sample.center_y;
+                let mapped_bottom = mapped_top + mapped.sample.height as f32;
+                let overlap = bottom.min(mapped_bottom) - top.max(mapped_top);
+                if center_distance > POSITION_TOLERANCE_PX && overlap > POSITION_TOLERANCE_PX {
+                    candidate.rejection = Some(AlignmentRejection::GeometryConflict {
+                        current: current_index,
+                        mapped: mapped_index,
+                        center_distance,
+                        overlap,
+                    });
+                    return candidate;
+                }
+            }
         }
-        Some(AlignmentCandidate {
-            #[cfg(feature = "diagnostics")]
-            hypothesis_y: offset_y,
-            offset_y: refined_offset_y,
-            mean_score: scores.iter().sum::<f32>() / scores.len() as f32,
-            support: scores.len(),
-        })
+        candidate
     }
 
     fn nearest_mapped_slot(
@@ -638,8 +689,6 @@ impl ListMap {
             match_error: candidate.map_or(1.0, |candidate| candidate.score as f32),
             match_margin: candidate.map_or(0.0, |candidate| candidate.match_margin),
             gate_quality: candidate.map_or(0.0, |candidate| candidate.gate_quality),
-            #[cfg(feature = "diagnostics")]
-            fallback: true,
         })
     }
 

@@ -148,7 +148,7 @@ impl PageNavigator {
                 / ROI_REFERENCE_H as f32;
             let short = placement.vertical_shift.abs()
                 < expected_full_shift * PAGE_TURN_SHORT_THRESHOLD_RATIO;
-            list_map.commit(&page, placement, "page-turn");
+            list_map.commit(&page, placement, "page-turn", automation.evidence());
             return Ok(if moved {
                 PageTurnResult::Moved { page, short }
             } else {
@@ -169,7 +169,7 @@ impl PageNavigator {
         let placement = placement.context(
             "neither the page turn nor the page after a recovery scroll could be placed in the temporary list map",
         )?;
-        list_map.commit(&page, placement, "recovery");
+        list_map.commit(&page, placement, "recovery", automation.evidence());
         Ok(PageTurnResult::Recovered(page))
     }
 
@@ -207,36 +207,48 @@ impl PageNavigator {
 
             let page = self.scan_direct_page(image)?;
             observations += 1;
-            let placement = list_map.locate_page(&page, direction);
+            let mut assessment = list_map.locate_page(&page, direction);
             trace!(
                 observations,
-                located = placement.is_some(),
+                located = assessment.placement.is_some(),
                 elapsed_s = start.elapsed().as_secs_f64(),
                 "page map observation"
             );
 
-            if let Some(placement) = placement {
+            if let Some(placement) = assessment.placement.as_ref() {
                 if placement.has_moved() {
+                    list_map.record_assessment(
+                        automation.evidence(),
+                        &page,
+                        &assessment,
+                        "page-turn-moved",
+                    );
                     debug!(
                         target: "hd2_preset_helper::perf",
                         vertical_shift = placement.vertical_shift,
                         elapsed_s = start.elapsed().as_secs_f64(),
                         "page turn confirmed by map placement"
                     );
-                    return Ok((page, Some(placement)));
+                    return Ok((page, assessment.placement.take()));
                 }
 
                 same_viewport_frames += 1;
                 if observed_elapsed >= no_movement_grace
                     && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES
                 {
+                    list_map.record_assessment(
+                        automation.evidence(),
+                        &page,
+                        &assessment,
+                        "page-turn-no-movement",
+                    );
                     debug!(
                         target: "hd2_preset_helper::perf",
                         elapsed_s = start.elapsed().as_secs_f64(),
                         same_viewport_frames,
                         "page turn confirmed at the same map position"
                     );
-                    return Ok((page, Some(placement)));
+                    return Ok((page, assessment.placement.take()));
                 }
             } else {
                 same_viewport_frames = 0;
@@ -249,15 +261,22 @@ impl PageNavigator {
                         timeout_s = PAGE_TURN_ALIGNMENT_TIMEOUT.as_secs_f64(),
                         "page turn placement remained unconfirmed"
                     );
-                    #[cfg(feature = "diagnostics")]
-                    list_map.save_alignment_case(&page, direction, "unplaced");
+                    list_map.record_assessment(
+                        automation.evidence(),
+                        &page,
+                        &assessment,
+                        "page-turn-unplaced",
+                    );
                     return Ok((page, None));
                 }
             }
         }
     }
 
-    pub(super) fn scan_direct_page(&self, image: RgbaImage) -> Result<PageSnapshot> {
+    pub(super) fn scan_direct_page(
+        &self,
+        image: crate::capture::CapturedFrame,
+    ) -> Result<PageSnapshot> {
         let mut roi = self
             .recognizer
             .detect(image, SlotLayout::List(self.item_kind))?;

@@ -90,8 +90,6 @@ pub fn app_paths() -> Result<AppPaths> {
         config: data.join("config.toml"),
         presets: data.join("presets.json"),
         log: data.join("app.log"),
-        #[cfg(feature = "diagnostics")]
-        diagnostic_scores: data.join("diagnostics/matcher-scores.jsonl"),
-        last_failure: data.join("debug/last_failure"),
+        last_failure: data.join("last_failure.zip"),
     })
 }

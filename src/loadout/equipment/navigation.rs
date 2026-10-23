@@ -2,7 +2,7 @@
 use super::{
     EQUIP_TIMEOUT, EquipmentItem, INPUT_HOLD_MS, INPUT_RELEASE_INTERVAL, InputAction,
     NAME_MATCH_THRESHOLD, NAVIGATION_RETRY_AFTER, NAVIGATION_TIMEOUT, Navigation,
-    PAGE_STABLE_INTERVAL, Session, diagnostics,
+    PAGE_STABLE_INTERVAL, Session, evidence,
 };
 use crate::{
     input::Key,
@@ -10,10 +10,9 @@ use crate::{
     vision::{equipment::EquipmentObservation, text::TextSample},
 };
 use anyhow::{Context, Result, bail, ensure};
-use serde_json::json;
 use std::time::Instant;
 
-impl Session<'_, '_> {
+impl Session<'_> {
     fn wait_for_release(&mut self) -> Result<()> {
         while self
             .last_release
@@ -28,9 +27,6 @@ impl Session<'_, '_> {
     fn press(&mut self, action: InputAction, point: Option<(u32, u32)>) -> Result<(Instant, f64)> {
         self.check_active()?;
         let started = Instant::now();
-        let previous_release_ms = self
-            .last_release
-            .map(|released| started.duration_since(released).as_secs_f64() * 1000.0);
         tracing::debug!(
             action = action.name(),
             column = action.column(),
@@ -45,10 +41,6 @@ impl Session<'_, '_> {
         let released = Instant::now();
         self.last_release = Some(released);
         let input_ms = released.duration_since(started).as_secs_f64() * 1000.0;
-        self.diagnostics.record(|| {
-            json!({"event":"input", "action":action.name(), "column":action.column(), "point":point,
-            "input_ms":input_ms, "previous_release_ms":previous_release_ms})
-        });
         Ok((started, input_ms))
     }
 
@@ -70,18 +62,15 @@ impl Session<'_, '_> {
                     continue;
                 }
                 if cursor.is_some() {
-                    self.diagnostics.record(|| {
-                        json!({"event":"category_focus_confirmed",
-                        "elapsed_ms":started.elapsed().as_secs_f64()*1000.0,
-                        "page":diagnostics::describe(&self.page)})
-                    });
+                    self.evidence
+                        .checkpoint(&self.frame, &self.page, "category-focus-confirmed");
                 }
                 return Ok(());
             }
             hover_confirmed = false;
             if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.diagnostics
-                    .save(&self.frame, &self.page, "category-focus-timeout");
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "category-focus-timeout");
                 bail!("category heading could not be associated with the keyboard focus");
             }
             if let Some(index) = self.page.focus {
@@ -92,8 +81,6 @@ impl Session<'_, '_> {
                 }) {
                     self.automation.move_cursor(point)?;
                     cursor = Some(point);
-                    self.diagnostics
-                        .record(|| json!({"event":"category_focus_move", "point":point}));
                 }
             }
             self.refresh()?;
@@ -102,20 +89,18 @@ impl Session<'_, '_> {
 
     pub(super) fn open(&mut self, kind: EquipmentKind) -> Result<()> {
         self.observer = self.observer.with_kind(kind);
-        self.diagnostics.reset_page();
+        self.evidence.begin_item(kind);
         let started = Instant::now();
         let entry = loop {
             self.check_active()?;
             let entry = self.observer.entry(&self.frame);
             // All six positions are fixed once the entry page is confirmed.
             if entry.confirmed() {
-                self.diagnostics
-                    .save_entry(&self.frame, &entry, "entry-before");
+                self.evidence.entry(&self.frame, &entry, "entry-before");
                 break entry;
             }
             if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.diagnostics
-                    .save_entry(&self.frame, &entry, "entry-timeout");
+                self.evidence.entry(&self.frame, &entry, "entry-timeout");
                 bail!("equipment entry page was not confirmed before timeout; no click was sent");
             }
             self.refresh()?;
@@ -124,8 +109,7 @@ impl Session<'_, '_> {
         let point = entry.point(kind);
         tracing::debug!(x = point.0, y = point.1, "opening equipment list");
         self.automation.click(point, INPUT_HOLD_MS)?;
-        self.diagnostics
-            .record(|| json!({"event":"entry_open_sent", "point":point, "entry":entry}));
+
         let mut settling: Option<(EquipmentObservation, Instant)> = None;
         loop {
             self.refresh()?;
@@ -137,13 +121,9 @@ impl Session<'_, '_> {
                     Some((anchor, since)) if !self.page.change_from(anchor).observed() => {
                         if since.elapsed() >= PAGE_STABLE_INTERVAL {
                             self.sync_category()?;
-                            self.diagnostics.record(|| {
-                                json!({"event":"entry_opened",
-                                "elapsed_ms":started.elapsed().as_secs_f64()*1000.0,
-                                "page":diagnostics::describe(&self.page)})
-                            });
-                            self.diagnostics
-                                .save(&self.frame, &self.page, "entry-opened");
+
+                            self.evidence
+                                .checkpoint(&self.frame, &self.page, "entry-opened");
                             return Ok(());
                         }
                     }
@@ -153,8 +133,8 @@ impl Session<'_, '_> {
                 settling = None;
             }
             if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.diagnostics
-                    .save(&self.frame, &self.page, "entry-open-timeout");
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "entry-open-timeout");
                 bail!(
                     "equipment list and its equipped focus were not confirmed after opening; no retry was sent"
                 );
@@ -164,7 +144,7 @@ impl Session<'_, '_> {
 
     pub(super) fn return_to_entry(&mut self) -> Result<()> {
         self.press(InputAction::Key(Key::Escape), None)?;
-        self.diagnostics.record(|| json!({"event":"return_sent"}));
+
         let started = Instant::now();
         loop {
             // Returning needs only entry evidence, not full list/text recognition each frame.
@@ -172,12 +152,7 @@ impl Session<'_, '_> {
             let frame = self.automation.capture()?;
             let entry = self.observer.entry(&frame);
             if entry.confirmed() {
-                self.diagnostics.record(|| {
-                    json!({"event":"entry_returned", "entry":entry,
-                    "elapsed_ms":started.elapsed().as_secs_f64()*1000.0})
-                });
-                self.diagnostics
-                    .save_entry(&frame, &entry, "entry-returned");
+                self.evidence.entry(&frame, &entry, "entry-returned");
                 self.page = self.observer.observe(&frame);
                 self.frame = frame;
                 tracing::debug!(
@@ -187,8 +162,7 @@ impl Session<'_, '_> {
                 return Ok(());
             }
             if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.diagnostics
-                    .save_entry(&frame, &entry, "entry-return-timeout");
+                self.evidence.entry(&frame, &entry, "entry-return-timeout");
                 bail!("equipment entry was not confirmed after Esc; no retry was sent");
             }
         }
@@ -220,8 +194,8 @@ impl Session<'_, '_> {
         loop {
             self.check_active()?;
             if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.diagnostics
-                    .save(&self.frame, &self.page, "hover-timeout");
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "hover-timeout");
                 bail!("equipment target hover was not confirmed; no click was sent");
             }
             if self.page.ready() {
@@ -244,15 +218,10 @@ impl Session<'_, '_> {
                 }) {
                     self.automation.move_cursor(point)?;
                     cursor = Some(point);
-                    self.diagnostics
-                        .record(|| json!({"event":"hover_move", "col":col, "point":point}));
                 } else if self.page.hover == Some(index) {
                     let point = cursor.unwrap();
-                    self.diagnostics.record(|| {
-                        json!({"event":"hover_confirmed", "col":col, "point":point,
-                        "elapsed_ms":started.elapsed().as_secs_f64()*1000.0,
-                        "page":diagnostics::describe(&self.page)})
-                    });
+                    self.evidence
+                        .checkpoint(&self.frame, &self.page, "equipment-hover-confirmed");
                     return Ok(point);
                 }
             }
@@ -278,6 +247,10 @@ impl Session<'_, '_> {
         loop {
             self.refresh()?;
             let change = self.page.change_from(before);
+            if !responded && change.observed() {
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "equipment-first-response");
+            }
             list_moved |= change.geometry_changed;
             responded |= change.observed();
             let complete = if equipping {
@@ -313,9 +286,10 @@ impl Session<'_, '_> {
                 let stable_ms = settling
                     .as_ref()
                     .map(|(_, since)| since.elapsed().as_secs_f64() * 1000.0);
-                self.diagnostics.confirm_input(
+                self.evidence.confirm_input(
+                    &self.frame,
                     &self.page,
-                    diagnostics::InputConfirmation {
+                    evidence::InputConfirmation {
                         action,
                         elapsed_ms,
                         input_ms,
@@ -326,7 +300,8 @@ impl Session<'_, '_> {
                     },
                 );
                 if equipping {
-                    self.diagnostics.save(&self.frame, &self.page, "equipped");
+                    self.evidence
+                        .checkpoint(&self.frame, &self.page, "equipped");
                 }
                 let wrapped = !retried
                     && match action {
@@ -378,7 +353,7 @@ impl Session<'_, '_> {
                     retried,
                     "equipment input confirmation timed out"
                 );
-                self.diagnostics.save(
+                self.evidence.checkpoint(
                     &self.frame,
                     &self.page,
                     if equipping {
@@ -408,15 +383,11 @@ impl Session<'_, '_> {
                 ) = action
             {
                 self.check_active()?;
-                let retry_started = Instant::now();
                 let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
                 self.automation.tap_key(key, INPUT_HOLD_MS)?;
                 self.last_release = Some(Instant::now());
                 retried = true;
-                self.diagnostics.record(|| {
-                    json!({"event":"input_retry", "action":key.name(), "elapsed_ms":elapsed_ms,
-                    "input_ms":retry_started.elapsed().as_secs_f64()*1000.0})
-                });
+
                 tracing::info!(
                     action = key.name(),
                     elapsed_s = elapsed_ms / 1000.0,
@@ -433,9 +404,8 @@ impl Session<'_, '_> {
         self.wait_for_release()?;
         self.confirm_target(target, false)?;
         if self.page.focus.is_some_and(|i| self.page.slots[i].equipped) {
-            self.diagnostics.record(
-                || json!({"event":"already_equipped", "page":diagnostics::describe(&self.page)}),
-            );
+            self.evidence
+                .checkpoint(&self.frame, &self.page, "already-equipped");
             tracing::debug!("target already equipped; skipping Space");
         } else {
             let before = self.page.clone();
@@ -470,8 +440,8 @@ impl Session<'_, '_> {
                 equipped,
                 "equipment target confirmation rejected"
             );
-            self.diagnostics
-                .save(&self.frame, &self.page, "equip-target-lost");
+            self.evidence
+                .checkpoint(&self.frame, &self.page, "equip-target-lost");
             bail!("equipment target or its confirmed marker changed; input was not sent");
         }
         Ok(())

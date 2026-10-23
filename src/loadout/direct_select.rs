@@ -53,7 +53,7 @@ enum ListSelectionMode {
     FirstAvailable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 enum ScrollDirection {
     Up,
     Down,
@@ -201,6 +201,9 @@ fn apply_stratagems_from_home(
             .filter_map(|slot| slot.classification.as_ref())
             .map(|classification| classification.item_id.as_str())
             .collect::<Vec<_>>();
+        automation
+            .evidence()
+            .record("home-identities", Some(&home.image), &home.slots);
         ensure!(
             equipped
                 .iter()
@@ -358,7 +361,7 @@ fn select_items_from_open_list(
         let _guard = span.enter();
         navigator.prepare_page(initial_observation)?
     };
-    let mut list_map = ListMap::new(&current_page, item_kind);
+    let mut list_map = ListMap::new(&current_page, item_kind, automation.evidence());
 
     loop {
         let page_span = debug_span!(
@@ -389,17 +392,14 @@ fn select_items_from_open_list(
                 .or_else(|| list_map.visible_mapped_target(&remaining[0], &current_page.roi))
         };
         if let Some(target) = target {
-            #[cfg(feature = "diagnostics")]
-            if target.fallback
-                && let Err(error) = crate::vision::save_fallback_slot(
-                    &current_page.roi.image,
-                    &target.slot,
-                    &target.item_id,
-                    f64::from(target.match_error),
-                )
-            {
-                warn!(item_id = %target.item_id, error = %format!("{error:#}"), "failed to save fallback slot diagnostics");
-            }
+            automation.evidence().record(
+                "target-selected",
+                Some(&current_page.roi.image),
+                serde_json::json!({
+                    "item": target.item_id, "slot": target.slot,
+                    "match_error": target.match_error, "match_margin": target.match_margin,
+                }),
+            );
             let span = debug_span!("select_visible_item", item_id = %target.item_id);
             let _guard = span.enter();
             let selected_item_id = target.item_id.clone();
@@ -454,7 +454,7 @@ fn select_items_from_open_list(
             match outcome {
                 TargetSelectionOutcome::List { page, placement } => {
                     let vertical_shift = placement.vertical_shift;
-                    list_map.commit(&page, placement, "post-click");
+                    list_map.commit(&page, placement, "post-click", automation.evidence());
                     current_page = page;
                     wheel_attempts = 0;
                     boundary_candidate = None;
@@ -760,7 +760,8 @@ fn observe_post_click_state(
         let image = automation.capture()?;
         let page = navigator.scan_direct_page(image)?;
 
-        let Some(placement) = list_map.locate_after_click(&page, slot_id) else {
+        let mut assessment = list_map.locate_after_click(&page, slot_id);
+        let Some(placement) = assessment.placement.as_ref() else {
             trace!(
                 item_id,
                 observation, "post-click page could not be located in the temporary list map"
@@ -768,6 +769,12 @@ fn observe_post_click_state(
             if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
                 && observation >= POST_CLICK_MIN_OBSERVATIONS
             {
+                list_map.record_assessment(
+                    automation.evidence(),
+                    &page,
+                    &assessment,
+                    "post-click-unplaced",
+                );
                 bail!(
                     "target item {item_id} could not be confirmed because the post-click page could not be located after {observation} observations in {:.3}s",
                     started.elapsed().as_secs_f64()
@@ -777,16 +784,25 @@ fn observe_post_click_state(
         };
 
         if placement.has_moved() {
+            list_map.record_assessment(
+                automation.evidence(),
+                &page,
+                &assessment,
+                "post-click-moved",
+            );
             debug!(
                 item_id,
                 observation,
                 vertical_shift = placement.vertical_shift,
                 "post-click success confirmed by viewport movement"
             );
-            return Ok(PostClickObservation::Selected { page, placement });
+            return Ok(PostClickObservation::Selected {
+                page,
+                placement: assessment.placement.take().unwrap(),
+            });
         }
 
-        let Some(slot) = list_map.slot_after_placement(&placement, &page.roi, slot_id) else {
+        let Some(slot) = list_map.slot_after_placement(placement, &page.roi, slot_id) else {
             trace!(
                 item_id,
                 observation, "post-click target slot is absent after map placement"
@@ -794,6 +810,12 @@ fn observe_post_click_state(
             if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
                 && observation >= POST_CLICK_MIN_OBSERVATIONS
             {
+                list_map.record_assessment(
+                    automation.evidence(),
+                    &page,
+                    &assessment,
+                    "post-click-target-absent",
+                );
                 bail!(
                     "target item {item_id} could not be located after clicking ({observation} observations in {:.3}s)",
                     started.elapsed().as_secs_f64()
@@ -806,6 +828,14 @@ fn observe_post_click_state(
         let brightness_dropped = sample.is_dimmer_than(before);
 
         if brightness_dropped {
+            automation.evidence().record(
+                "post-click-dimmed",
+                Some(&page.roi.image),
+                serde_json::json!({
+                    "before_score": before.target_score(), "after_score": sample.target_score(),
+                    "required_drop": before.required_score_drop(),
+                }),
+            );
             debug!(
                 item_id,
                 observation,
@@ -814,12 +844,23 @@ fn observe_post_click_state(
                 required_drop = before.required_score_drop(),
                 "post-click success confirmed by brightness drop"
             );
-            return Ok(PostClickObservation::Selected { page, placement });
+            return Ok(PostClickObservation::Selected {
+                page,
+                placement: assessment.placement.take().unwrap(),
+            });
         }
 
         if started.elapsed() >= POST_CLICK_CONFIRM_TIMEOUT
             && observation >= POST_CLICK_MIN_OBSERVATIONS
         {
+            automation.evidence().record(
+                "post-click-unchanged",
+                Some(&page.roi.image),
+                serde_json::json!({
+                    "before_score": before.target_score(), "after_score": sample.target_score(),
+                    "required_drop": before.required_score_drop(),
+                }),
+            );
             debug!(
                 item_id,
                 observation,
@@ -856,7 +897,14 @@ fn relocate_and_wait_hover(
         if attempt > 1 {
             let image = automation.capture()?;
             let page = navigator.scan_direct_page(image)?;
-            let Some(placement) = list_map.locate_page(&page, None) else {
+            let mut assessment = list_map.locate_page(&page, None);
+            list_map.record_assessment(
+                automation.evidence(),
+                &page,
+                &assessment,
+                "hover-relocation",
+            );
+            let Some(placement) = assessment.placement.take() else {
                 last_hover_error = Some(anyhow::anyhow!(
                     "target item {item_id} could not be relocated in the temporary list map"
                 ));
@@ -871,7 +919,7 @@ fn relocate_and_wait_hover(
                 })?;
             target.slot = slot;
             // Use the relocated viewport as the baseline for the upcoming click.
-            list_map.commit(&page, placement, "hover-relocation");
+            list_map.commit(&page, placement, "hover-relocation", automation.evidence());
             *current_page = page;
         }
         automation.move_cursor(target.slot.center())?;
@@ -883,6 +931,9 @@ fn relocate_and_wait_hover(
         ) {
             Ok((sample, image)) => {
                 let availability = navigator.item_availability(&image, &target.slot, &item_id)?;
+                automation
+                    .evidence()
+                    .record("target-availability", Some(&image), availability);
                 return Ok(PreparedHover {
                     target,
                     sample,
@@ -922,13 +973,20 @@ fn unchanged_terminal_target(
     let page = match navigator.scan_direct_page(image) {
         Ok(page) => page,
         Err(error) => {
+            automation.evidence().record(
+                "terminal-scan-unavailable",
+                None,
+                serde_json::json!({"error": format!("{error:#}")}),
+            );
             debug!(item_id = %clicked_target.item_id, error = %format!("{error:#}"), "final click target scan unavailable; waiting for home");
             return Ok(None);
         }
     };
     let target = find_visible_target(&page.roi, &clicked_target.item_id, navigator.item_kind())
         .or_else(|| {
-            let placement = list_map.locate_after_click(&page, slot_id)?;
+            let mut assessment = list_map.locate_after_click(&page, slot_id);
+            list_map.record_assessment(automation.evidence(), &page, &assessment, "terminal-click");
+            let placement = assessment.placement.take()?;
             let slot = list_map.slot_after_placement(&placement, &page.roi, slot_id)?;
             Some(DirectClickTarget {
                 slot,
@@ -936,12 +994,26 @@ fn unchanged_terminal_target(
             })
         });
     let Some(target) = target else {
+        automation.evidence().record(
+            "terminal-target-absent",
+            Some(&page.roi.image),
+            &page.roi.slots,
+        );
         return Ok(None);
     };
     let moved = clicked_target.slot.x.abs_diff(target.slot.x) > TARGET_POSITION_TOLERANCE
         || clicked_target.slot.y.abs_diff(target.slot.y) > TARGET_POSITION_TOLERANCE;
     let sample = HoverVerifier::sample_current_frame(&page.roi.image, &target.slot)?;
     let brightness_dropped = !moved && sample.is_dimmer_than(before);
+    automation.evidence().record(
+        "terminal-target",
+        Some(&page.roi.image),
+        serde_json::json!({
+            "moved": moved, "dimmed": brightness_dropped, "slot": target.slot,
+            "before_score": before.target_score(), "after_score": sample.target_score(),
+            "required_drop": before.required_score_drop(),
+        }),
+    );
 
     if moved || brightness_dropped {
         debug!(

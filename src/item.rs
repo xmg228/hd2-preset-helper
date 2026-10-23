@@ -77,17 +77,4 @@ impl EquipmentKind {
             Self::Throwable => 5,
         }
     }
-
-    #[cfg(feature = "diagnostics")]
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "helmet" => Self::Helmet,
-            "armor" => Self::Armor,
-            "cape" => Self::Cape,
-            "primary" => Self::Primary,
-            "secondary" => Self::Secondary,
-            "throwable" => Self::Throwable,
-            _ => return None,
-        })
-    }
 }

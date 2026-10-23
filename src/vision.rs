@@ -1,12 +1,8 @@
 mod booster;
 mod borders;
 mod color;
-#[cfg(feature = "diagnostics")]
-mod diagnostics;
 pub(crate) mod equipment;
 mod geometry;
-#[cfg(feature = "diagnostics")]
-mod home_tone_diagnostics;
 mod matcher;
 mod recognizer;
 mod roi;
@@ -23,16 +19,6 @@ use crate::item::ItemKind;
 
 pub(crate) use booster::crop_sample as crop_booster_sample;
 pub use color::{icon_likeness, luma601_u8};
-#[cfg(feature = "diagnostics")]
-pub(crate) use diagnostics::create_list_map_case_directory;
-#[cfg(feature = "diagnostics")]
-pub use diagnostics::init as init_diagnostics;
-#[cfg(feature = "diagnostics")]
-pub use diagnostics::save_fallback_slot;
-#[cfg(feature = "diagnostics")]
-pub use diagnostics::save_list_map_image;
-#[cfg(feature = "diagnostics")]
-pub(crate) use home_tone_diagnostics::log_home_tone;
 pub use recognizer::{RecognizerRuntime, RecognizerSession};
 pub use roi::{
     Calibration, ReferenceSize, ResolvedRoi, RoiAnchor, RoiGeometry, ScaleAxis,
@@ -53,7 +39,7 @@ const LIST_ICON_SIZE_LOGICAL: f32 = 51.0;
 const LIST_COLS: [i32; 4] = [58, 143, 228, 313];
 const HOME_COLS: [i32; 4] = [8, 93, 178, 263];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum SlotKind {
     Stratagem,
     StratagemEmpty,
@@ -98,12 +84,12 @@ impl SlotLayout {
 
 #[derive(Debug)]
 pub struct RoiObservation {
-    pub image: RgbaImage,
+    pub image: crate::capture::CapturedFrame,
     pub layout: SlotLayout,
     pub slots: Vec<Slot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Slot {
     pub x: u32,
     pub y: u32,
@@ -160,7 +146,7 @@ pub struct ImageSample {
     pub geometry: SampleGeometry,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Classification {
     pub item_id: String,
     /// Raw template-matching error used by the acceptance gate; lower is better.
@@ -171,14 +157,14 @@ pub struct Classification {
     pub gate_quality: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum ItemAvailability {
     Available,
     Unavailable { brightness_ratio: f32 },
 }
 
 pub fn detect_slot_layout(
-    image: RgbaImage,
+    image: crate::capture::CapturedFrame,
     geometry: RoiGeometry,
     expected_layout: SlotLayout,
 ) -> Result<RoiObservation> {

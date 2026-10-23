@@ -1,5 +1,4 @@
 //! Connect equipment automation to persistent presets and application feedback.
-use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 
@@ -10,7 +9,7 @@ use crate::{
     capture::CaptureSource,
     game_settings::GameColorSettings,
     item::EquipmentKind,
-    loadout::equipment::{ApplyProgress, Diagnostics, EquipmentSet, Session},
+    loadout::equipment::{ApplyProgress, EquipmentSet, Session},
     preset::equipment as storage,
     vision::equipment::EquipmentObserver,
     window::WindowTarget,
@@ -49,7 +48,7 @@ pub(super) fn sample(
     context
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: true });
-    with_session(capture, target, colors, context.presets, |session| {
+    with_session(capture, target, colors, context.evidence, |session| {
         session.sample_all()
     })
 }
@@ -66,7 +65,7 @@ pub(super) fn apply(
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: false });
     let client_size = capture.output_size();
-    with_session(capture, target, colors, context.presets, |session| {
+    with_session(capture, target, colors, context.evidence, |session| {
         session.apply_all(items, context.equipment_cache, |progress| {
             let event = match progress {
                 ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
@@ -114,31 +113,14 @@ fn with_session<T>(
     capture: &mut CaptureSource,
     target: WindowTarget,
     colors: GameColorSettings,
-    presets: &Path,
-    operation: impl FnOnce(&mut Session<'_, '_>) -> Result<T>,
+    evidence: &crate::evidence::OperationEvidence,
+    operation: impl FnOnce(&mut Session<'_>) -> Result<T>,
 ) -> Result<T> {
     let (width, height) = capture.output_size();
     let (observer, resolved) = EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
     let region = capture.region(resolved.rect, colors)?;
-    let automation = AutomationSession::new(region, target)?;
-    #[cfg(not(feature = "diagnostics"))]
-    let mut diagnostics = Diagnostics::default();
-    #[cfg(feature = "diagnostics")]
-    let mut diagnostics = {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis();
-        let directory = presets
-            .with_file_name("diagnostics")
-            .join("equipment")
-            .join(stamp.to_string());
-        Diagnostics::new(&directory).unwrap_or_else(|error| {
-            tracing::warn!(path = %directory.display(), error = %format!("{error:#}"), "equipment diagnostics unavailable");
-            Diagnostics::default()
-        })
-    };
-    diagnostics.set_failure_directory(presets.with_file_name("debug").join("equipment-search"));
-    let mut session = Session::new(automation, observer, (width, height), &mut diagnostics)?;
+    let automation = AutomationSession::new(region, target, evidence)?;
+    let mut session = Session::new(automation, observer, (width, height))?;
     ensure!(
         session.at_entry(),
         "return to the six-card equipment entry before saving or applying equipment"

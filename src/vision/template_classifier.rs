@@ -59,8 +59,6 @@ pub struct TemplateMatchCandidate {
 struct SlotMatchOutcome {
     accepted: bool,
     candidates: Vec<TemplateMatchCandidate>,
-    #[cfg(feature = "diagnostics")]
-    diagnostics: super::diagnostics::SlotDiagnostics,
 }
 
 impl TemplateClassifier {
@@ -310,13 +308,6 @@ impl TemplateClassifier {
             })
             .collect();
 
-        #[cfg(feature = "diagnostics")]
-        if let Err(error) =
-            super::diagnostics::record_frame(results.iter().map(|result| &result.diagnostics))
-        {
-            tracing::warn!(error = %format!("{error:#}"), "matcher score diagnostics disabled after write failure");
-        }
-
         debug!(
             target: "hd2_preset_helper::perf",
             algorithm = "template_matcher",
@@ -399,20 +390,6 @@ impl TemplateClassifier {
             })
             .collect();
 
-        #[cfg(feature = "diagnostics")]
-        let diagnostics = super::diagnostics::collect_slot(
-            slot,
-            ranked.iter().map(|(template, extraction, result)| {
-                (
-                    template.item_id.as_str(),
-                    template.category,
-                    *extraction,
-                    *result,
-                )
-            }),
-            accepted,
-            self.match_threshold,
-        );
         trace_match(
             slot,
             best.item_id.as_str(),
@@ -432,8 +409,6 @@ impl TemplateClassifier {
         Ok(SlotMatchOutcome {
             accepted,
             candidates,
-            #[cfg(feature = "diagnostics")]
-            diagnostics,
         })
     }
 }
