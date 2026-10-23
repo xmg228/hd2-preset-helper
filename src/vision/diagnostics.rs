@@ -114,6 +114,23 @@ pub fn init(path: &Path) -> Result<()> {
         .map_err(|_| anyhow!("diagnostics were already initialized"))
 }
 
+pub fn create_list_map_case_directory(item_kind: ItemKind, reason: &str) -> Result<PathBuf> {
+    let recorder = RECORDER.get().context("diagnostics were not initialized")?;
+    let mut recorder = recorder
+        .lock()
+        .map_err(|_| anyhow!("diagnostics lock was poisoned"))?;
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    let path = recorder.map_dir.join(format!(
+        "{timestamp}-{:03}-{}-{reason}",
+        recorder.next_map,
+        item_kind.label()
+    ));
+    recorder.next_map += 1;
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    Ok(path)
+}
+
 pub fn save_list_map_image(item_kind: ItemKind, image: &RgbaImage) -> Result<PathBuf> {
     let recorder = RECORDER.get().context("diagnostics were not initialized")?;
     let mut recorder = recorder

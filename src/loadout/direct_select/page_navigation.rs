@@ -23,6 +23,7 @@ const PAGE_TURN_ALIGNMENT_TIMEOUT: Duration = Duration::from_millis(400);
 const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
 const PAGE_SCROLL_NOTCHES: i32 = 5;
 const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
+const PAGE_ALIGNMENT_RECOVERY_NOTCHES: i32 = 2;
 // A full turn moves about 253.5 px in the 624 px reference ROI.
 const PAGE_TURN_SHIFT_REFERENCE_PX: f32 = 253.5;
 const PAGE_TURN_SHORT_THRESHOLD_RATIO: f32 = 0.80;
@@ -61,12 +62,13 @@ pub(super) enum PageTurnResult {
 pub(super) enum PageTurnInput {
     Full(ScrollDirection),
     Nudge(ScrollDirection),
+    Recovery(ScrollDirection),
 }
 
 impl PageTurnInput {
     pub(super) const fn direction(self) -> ScrollDirection {
         match self {
-            Self::Full(direction) | Self::Nudge(direction) => direction,
+            Self::Full(direction) | Self::Nudge(direction) | Self::Recovery(direction) => direction,
         }
     }
 
@@ -82,6 +84,7 @@ impl PageTurnInput {
         let magnitude = match self {
             Self::Full(_) => PAGE_SCROLL_NOTCHES,
             Self::Nudge(_) => PAGE_BOUNDARY_PROBE_NOTCHES,
+            Self::Recovery(_) => PAGE_ALIGNMENT_RECOVERY_NOTCHES,
         };
         match self.direction() {
             ScrollDirection::Up => magnitude,
@@ -155,16 +158,16 @@ impl PageNavigator {
 
         warn!(
             ?input,
-            "page turn remained unplaced in the temporary list map; nudging back once"
+            "page turn remained unplaced in the temporary list map; scrolling back for recovery"
         );
-        let recovery = PageTurnInput::Nudge(input.direction().opposite());
+        let recovery = PageTurnInput::Recovery(input.direction().opposite());
         automation.scroll(recovery.scroll_notches())?;
         // The rejected page was never committed. Recovery may land on either
         // side of the last confirmed page, or return to that same position.
         let (page, placement) =
             self.observe_page_turn(automation, list_map, &page, recovery, None)?;
         let placement = placement.context(
-            "neither the page turn nor the page after a recovery nudge could be placed in the temporary list map",
+            "neither the page turn nor the page after a recovery scroll could be placed in the temporary list map",
         )?;
         list_map.commit(&page, placement, "recovery");
         Ok(PageTurnResult::Recovered(page))
@@ -182,10 +185,10 @@ impl PageNavigator {
         let visual_reference = image_fingerprint(&current_page.roi.image);
         let mut same_viewport_frames = 0usize;
         let mut observations = 0usize;
-        let no_movement_grace = if input.is_nudge() {
-            PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE
-        } else {
+        let no_movement_grace = if input.is_full() {
             PAGE_TURN_NO_MOVEMENT_GRACE
+        } else {
+            PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE
         };
 
         loop {
@@ -246,6 +249,8 @@ impl PageNavigator {
                         timeout_s = PAGE_TURN_ALIGNMENT_TIMEOUT.as_secs_f64(),
                         "page turn placement remained unconfirmed"
                     );
+                    #[cfg(feature = "diagnostics")]
+                    list_map.save_alignment_case(&page, direction, "unplaced");
                     return Ok((page, None));
                 }
             }

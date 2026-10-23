@@ -13,6 +13,7 @@ use super::page_navigation::{PageSnapshot, SlotSample};
 #[path = "list_map_diagnostics.rs"]
 mod diagnostics;
 
+const PAGE_ALIGNMENT_MIN_SCORE: f32 = 0.70;
 const PAGE_ALIGNMENT_MIN_MARGIN: f32 = 0.04;
 const POSITION_TOLERANCE_PX: f32 = 2.0;
 
@@ -110,6 +111,8 @@ struct AlignmentConstraints {
 
 #[derive(Clone, Copy, Debug)]
 struct AlignmentCandidate {
+    #[cfg(feature = "diagnostics")]
+    hypothesis_y: f32,
     offset_y: f32,
     mean_score: f32,
     support: usize,
@@ -192,6 +195,21 @@ impl ListMap {
         )
     }
 
+    #[cfg(feature = "diagnostics")]
+    pub(super) fn save_alignment_case(
+        &self,
+        page: &PageSnapshot,
+        direction: Option<ScrollDirection>,
+        reason: &str,
+    ) {
+        let constraints = AlignmentConstraints {
+            direction,
+            excluded: None,
+        };
+        let candidates = self.alignment_candidates(page, constraints);
+        diagnostics::save_alignment_case(self, page, constraints, &candidates, reason);
+    }
+
     pub(super) fn locate_after_click(
         &self,
         page: &PageSnapshot,
@@ -263,10 +281,9 @@ impl ListMap {
             return None;
         };
         let runner_up = candidates.get(1).copied();
-        let margin = runner_up.map_or(1.0, |runner| best.mean_score - runner.mean_score);
-        let accepted = runner_up.is_none_or(|runner| {
-            best.support > runner.support || margin >= PAGE_ALIGNMENT_MIN_MARGIN
-        });
+        let margin = runner_up.map(|runner| best.mean_score - runner.mean_score);
+        let accepted = best.mean_score >= PAGE_ALIGNMENT_MIN_SCORE
+            && margin.is_none_or(|margin| margin >= PAGE_ALIGNMENT_MIN_MARGIN);
         debug!(
             context,
             direction = ?constraints.direction,
@@ -277,7 +294,9 @@ impl ListMap {
             algorithm = "semantic_cosine",
             best_mean_score = best.mean_score,
             best_support = best.support,
+            required_score = PAGE_ALIGNMENT_MIN_SCORE,
             runner_up_mean_score = runner_up.map(|candidate| candidate.mean_score),
+            runner_up_offset_y = runner_up.map(|candidate| candidate.offset_y),
             runner_up_support = runner_up.map(|candidate| candidate.support),
             margin,
             required_margin = PAGE_ALIGNMENT_MIN_MARGIN,
@@ -289,6 +308,11 @@ impl ListMap {
             candidates = %format_args!("{:.3?}", candidates.iter().take(8).collect::<Vec<_>>()),
             "continuous slot map alignment candidates"
         );
+        // This threshold only captures evidence; it does not change acceptance.
+        #[cfg(feature = "diagnostics")]
+        if accepted && context == "page-turn" && best.mean_score < 0.8 {
+            self.save_alignment_case(page, constraints.direction, "low-score-accepted");
+        }
         accepted.then(|| LocatedPage {
             page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),
             vertical_shift: self.current.offset_y - best.offset_y,
@@ -323,11 +347,6 @@ impl ListMap {
             })
             .collect::<Vec<_>>();
 
-        // Prefer page-level evidence. A single overlapping slot remains a
-        // fallback only when no candidate contains two or more observations.
-        if candidates.iter().any(|candidate| candidate.support >= 2) {
-            candidates.retain(|candidate| candidate.support >= 2);
-        }
         candidates.sort_by(compare_alignment);
         candidates
     }
@@ -342,47 +361,71 @@ impl ListMap {
         let mut offsets = Vec::new();
 
         for current in &page.slot_samples {
-            let expected_y = current.page_y + offset_y;
-            let Some((mapped, mapped_offset)) = self
-                .slots
-                .iter()
-                .enumerate()
-                .filter(|(index, mapped)| {
-                    let id = SlotId(*index);
-                    mapped.col == current.col
-                        && !self.selected.contains(&id)
-                        && self.no_booster_option != Some(id)
-                        && excluded != Some(id)
-                })
-                .map(|(_, mapped)| {
-                    (
-                        mapped,
-                        mapped.content_y - current.page_y,
-                        (mapped.content_y - expected_y).abs(),
-                    )
-                })
-                .filter(|(_, _, distance)| *distance <= POSITION_TOLERANCE_PX)
-                .min_by(|left, right| left.2.total_cmp(&right.2))
-                .map(|(mapped, mapped_offset, _)| (mapped, mapped_offset))
-            else {
+            let Some(index) = self.nearest_mapped_slot(current, offset_y, excluded) else {
                 continue;
             };
+            let mapped = &self.slots[index];
             let Some(score) = best_shifted_response_cosine(&mapped.sample, current) else {
                 continue;
             };
             scores.push(score);
-            offsets.push(mapped_offset);
+            offsets.push(mapped.content_y - current.page_y);
         }
 
         if scores.is_empty() {
             return None;
         }
         offsets.sort_unstable_by(f32::total_cmp);
+        let refined_offset_y = interpolated_median(&offsets);
+        // Even slots excluded from image matching must fit the page's geometry.
+        if page.slot_samples.iter().any(|current| {
+            let content_y = current.page_y + refined_offset_y;
+            let top = content_y - current.center_y;
+            let bottom = top + current.height as f32;
+            self.slots
+                .iter()
+                .filter(|mapped| {
+                    mapped.col == current.col
+                        && (mapped.content_y - content_y).abs() > POSITION_TOLERANCE_PX
+                })
+                .any(|mapped| {
+                    let mapped_top = mapped.content_y - mapped.sample.center_y;
+                    let mapped_bottom = mapped_top + mapped.sample.height as f32;
+                    bottom.min(mapped_bottom) - top.max(mapped_top) > POSITION_TOLERANCE_PX
+                })
+        }) {
+            return None;
+        }
         Some(AlignmentCandidate {
-            offset_y: interpolated_median(&offsets),
+            #[cfg(feature = "diagnostics")]
+            hypothesis_y: offset_y,
+            offset_y: refined_offset_y,
             mean_score: scores.iter().sum::<f32>() / scores.len() as f32,
             support: scores.len(),
         })
+    }
+
+    fn nearest_mapped_slot(
+        &self,
+        current: &SlotSample,
+        offset_y: f32,
+        excluded: Option<SlotId>,
+    ) -> Option<usize> {
+        let expected_y = current.page_y + offset_y;
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(index, mapped)| {
+                let id = SlotId(*index);
+                mapped.col == current.col
+                    && !self.selected.contains(&id)
+                    && self.no_booster_option != Some(id)
+                    && excluded != Some(id)
+            })
+            .map(|(index, mapped)| (index, (mapped.content_y - expected_y).abs()))
+            .filter(|(_, distance)| *distance <= POSITION_TOLERANCE_PX)
+            .min_by(|left, right| left.1.total_cmp(&right.1))
+            .map(|(index, _)| index)
     }
 
     fn direction_allows(&self, offset_y: f32, direction: ScrollDirection) -> bool {

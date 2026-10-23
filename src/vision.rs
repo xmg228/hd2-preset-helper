@@ -24,6 +24,8 @@ use crate::item::ItemKind;
 pub(crate) use booster::crop_sample as crop_booster_sample;
 pub use color::{icon_likeness, luma601_u8};
 #[cfg(feature = "diagnostics")]
+pub(crate) use diagnostics::create_list_map_case_directory;
+#[cfg(feature = "diagnostics")]
 pub use diagnostics::init as init_diagnostics;
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::save_fallback_slot;
