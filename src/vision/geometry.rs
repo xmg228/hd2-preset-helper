@@ -19,7 +19,7 @@ const GRID_PITCH_LOGICAL: f64 = 85.0;
 const HOME_BOOSTER_X_LOGICAL: f64 = 343.0;
 const HOME_Y_LOGICAL: f64 = 478.0;
 const HOME_Y_SEARCH_LOGICAL: f64 = 2.0;
-const HOME_SCORE_THRESHOLD: f32 = 0.05;
+const FRAME_SCORE_THRESHOLD: f32 = 0.05;
 const LIST_Y_MIN_LOGICAL: f64 = 90.0;
 const LIST_Y_MAX_LOGICAL: f64 = 525.0;
 const LIST_MAX_ROWS: usize = 10;
@@ -111,7 +111,7 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
             best = Some(RowCandidate { y, score, slots });
         }
     }
-    let Some(best) = best.filter(|candidate| candidate.score >= HOME_SCORE_THRESHOLD) else {
+    let Some(best) = best.filter(|candidate| candidate.score >= FRAME_SCORE_THRESHOLD) else {
         return Vec::new();
     };
     debug!(
@@ -124,7 +124,7 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
         "fixed home frame evidence"
     );
 
-    let supported = best.slots.map(|slot| slot.q >= HOME_SCORE_THRESHOLD);
+    let supported = best.slots.map(|slot| slot.q >= FRAME_SCORE_THRESHOLD);
     let top =
         refine_row_aa(image, best.y as f64, &supported, columns, params).unwrap_or(best.y as f64);
     let mut slots = columns
@@ -186,6 +186,13 @@ fn detect_list(image: &RgbaImage, geometry: RoiGeometry, item_kind: ItemKind) ->
         LIST_MAX_ROWS,
         round_ties_even(84.0 * geometry.scale).max(1),
     );
+    // Relative row selection preserves weak/faded rows, but background noise
+    // alone must not establish a list. Require at least one visible frame.
+    let frame_score = selected.iter().map(|row| row.score).fold(0.0, f32::max);
+    if frame_score < FRAME_SCORE_THRESHOLD {
+        debug!(frame_score, "list frame evidence insufficient");
+        return Vec::new();
+    }
 
     let rows = selected
         .into_iter()

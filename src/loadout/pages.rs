@@ -45,7 +45,14 @@ pub(crate) fn show_page(
         for candidate in [Page::Equipment, Page::Stratagems] {
             let (mut region, detector) =
                 bind_page(capture, runtime, target, colors, candidate, evidence)?;
-            if detector.list_visible(region.capture()?)? {
+            let frame = region.capture()?;
+            let confirmed = detector.list_visible(frame.clone())?;
+            evidence.record(
+                "list-detection",
+                Some(&frame),
+                serde_json::json!({"page": format!("{candidate:?}"), "confirmed": confirmed}),
+            );
+            if confirmed {
                 origin = Some(candidate);
                 break;
             }
