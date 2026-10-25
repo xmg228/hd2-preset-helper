@@ -32,7 +32,7 @@ pub fn foreground_game_window() -> Result<WindowTarget> {
     let target = WindowTarget::foreground().context("failed to inspect the foreground window")?;
     let title = target.title();
     if title != GAME_WINDOW_TITLE {
-        bail!("Helldivers is not the foreground window; title={title:?}");
+        bail!("Helldivers is not the foreground window");
     }
     Ok(target)
 }

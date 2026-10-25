@@ -35,7 +35,7 @@ impl AppController {
         {
             warn!(error = %format!("{error:#}"), "could not return focus when closing the preset panel");
         }
-        self.ui.hide_panel()?;
+        self.ui.dismiss_panel()?;
         self.panel_return_target = None;
         Ok(())
     }

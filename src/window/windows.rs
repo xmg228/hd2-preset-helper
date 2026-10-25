@@ -6,9 +6,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetClientRect, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, SMTO_ABORTIFHUNG, SMTO_ERRORONEXIT, SW_RESTORE, SendMessageTimeoutW,
-    SetForegroundWindow, ShowWindow, WM_NULL,
+    FindWindowW, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SMTO_ABORTIFHUNG,
+    SMTO_ERRORONEXIT, SW_RESTORE, SendMessageTimeoutW, SetForegroundWindow, ShowWindow, WM_NULL,
 };
 use windows::core::HSTRING;
 
@@ -203,7 +203,25 @@ impl WindowTarget {
         if !unsafe { IsWindow(Some(self.hwnd)).as_bool() } {
             bail!("target window is no longer available");
         }
-        if unsafe { GetForegroundWindow() } != self.hwnd {
+        let foreground = unsafe { GetForegroundWindow() };
+        if foreground != self.hwnd {
+            let foreground_null = foreground.0.is_null();
+            let mut foreground_pid = 0;
+            if !foreground_null {
+                unsafe { GetWindowThreadProcessId(foreground, Some(&mut foreground_pid)) };
+            }
+            // Record only identity and style, not another application's title or path.
+            tracing::debug!(
+                target = ?self.hwnd,
+                target_pid = self.process_id,
+                ?foreground,
+                foreground_pid,
+                foreground_null,
+                foreground_is_helper = foreground_pid == std::process::id(),
+                foreground_ex_style = (!foreground_null)
+                    .then(|| unsafe { GetWindowLongPtrW(foreground, GWL_EXSTYLE) }),
+                "target window focus check failed"
+            );
             bail!("target window lost focus; automation was cancelled");
         }
 

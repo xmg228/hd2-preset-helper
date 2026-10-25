@@ -157,19 +157,17 @@ impl Status {
         }
     }
 
+    pub fn prepare_window(&self) -> Result<bool> {
+        super::prepare_window(self.window.window(), super::WindowRole::Status)
+    }
+
     pub fn show(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {
         if !self.window.window().is_visible() {
             self.window.show()?;
-            // Creation uses with_active(false). Set hit-testing before returning
-            // to the event loop, so this surface can never intercept a click.
+            // Let Slint present its first frame before hit-testing adds WS_EX_LAYERED.
             self.window
                 .window()
-                .with_winit_window(|window| -> Result<()> {
-                    window.set_cursor_hittest(false)?;
-                    #[cfg(target_os = "windows")]
-                    super::windows::make_passive(window)?;
-                    Ok(())
-                })
+                .with_winit_window(|window| window.set_cursor_hittest(false))
                 .transpose()?;
             self.reposition(monitor, anchor)?;
         }

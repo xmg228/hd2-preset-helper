@@ -152,7 +152,11 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
     // Native window placement and focus require an active UI event loop.
     let mut opening = true;
     ui::run(move || {
-        if std::mem::take(&mut opening) {
+        if opening {
+            if !app.ui.prepare_windows()? {
+                return Ok(false);
+            }
+            opening = false;
             app.open_panel()?;
             return Ok(false);
         }
@@ -237,7 +241,7 @@ impl AppController {
         }
         while self.panel_hotkey.next_trigger().is_some() {
             if matches!(self.state, ActionState::Idle) {
-                if self.ui.is_panel_visible() {
+                if self.ui.is_panel_open() {
                     self.close_panel()?;
                 } else {
                     self.open_panel()?;
@@ -265,7 +269,7 @@ impl AppController {
         }
         // Hide idle browsing whenever focus leaves the panel, including to the game.
         // Waiting actions keep their separate focus/release handling below.
-        if self.ui.is_panel_visible()
+        if self.ui.is_panel_open()
             && !self.ui.is_panel_active()
             && matches!(self.state, ActionState::Idle)
         {

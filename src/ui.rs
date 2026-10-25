@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
@@ -22,6 +22,24 @@ mod status;
 mod windows;
 
 slint::include_modules!();
+
+#[derive(Clone, Copy)]
+enum WindowRole {
+    Panel,
+    Status,
+}
+
+/// Native windows are created hidden when the event loop starts.
+fn prepare_window(window: &slint::Window, role: WindowRole) -> Result<bool> {
+    window
+        .with_winit_window(|native| -> Result<()> {
+            #[cfg(target_os = "windows")]
+            windows::prepare_window(native, role)?;
+            Ok(())
+        })
+        .transpose()
+        .map(|native| native.is_some())
+}
 
 #[derive(Default)]
 pub struct PresetInfo {
@@ -60,6 +78,7 @@ pub struct AppUi {
     language: UiLanguage,
     anchor: Option<(i32, i32)>,
     placement_dirty: Rc<Cell<bool>>,
+    panel_hide_at: Option<Instant>,
 }
 
 impl AppUi {
@@ -185,6 +204,7 @@ impl AppUi {
             language,
             anchor: None,
             placement_dirty,
+            panel_hide_at: None,
             window,
             _tray: tray,
             requests,
@@ -198,31 +218,70 @@ impl AppUi {
         Ok(ui)
     }
 
+    pub fn prepare_windows(&self) -> Result<bool> {
+        let panel_ready = prepare_window(self.window.window(), WindowRole::Panel)?;
+        let status_ready = self.status.prepare_window()?;
+        Ok(panel_ready && status_ready)
+    }
+
     pub fn show_panel(&mut self, anchor: Option<(i32, i32)>) -> Result<()> {
+        self.panel_hide_at = None;
         self.anchor = anchor;
         self.status.hide()?;
         self.window.invoke_focus_list();
         self.window.set_pending(false);
         self.window.set_loading(true);
         self.window.set_status("".into());
+        // Evaluate the initial hidden value before changing the lazy animation binding.
+        let _ = self.window.get_panel_opacity();
         self.window.show()?;
         self.reposition()?;
-        self.window.window().with_winit_window(|window| {
-            window.set_minimized(false);
-            window.focus_window();
-        });
+        self.window.set_presented(true);
+        self.window
+            .window()
+            .with_winit_window(|window| -> Result<()> {
+                window.set_cursor_hittest(true)?;
+                window.set_minimized(false);
+                window.focus_window();
+                Ok(())
+            })
+            .transpose()?;
         self.window.invoke_focus_list();
         Ok(())
     }
 
-    pub fn hide_panel(&self) -> Result<()> {
+    /// Stop interaction now; hide the native window after the scene fades out.
+    pub fn dismiss_panel(&mut self) -> Result<()> {
+        if !self.is_panel_open() {
+            return Ok(());
+        }
         self.window.invoke_finish_rename(true);
         self.window.invoke_close_dialogs();
+        self.window
+            .window()
+            .with_winit_window(|window| window.set_cursor_hittest(false))
+            .transpose()?;
+        self.window.set_presented(false);
+        self.panel_hide_at =
+            Some(Instant::now() + Duration::from_millis(self.window.get_fade_duration() as u64));
+        Ok(())
+    }
+
+    /// Automation and shutdown must not wait for a visual transition.
+    pub fn hide_panel(&mut self) -> Result<()> {
+        self.panel_hide_at = None;
+        self.window.invoke_finish_rename(true);
+        self.window.invoke_close_dialogs();
+        self.window.set_presented(false);
         self.window.hide()?;
         Ok(())
     }
 
-    pub fn is_panel_visible(&self) -> bool {
+    pub fn is_panel_open(&self) -> bool {
+        self.window.get_presented() && self.is_panel_visible()
+    }
+
+    fn is_panel_visible(&self) -> bool {
         self.window.window().is_visible()
     }
 
@@ -313,19 +372,28 @@ impl AppUi {
             _ => {}
         }
         self.status.update(event, &self.preset_info);
-        if self.is_panel_visible() {
+        if self.is_panel_open() {
             if failed {
                 self.set_status("");
             } else {
                 self.set_status(&self.status.message());
             }
         } else {
+            if self.panel_hide_at.is_some() {
+                self.hide_panel()?;
+            }
             self.status.show(&self.monitor, self.anchor)?;
         }
         Ok(())
     }
 
     pub fn tick(&mut self) -> Result<()> {
+        if self
+            .panel_hide_at
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.hide_panel()?;
+        }
         // Wait until Slint and the OS have finished processing the DPI event.
         if self.placement_dirty.replace(false) {
             if self.is_panel_visible() {
@@ -337,10 +405,12 @@ impl AppUi {
     }
 
     pub fn is_panel_active(&self) -> bool {
-        self.window
-            .window()
-            .with_winit_window(|window| window.has_focus())
-            .unwrap_or(false)
+        self.is_panel_open()
+            && self
+                .window
+                .window()
+                .with_winit_window(|window| window.has_focus())
+                .unwrap_or(false)
     }
     pub fn is_editing(&self) -> bool {
         self.window.get_editing_name()

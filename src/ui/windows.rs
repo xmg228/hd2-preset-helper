@@ -1,15 +1,19 @@
 //! Windows-specific window, display and font choices stay at the UI platform boundary.
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use slint::winit_030::winit::{
     platform::windows::WindowAttributesExtWindows,
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{Window, WindowAttributes},
 };
 use windows::Win32::{
-    Foundation::{HWND, POINT},
+    Foundation::{GetLastError, HWND, LPARAM, LRESULT, POINT, SetLastError, WIN32_ERROR, WPARAM},
     Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint},
-    UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE,
+    UI::{
+        Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
+        WindowsAndMessaging::{
+            GWL_EXSTYLE, GetWindowLongPtrW, STYLESTRUCT, SetWindowLongPtrW, WM_NCDESTROY,
+            WM_STYLECHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        },
     },
 };
 
@@ -27,16 +31,55 @@ pub(super) fn font_family(locale: &str) -> &'static str {
     }
 }
 
-pub(super) fn make_passive(window: &Window) -> Result<()> {
+/// Install while hidden, before window managers observe the first show event.
+pub(super) fn prepare_window(window: &Window, role: super::WindowRole) -> Result<()> {
     let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
         unreachable!("Windows UI has a Win32 handle");
     };
     let hwnd = HWND(handle.hwnd.get() as *mut _);
+    let passive = matches!(role, super::WindowRole::Status);
     unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
+        // Reinstalling the same callback/ID only updates its reference data.
+        ensure!(
+            SetWindowSubclass(hwnd, Some(window_role_proc), 1, usize::from(passive)).as_bool(),
+            "could not install the UI window role"
+        );
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let updated = role_ex_style(style, passive);
+        if updated != style {
+            SetLastError(WIN32_ERROR(0));
+            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, updated as isize) == 0 {
+                GetLastError()
+                    .ok()
+                    .context("could not set the UI window role")?;
+            }
+        }
     }
     Ok(())
+}
+
+fn role_ex_style(style: u32, passive: bool) -> u32 {
+    let style = (style | WS_EX_TOOLWINDOW.0) & !(WS_EX_APPWINDOW.0 | WS_EX_NOACTIVATE.0);
+    style | if passive { WS_EX_NOACTIVATE.0 } else { 0 }
+}
+
+unsafe extern "system" fn window_role_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    subclass_id: usize,
+    passive: usize,
+) -> LRESULT {
+    if message == WM_STYLECHANGING && wparam.0 as i32 == GWL_EXSTYLE.0 {
+        // Winit rewrites the whole extended style on visibility/hit-test changes.
+        // WM_STYLECHANGING supplies a writable STYLESTRUCT for this message.
+        let styles = unsafe { &mut *(lparam.0 as *mut STYLESTRUCT) };
+        styles.styleNew = role_ex_style(styles.styleNew, passive != 0);
+    } else if message == WM_NCDESTROY {
+        let _ = unsafe { RemoveWindowSubclass(hwnd, Some(window_role_proc), subclass_id) };
+    }
+    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }
 
 pub(super) fn monitor_bounds(id: &str) -> Result<(i32, i32, i32, i32)> {
