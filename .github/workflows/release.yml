@@ -34,6 +34,24 @@ jobs:
         shell: pwsh
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
+      - name: Install license tool
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "cargo-about-0.9.3-x86_64-pc-windows-msvc.tar.gz"
+          gh release download 0.9.3 --repo EmbarkStudios/cargo-about `
+            --pattern $archive --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw "Could not download cargo-about" }
+          $archivePath = Join-Path $env:RUNNER_TEMP $archive
+          if ((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -ne "9e2942533ef1c592c4a70bdb384cae1550a3f5fc9ae40379b6662e3d2f16fe02") {
+            throw "cargo-about checksum mismatch"
+          }
+          tar -xzf $archivePath -C $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract cargo-about" }
+          "$env:RUNNER_TEMP/cargo-about-0.9.3-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
+
       - name: Build and package
         shell: pwsh
         run: |
@@ -42,7 +60,7 @@ jobs:
           # Read the package version from Cargo.toml/Cargo.lock.
           $metadata = cargo metadata `
             --locked `
-            --no-deps `
+            --filter-platform x86_64-pc-windows-msvc `
             --format-version 1 |
             ConvertFrom-Json
 
@@ -61,7 +79,16 @@ jobs:
             throw "Tag $env:GITHUB_REF_NAME does not match package version $($package.version)"
           }
 
+          # These versions match the supplemental notices in the template.
+          $reviewed = @{ slint = "1.18.1"; "i-slint-compiler" = "1.18.1"; lyon_geom = "1.0.20" }
+          foreach ($dependency in $metadata.packages) {
+            if ($reviewed.ContainsKey($dependency.name) -and $dependency.version -ne $reviewed[$dependency.name]) {
+              throw "Review packaging/notices.hbs for the updated $($dependency.name) dependency"
+            }
+          }
+
           cargo build --release --locked
+          if ($LASTEXITCODE -ne 0) { throw "Release build failed" }
 
           $exe = "target\release\HD2PresetHelper.exe"
           $packageDir = "dist\package\HD2PresetHelper"
@@ -82,9 +109,16 @@ jobs:
             -Path $exe `
             -Destination "$packageDir\HD2PresetHelper.exe"
 
-          Copy-Item `
-            -Path "LICENSE" `
-            -Destination $packageDir
+          $licensesDir = "$packageDir/licenses"
+          $notices = "$licensesDir/THIRD_PARTY_NOTICES.txt"
+          New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
+          Copy-Item -LiteralPath LICENSE -Destination "$licensesDir/LICENSE.txt"
+          cargo-about generate --locked --fail --config packaging/about.toml packaging/notices.hbs --output-file $notices
+          if ($LASTEXITCODE -ne 0) { throw "Could not generate third-party notices" }
+          if (Select-String -LiteralPath $notices -Pattern 'SOURCE DOWNLOAD REQUIRED:|Copyright \(c\) <year> <copyright holders>' -Quiet) {
+            throw "Review dependency source links and original copyright notices"
+          }
+          Copy-Item -LiteralPath $notices -Destination "dist/THIRD_PARTY_NOTICES.txt"
 
           # Compress the directory itself so the ZIP contains one top-level
           # HD2PresetHelper folder.
@@ -110,8 +144,10 @@ jobs:
           $releaseArgs = @(
             "release", "create", $env:GITHUB_REF_NAME,
             "dist\$env:ZIP_NAME",
+            "dist\THIRD_PARTY_NOTICES.txt",
             "--verify-tag",
             "--generate-notes",
+            "--notes", "Source code: [project](https://github.com/xmg228/hd2-preset-helper/archive/refs/tags/$env:GITHUB_REF_NAME.zip) and [dependency sources and licenses](https://github.com/xmg228/hd2-preset-helper/releases/download/$env:GITHUB_REF_NAME/THIRD_PARTY_NOTICES.txt).",
             "--title", "HD2 Preset Helper $env:GITHUB_REF_NAME"
           )
 

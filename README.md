@@ -100,5 +100,8 @@ The executable is written to `target\release\HD2PresetHelper.exe`.
 This is an unofficial third-party utility and is not affiliated with or
 endorsed by Arrowhead Game Studios or Sony Interactive Entertainment.
 
-The source code is licensed under the
+The project's original source code is licensed under the
 [GNU General Public License version 3 or later](LICENSE).
+Windows releases use Slint under GPLv3. Third-party notices and exact dependency
+source links are in `licenses/THIRD_PARTY_NOTICES.txt`, also available from the
+matching [release](https://github.com/xmg228/hd2-preset-helper/releases).

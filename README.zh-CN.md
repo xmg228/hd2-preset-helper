@@ -87,4 +87,6 @@ cargo build --release --locked
 
 HD2 Preset Helper 是非官方第三方工具，与 Arrowhead Game Studios 或 Sony Interactive Entertainment 没有从属关系，也未获得其认可或背书。
 
-本项目的源代码采用 [GNU General Public License version 3 or later](LICENSE) 许可。
+本项目的原创源代码采用 [GNU General Public License version 3 or later](LICENSE) 许可。
+Windows 发布版按 GPLv3 使用 Slint。第三方声明及精确版本的依赖源码链接位于
+`licenses/THIRD_PARTY_NOTICES.txt`，也可在对应的 [Release](https://github.com/xmg228/hd2-preset-helper/releases) 下载。

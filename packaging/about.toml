@@ -1,0 +1,49 @@
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+]
+targets = ["x86_64-pc-windows-msvc"]
+ignore-dev-dependencies = true
+# Build dependencies can contribute generated Slint widgets and resources.
+ignore-build-dependencies = false
+workarounds = ["chrono"]
+
+# These files contain additional notices that license-text detection misses.
+[libm.clarify]
+license = "MIT"
+[[libm.clarify.files]]
+path = "LICENSE.txt"
+checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
+
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+[[dpi.clarify.files]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
+[[dpi.clarify.files]]
+path = "LICENSE-LIBM-MIT"
+license = "MIT"
+checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997"
+
+# These crates omit their license files from the published package. Resolve
+# them at each crate's original commit, not the upstream default branch.
+[rspolib.clarify]
+license = "MIT"
+[[rspolib.clarify.git]]
+path = "LICENSE"
+checksum = "4fe9b5fce8fd028261959d039d19ef66182be088ab48ffa97dbeaef7b35e39c3"
+
+[taffy.clarify]
+license = "MIT"
+[[taffy.clarify.git]]
+path = "LICENSE.md"
+checksum = "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd"
