@@ -68,7 +68,7 @@ pub(super) fn record(
     }));
     evidence.record(context, Some(&page.roi.image), json!({
         "alignment": assessment, "map_slots": map_slots(map), "current_slots": current_slots, "matches": matches,
-        "pair_sheet": pair_sheet,
+        "pair_sheet": pair_sheet, "scrollbar": page.roi.scrollbar,
     }));
     if width == 0 || height == 0 {
         return;
@@ -103,6 +103,7 @@ pub(super) fn record_commit(
         Some(&page.roi.image),
         json!({
             "context": context, "placement": map.current, "map_slots": map_slots(map),
+            "scrollbar": page.roi.scrollbar,
         }),
     );
 }

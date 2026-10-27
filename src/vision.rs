@@ -6,6 +6,7 @@ mod geometry;
 mod matcher;
 mod recognizer;
 mod roi;
+mod scrollbar;
 mod semantic_extractor;
 mod template_classifier;
 pub(crate) mod text;
@@ -24,6 +25,7 @@ pub use roi::{
     Calibration, ReferenceSize, ResolvedRoi, RoiAnchor, RoiGeometry, ScaleAxis,
     resolve_calibration_roi_for_size,
 };
+pub use scrollbar::ScrollbarObservation;
 pub use semantic_extractor::crop_slot_sample;
 pub use template_classifier::{TemplateClassifier, TemplateMatchCandidate};
 
@@ -85,6 +87,8 @@ pub struct RoiObservation {
     pub image: crate::capture::CapturedFrame,
     pub layout: SlotLayout,
     pub slots: Vec<Slot>,
+    /// None means unknown, not that the whole list fits on screen.
+    pub scrollbar: Option<ScrollbarObservation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,9 +174,14 @@ pub fn detect_slot_layout(
         bail!("cannot detect slots in an empty ROI image");
     }
     let slots = geometry::detect(&image, geometry, expected_layout)?;
+    let scrollbar = match expected_layout {
+        SlotLayout::Home => None,
+        SlotLayout::List(_) => scrollbar::detect(&image, geometry),
+    };
     Ok(RoiObservation {
         image,
         layout: expected_layout,
         slots,
+        scrollbar,
     })
 }

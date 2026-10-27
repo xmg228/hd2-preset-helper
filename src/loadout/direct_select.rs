@@ -240,6 +240,7 @@ fn apply_stratagems_from_home(
                     .find(|slot| slot.kind == SlotKind::StratagemEmpty)
             })
             .context("no home slot available for a missing Stratagem")?;
+        let starts_at_top = entry.kind == SlotKind::StratagemEmpty;
         let count = empty_count + usize::from(entry.kind == SlotKind::Stratagem);
         debug!(
             kept = equipped.len(),
@@ -272,7 +273,7 @@ fn apply_stratagems_from_home(
                 count,
                 in_saved_order: apply_in_saved_order && empty_count == 4,
             },
-            empty_count == 4,
+            starts_at_top,
         )? {
             ListSelectionOutcome::Applied(home) => home,
             ListSelectionOutcome::Unavailable => {
@@ -351,11 +352,9 @@ fn select_items_from_open_list(
     let mut selections_left = requested_items;
     let mut wheel_attempts = 0u32;
     let mut boundary_candidate = None;
-    // Replacing an equipped item can open the list anywhere. Unknown targets
-    // are searched downward first, then upward; mapped targets navigate directly.
+    // Empty entries open at the top; equipped entries open at their current item.
     let mut top_reached = starts_at_top;
     let mut bottom_reached = false;
-
     let mut current_page = {
         let span = debug_span!("scan_page", wheel_attempts);
         let _guard = span.enter();
@@ -371,6 +370,12 @@ fn select_items_from_open_list(
             ?boundary_candidate
         );
         let _page_guard = page_span.enter();
+        // Only accepted pages contribute boundary evidence; unplaced turn frames
+        // must still recover through the map before they can complete a scan.
+        if let Some(scrollbar) = current_page.roi.scrollbar {
+            top_reached |= scrollbar.at_top;
+            bottom_reached |= scrollbar.at_bottom;
+        }
         let target = if matches!(
             mode,
             ListSelectionMode::Stratagems {
@@ -515,6 +520,20 @@ fn select_items_from_open_list(
                 );
             }
         };
+        if current_page
+            .roi
+            .scrollbar
+            .is_some_and(|scrollbar| match direction {
+                ScrollDirection::Up => scrollbar.at_top,
+                ScrollDirection::Down => scrollbar.at_bottom,
+            })
+        {
+            bail!(
+                "target item {item_id} was not found before the {} of the {} list",
+                direction.boundary_label(),
+                item_kind.label(),
+            );
+        }
         let input = if boundary_candidate == Some(direction) {
             PageTurnInput::Nudge(direction)
         } else {
