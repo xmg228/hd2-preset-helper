@@ -5,9 +5,9 @@
   },
   "roi_ref": {
     "x": 48,
-    "y": 360,
+    "y": 264,
     "w": 432,
-    "h": 624
+    "h": 720
   },
   "scale_axis": "fit",
   "anchor": "top_center"

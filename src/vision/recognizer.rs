@@ -49,6 +49,25 @@ impl RecognizerSession {
         self.geometry.scale as f32
     }
 
+    pub(crate) fn list_entry_ready(&self, image: &image::RgbaImage) -> bool {
+        super::geometry::list_entry_ready(image, self.geometry)
+    }
+
+    pub(crate) fn page_fingerprint_rect(self) -> crate::image_rect::ImageRect {
+        // Keep page-change sampling below the newly added fixed overview row.
+        let geometry = self.geometry;
+        let x = geometry.logical_origin_x.floor() as u32;
+        let y = (geometry.logical_origin_y + 96.0 * geometry.scale).floor() as u32;
+        let right = (geometry.logical_origin_x + 432.0 * geometry.scale).ceil() as u32;
+        let bottom = (geometry.logical_origin_y + 720.0 * geometry.scale).ceil() as u32;
+        crate::image_rect::ImageRect {
+            x,
+            y,
+            w: right - x,
+            h: bottom - y,
+        }
+    }
+
     pub fn detect(
         &self,
         image: crate::capture::CapturedFrame,

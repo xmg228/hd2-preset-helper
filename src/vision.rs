@@ -18,7 +18,7 @@ use crate::image_rect::ImageRect;
 use crate::item::ItemKind;
 
 pub(crate) use booster::crop_sample as crop_booster_sample;
-pub use color::{icon_likeness, luma601_u8};
+pub use color::luma601_u8;
 pub use recognizer::{RecognizerRuntime, RecognizerSession};
 pub use roi::{
     Calibration, ReferenceSize, ResolvedRoi, RoiAnchor, RoiGeometry, ScaleAxis,
@@ -26,8 +26,6 @@ pub use roi::{
 };
 pub use semantic_extractor::crop_slot_sample;
 pub use template_classifier::{TemplateClassifier, TemplateMatchCandidate};
-
-pub const ROI_REFERENCE_H: u32 = 624;
 
 // Geometry in the 1920x1080 reference UI. The core excludes the slot frame;
 // icon sizes describe texture scale, not the size of the saved crop.

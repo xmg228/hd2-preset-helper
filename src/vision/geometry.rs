@@ -17,11 +17,12 @@ type RowCandidate = super::borders::RowCandidate<4>;
 use super::{HOME_COLS, LIST_COLS, RoiGeometry, SLOT_SIDE_LOGICAL, Slot, SlotKind, SlotLayout};
 const GRID_PITCH_LOGICAL: f64 = 85.0;
 const HOME_BOOSTER_X_LOGICAL: f64 = 343.0;
-const HOME_Y_LOGICAL: f64 = 478.0;
-const HOME_Y_SEARCH_LOGICAL: f64 = 2.0;
+const HOME_Y_LOGICAL: f64 = 574.0;
+const LIST_ENTRY_Y_LOGICAL: f64 = 12.0;
+const FIXED_ROW_Y_SEARCH_LOGICAL: f64 = 2.0;
 const FRAME_SCORE_THRESHOLD: f32 = 0.05;
-const LIST_Y_MIN_LOGICAL: f64 = 90.0;
-const LIST_Y_MAX_LOGICAL: f64 = 525.0;
+const LIST_Y_MIN_LOGICAL: f64 = 186.0;
+const LIST_Y_MAX_LOGICAL: f64 = 621.0;
 const LIST_MAX_ROWS: usize = 10;
 
 const AA_RADIUS: i32 = 4;
@@ -90,28 +91,9 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
     let params = stratagem_sampling(geometry.scale);
     let columns = home_columns(geometry);
     let nominal_y = geometry.logical_origin_y + HOME_Y_LOGICAL * geometry.scale;
-    let search_radius = (HOME_Y_SEARCH_LOGICAL * geometry.scale).ceil() as i32;
-    let vertical_offsets = vertical_tangent_offsets(params);
-    let mut scratch = SlotScratch::default();
-    let mut best: Option<RowCandidate> = None;
-    let center = round_ties_even(nominal_y);
-    for y in center - search_radius..=center + search_radius {
-        let slots = std::array::from_fn(|col| {
-            score_slot_direct(
-                image,
-                columns[col],
-                y as f64,
-                params,
-                &vertical_offsets,
-                &mut scratch,
-            )
-        });
-        let score = second_highest(slots.map(|slot| slot.q));
-        if best.as_ref().is_none_or(|current| score > current.score) {
-            best = Some(RowCandidate { y, score, slots });
-        }
-    }
-    let Some(best) = best.filter(|candidate| candidate.score >= FRAME_SCORE_THRESHOLD) else {
+    let Some(best) = fixed_row_candidate(image, columns, nominal_y, geometry.scale, params)
+        .filter(|candidate| candidate.score >= FRAME_SCORE_THRESHOLD)
+    else {
         return Vec::new();
     };
     debug!(
@@ -158,6 +140,59 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
     booster.kind = home_booster_kind(image, &booster);
     slots.push(booster);
     slots
+}
+
+pub(super) fn list_entry_ready(image: &RgbaImage, geometry: RoiGeometry) -> bool {
+    let params = stratagem_sampling(geometry.scale);
+    let nominal_y = geometry.logical_origin_y + LIST_ENTRY_Y_LOGICAL * geometry.scale;
+    let best = fixed_row_candidate(
+        image,
+        home_columns(geometry),
+        nominal_y,
+        geometry.scale,
+        params,
+    );
+    let score = best.as_ref().map_or(0.0, |candidate| candidate.score);
+    let ready = score >= FRAME_SCORE_THRESHOLD;
+    trace!(
+        score,
+        nominal_y,
+        best_y = ?best.as_ref().map(|candidate| candidate.y),
+        ready,
+        "list entry frame evaluated"
+    );
+    ready
+}
+
+fn fixed_row_candidate(
+    image: &RgbaImage,
+    columns: [f64; 4],
+    nominal_y: f64,
+    scale: f64,
+    params: SamplingParams,
+) -> Option<RowCandidate> {
+    let search_radius = (FIXED_ROW_Y_SEARCH_LOGICAL * scale).ceil() as i32;
+    let vertical_offsets = vertical_tangent_offsets(params);
+    let mut scratch = SlotScratch::default();
+    let mut best: Option<RowCandidate> = None;
+    let center = round_ties_even(nominal_y);
+    for y in center - search_radius..=center + search_radius {
+        let slots = std::array::from_fn(|col| {
+            score_slot_direct(
+                image,
+                columns[col],
+                y as f64,
+                params,
+                &vertical_offsets,
+                &mut scratch,
+            )
+        });
+        let score = second_highest(slots.map(|slot| slot.q));
+        if best.as_ref().is_none_or(|current| score > current.score) {
+            best = Some(RowCandidate { y, score, slots });
+        }
+    }
+    best
 }
 
 fn detect_list(image: &RgbaImage, geometry: RoiGeometry, item_kind: ItemKind) -> Vec<Slot> {

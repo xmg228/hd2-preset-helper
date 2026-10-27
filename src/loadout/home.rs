@@ -9,27 +9,16 @@ use crate::item::ItemKind;
 use crate::preset::stratagems::CapturedStratagemPreset;
 use crate::vision::{
     HOME_ICON_SIZE_LOGICAL, RecognizerSession, RoiObservation, Slot, SlotKind, SlotLayout,
-    crop_booster_sample, crop_slot_sample, icon_likeness, luma601_u8,
+    crop_booster_sample, crop_slot_sample,
 };
 
-use super::frame::fingerprint_distance;
-
-const UI_STATE_STABLE_DISTANCE: f32 = 3.0;
 const UI_HOME_Y_STABLE_DISTANCE: f32 = 4.0;
-const SLOT_FINGERPRINT_GRID: u32 = 8;
-const SLOT_FINGERPRINT_INSET_RATIO: f32 = 0.18;
-const SLOT_FINGERPRINT_SAMPLES: f32 = (SLOT_FINGERPRINT_GRID * SLOT_FINGERPRINT_GRID) as f32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiState {
     Home,
     List(ItemKind),
     Unknown,
-}
-
-enum UiStabilitySignature {
-    Visual(Vec<u8>),
-    HomeY(u32),
 }
 
 impl UiState {
@@ -101,13 +90,15 @@ pub(super) fn wait_for_filled_home(
     recognizer: RecognizerSession,
     timeout: Duration,
 ) -> Result<Option<RoiObservation>> {
-    wait_for_stable_ui_state(automation, recognizer, UiState::Home, timeout, |home| {
+    wait_for_ui_state(automation, recognizer, UiState::Home, timeout, |home| {
         find_home_row(home)
             .is_some_and(|(slots, _)| slots.iter().all(|slot| slot.kind == SlotKind::Stratagem))
     })
 }
 
-pub fn wait_for_stable_ui_state(
+/// Wait for the requested layout at its resting position. Home additionally
+/// retains its two-observation Y check; list entry uses the fixed upper row.
+pub fn wait_for_ui_state(
     automation: &mut AutomationSession<'_>,
     recognizer: RecognizerSession,
     target_state: UiState,
@@ -115,90 +106,86 @@ pub fn wait_for_stable_ui_state(
     accept: impl Fn(&RoiObservation) -> bool,
 ) -> Result<Option<RoiObservation>> {
     let span = debug_span!(
-        "wait_for_stable_ui_state",
+        "wait_for_ui_state",
         target_state = %target_state.label(),
         timeout_s = timeout.as_secs_f64()
     );
     let _guard = span.enter();
-    let (expected_layout, stable_distance) = match target_state {
-        UiState::Home => (SlotLayout::Home, UI_HOME_Y_STABLE_DISTANCE),
-        UiState::List(kind) => (SlotLayout::List(kind), UI_STATE_STABLE_DISTANCE),
+    let expected_layout = match target_state {
+        UiState::Home => SlotLayout::Home,
+        UiState::List(kind) => SlotLayout::List(kind),
         UiState::Unknown => bail!("cannot wait for an unknown UI state"),
     };
 
     let start = Instant::now();
-    let mut stable_candidate: Option<(UiStabilitySignature, crate::capture::CapturedFrame)> = None;
+    let mut previous_home: Option<(u32, crate::capture::CapturedFrame)> = None;
     let mut attempt = 0usize;
 
     loop {
         attempt += 1;
         let image = automation.capture()?;
+        let entry_ready =
+            !matches!(target_state, UiState::List(_)) || recognizer.list_entry_ready(&image);
         // List geometry alone can also find rows in the home screen's background.
         let mut result = recognizer.detect(image, SlotLayout::Home)?;
         if matches!(expected_layout, SlotLayout::List(_))
+            && entry_ready
             && detect_ui_state(&result) == UiState::Unknown
         {
             result = recognizer.detect(result.image, expected_layout)?;
         }
         let current_state = detect_ui_state(&result);
 
-        // Content requirements must hold on both stable observations.
         let content_accepted = current_state == target_state && accept(&result);
-        let reference = stable_candidate.as_ref().map(|(_, frame)| frame.clone());
-        let distance = if content_accepted {
-            let signature = ui_stability_signature(&result)?;
-            let distance = stable_candidate
-                .as_ref()
-                .and_then(|(previous, _)| signature_distance(previous, &signature));
-            if let Some(distance) = distance {
-                if distance <= stable_distance {
-                    automation.evidence().record(
-                        "ui-state-reference",
-                        reference.as_ref(),
-                        serde_json::json!({"target": target_state.label()}),
-                    );
-                    automation.evidence().record("ui-state-stable", Some(&result.image), serde_json::json!({
-                        "target": target_state.label(), "slots": result.slots,
-                        "distance": distance, "threshold": stable_distance, "observations": attempt,
-                    }));
-                    debug!(
-                        target: "hd2_preset_helper::perf",
-                        attempt,
-                        slot_count = result.slots.len(),
-                        distance,
-                        threshold = stable_distance,
-                        elapsed_s = start.elapsed().as_secs_f64(),
-                        "target UI state stabilized"
-                    );
-                    return Ok(Some(result));
-                }
-
-                trace!(
-                    attempt,
-                    slot_count = result.slots.len(),
-                    distance,
-                    threshold = stable_distance,
-                    "target UI state not stable yet"
-                );
-            } else {
-                trace!(
-                    attempt,
-                    slot_count = result.slots.len(),
-                    "target UI state detected; waiting for stability"
-                );
-            }
-
-            stable_candidate = Some((signature, result.image.clone()));
-            distance
+        let home_y = if content_accepted && target_state == UiState::Home {
+            find_home_row(&result).map(|(slots, _)| slots[0].center().1)
         } else {
-            stable_candidate = None;
             None
         };
+        let reference = previous_home.as_ref().map(|(_, frame)| frame);
+        let distance = previous_home
+            .as_ref()
+            .zip(home_y)
+            .map(|((previous, _), current)| previous.abs_diff(current) as f32);
+        let ready = content_accepted
+            && match target_state {
+                UiState::Home => distance.is_some_and(|d| d <= UI_HOME_Y_STABLE_DISTANCE),
+                UiState::List(_) => entry_ready,
+                UiState::Unknown => unreachable!(),
+            };
+
+        if ready {
+            if reference.is_some() {
+                automation.evidence().record(
+                    "ui-state-reference",
+                    reference,
+                    serde_json::json!({"target": target_state.label()}),
+                );
+            }
+            automation.evidence().record(
+                "ui-state-ready",
+                Some(&result.image),
+                serde_json::json!({
+                    "target": target_state.label(), "slots": result.slots,
+                    "entry_ready": entry_ready, "home_y_distance": distance, "observations": attempt,
+                }),
+            );
+            debug!(
+                target: "hd2_preset_helper::perf",
+                attempt,
+                slot_count = result.slots.len(),
+                home_y_distance = distance,
+                elapsed_s = start.elapsed().as_secs_f64(),
+                "target UI state ready"
+            );
+            return Ok(Some(result));
+        }
 
         trace!(
             attempt,
             current_state = %current_state.label(),
             slot_count = result.slots.len(),
+            entry_ready,
             "waiting for target UI state"
         );
 
@@ -206,7 +193,7 @@ pub fn wait_for_stable_ui_state(
             if reference.is_some() {
                 automation.evidence().record(
                     "ui-state-reference",
-                    reference.as_ref(),
+                    reference,
                     serde_json::json!({"target": target_state.label()}),
                 );
             }
@@ -216,7 +203,7 @@ pub fn wait_for_stable_ui_state(
                 serde_json::json!({
                     "target": target_state.label(), "observed": current_state.label(),
                     "content_accepted": content_accepted, "slots": result.slots,
-                    "distance": distance, "threshold": stable_distance, "observations": attempt,
+                    "entry_ready": entry_ready, "home_y_distance": distance, "observations": attempt,
                 }),
             );
             debug!(
@@ -224,9 +211,11 @@ pub fn wait_for_stable_ui_state(
                 last_state = %current_state.label(),
                 last_slot_count = result.slots.len(),
                 content_accepted,
-                distance,
-                threshold = stable_distance,
-                reason = if current_state != target_state {
+                entry_ready,
+                home_y_distance = distance,
+                reason = if !entry_ready {
+                    "entry_frame_not_ready"
+                } else if current_state != target_state {
                     "state_not_detected"
                 } else if !content_accepted {
                     "content_not_accepted"
@@ -236,113 +225,13 @@ pub fn wait_for_stable_ui_state(
                     "unstable"
                 },
                 elapsed_s = start.elapsed().as_secs_f64(),
-                "timed out waiting for stable UI state"
+                "timed out waiting for target UI state"
             );
             return Ok(None);
         }
+        // Home content requirements must hold on both observations.
+        previous_home = home_y.map(|y| (y, result.image.clone()));
     }
-}
-
-fn ui_stability_signature(result: &RoiObservation) -> Result<UiStabilitySignature> {
-    match result.layout {
-        SlotLayout::List(item_kind) => Ok(UiStabilitySignature::Visual(slot_region_fingerprint(
-            result, item_kind,
-        ))),
-        SlotLayout::Home => {
-            let (stratagems, _) = find_home_row(result).context("missing home loadout row")?;
-            Ok(UiStabilitySignature::HomeY(stratagems[0].center().1))
-        }
-    }
-}
-
-fn signature_distance(left: &UiStabilitySignature, right: &UiStabilitySignature) -> Option<f32> {
-    match (left, right) {
-        (UiStabilitySignature::Visual(left), UiStabilitySignature::Visual(right)) => {
-            Some(fingerprint_distance(left, right))
-        }
-        (UiStabilitySignature::HomeY(left), UiStabilitySignature::HomeY(right)) => {
-            Some(left.abs_diff(*right) as f32)
-        }
-        _ => None,
-    }
-}
-
-fn slot_region_fingerprint(result: &RoiObservation, item_kind: ItemKind) -> Vec<u8> {
-    let rgba = &result.image;
-    let mut fingerprint = Vec::with_capacity(result.slots.len() * 5);
-    for slot in result
-        .slots
-        .iter()
-        .filter(|slot| slot.kind.is_selectable_item_for(item_kind))
-    {
-        let right = slot.x.saturating_add(slot.w);
-        let bottom = slot.y.saturating_add(slot.h);
-        if right > rgba.width() || bottom > rgba.height() || slot.w == 0 || slot.h == 0 {
-            continue;
-        }
-
-        let inset_x = (slot.w as f32 * SLOT_FINGERPRINT_INSET_RATIO) as u32;
-        let inset_y = (slot.h as f32 * SLOT_FINGERPRINT_INSET_RATIO) as u32;
-        let left = slot.x + inset_x;
-        let top = slot.y + inset_y;
-        let right = right - inset_x;
-        let bottom = bottom - inset_y;
-
-        let mut weighted_r = 0.0f32;
-        let mut weighted_g = 0.0f32;
-        let mut weighted_b = 0.0f32;
-        let mut weighted_luma = 0.0f32;
-        let mut weight_sum = 0.0f32;
-        let mut plain_r = 0.0f32;
-        let mut plain_g = 0.0f32;
-        let mut plain_b = 0.0f32;
-        let mut plain_luma = 0.0f32;
-
-        for row in 0..SLOT_FINGERPRINT_GRID {
-            for col in 0..SLOT_FINGERPRINT_GRID {
-                let x = left
-                    + ((col as f32 + 0.5) * (right - left) as f32 / SLOT_FINGERPRINT_GRID as f32)
-                        as u32;
-                let y = top
-                    + ((row as f32 + 0.5) * (bottom - top) as f32 / SLOT_FINGERPRINT_GRID as f32)
-                        as u32;
-                let [r, g, b, _] = rgba.get_pixel(x, y).0;
-                let luma = luma601_u8(r, g, b) as f32;
-                let weight = icon_likeness(r, g, b);
-
-                weighted_r += r as f32 * weight;
-                weighted_g += g as f32 * weight;
-                weighted_b += b as f32 * weight;
-                weighted_luma += luma * weight;
-                weight_sum += weight;
-
-                plain_r += r as f32;
-                plain_g += g as f32;
-                plain_b += b as f32;
-                plain_luma += luma;
-            }
-        }
-
-        if weight_sum > f32::EPSILON {
-            fingerprint.push(quantize_u8(weighted_luma / weight_sum));
-            fingerprint.push(quantize_u8(weighted_r / weight_sum));
-            fingerprint.push(quantize_u8(weighted_g / weight_sum));
-            fingerprint.push(quantize_u8(weighted_b / weight_sum));
-        } else {
-            fingerprint.push(quantize_u8(plain_luma / SLOT_FINGERPRINT_SAMPLES));
-            fingerprint.push(quantize_u8(plain_r / SLOT_FINGERPRINT_SAMPLES));
-            fingerprint.push(quantize_u8(plain_g / SLOT_FINGERPRINT_SAMPLES));
-            fingerprint.push(quantize_u8(plain_b / SLOT_FINGERPRINT_SAMPLES));
-        }
-
-        fingerprint.push(quantize_u8(weight_sum / SLOT_FINGERPRINT_SAMPLES * 255.0));
-    }
-
-    fingerprint
-}
-
-fn quantize_u8(value: f32) -> u8 {
-    value.round().clamp(0.0, 255.0) as u8
 }
 
 pub fn home_booster_slot(result: &RoiObservation) -> Option<&Slot> {

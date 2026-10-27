@@ -8,7 +8,7 @@ use crate::item::ItemKind;
 use crate::vision::{RecognizerSession, RoiObservation};
 
 use super::super::home::{
-    UiState, detect_ui_state, home_booster_slot, scan_loadout_home, wait_for_stable_ui_state,
+    UiState, detect_ui_state, home_booster_slot, scan_loadout_home, wait_for_ui_state,
 };
 
 use super::CLICK_HOLD_MS;
@@ -56,7 +56,7 @@ pub(super) fn open_slot_list(
             remaining
         };
         if let Some(observation) =
-            wait_for_stable_ui_state(automation, recognizer, target_state, wait, |_| true)?
+            wait_for_ui_state(automation, recognizer, target_state, wait, |_| true)?
         {
             debug!(
                 item_kind = %target.item_kind.label(),

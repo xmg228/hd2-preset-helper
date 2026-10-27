@@ -11,7 +11,7 @@ use crate::input;
 use crate::loadout::{
     BoosterApplyOutcome, UiState, apply_stratagem_preset_from_home, bind_loadout_region,
     collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,
-    wait_for_stable_ui_state,
+    wait_for_ui_state,
 };
 use crate::preset::stratagems::{self as storage, CapturedStratagemPreset, StratagemPreset};
 use crate::vision::{RecognizerRuntime, RecognizerSession};
@@ -175,7 +175,7 @@ fn learn_fallback_booster(
     context.events.emit(AppEvent::FallbackBoosterRequested {
         preset: preset_name.to_string(),
     });
-    let Some(home) = wait_for_stable_ui_state(
+    let Some(home) = wait_for_ui_state(
         automation,
         recognizer,
         UiState::Home,

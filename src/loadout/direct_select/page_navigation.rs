@@ -7,8 +7,8 @@ use tracing::{debug, debug_span, trace, warn};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::vision::{
-    ItemAvailability, ROI_REFERENCE_H, RecognizerSession, RoiObservation, Slot, SlotKind,
-    SlotLayout, TemplateClassifier, TemplateMatchCandidate,
+    ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind, SlotLayout,
+    TemplateClassifier, TemplateMatchCandidate,
 };
 
 use super::super::frame::{fingerprint_distance, image_fingerprint};
@@ -24,7 +24,7 @@ const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
 const PAGE_SCROLL_NOTCHES: i32 = 5;
 const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
 const PAGE_ALIGNMENT_RECOVERY_NOTCHES: i32 = 2;
-// A full turn moves about 253.5 px in the 624 px reference ROI.
+// A full turn moves about 253.5 px in the reference UI.
 const PAGE_TURN_SHIFT_REFERENCE_PX: f32 = 253.5;
 const PAGE_TURN_SHORT_THRESHOLD_RATIO: f32 = 0.80;
 
@@ -144,8 +144,7 @@ impl PageNavigator {
         )?;
         if let Some(placement) = placement {
             let moved = placement.has_moved();
-            let expected_full_shift = PAGE_TURN_SHIFT_REFERENCE_PX * page.roi.image.height() as f32
-                / ROI_REFERENCE_H as f32;
+            let expected_full_shift = PAGE_TURN_SHIFT_REFERENCE_PX * self.recognizer.ui_scale();
             let short = placement.vertical_shift.abs()
                 < expected_full_shift * PAGE_TURN_SHORT_THRESHOLD_RATIO;
             list_map.commit(&page, placement, "page-turn", automation.evidence());
@@ -182,7 +181,10 @@ impl PageNavigator {
         direction: Option<ScrollDirection>,
     ) -> Result<(PageSnapshot, Option<LocatedPage>)> {
         let start = Instant::now();
-        let visual_reference = image_fingerprint(&current_page.roi.image);
+        // Keep the original screen extent; the expanded ROI's header must not
+        // dilute the existing page-change threshold with unrelated content.
+        let fingerprint_rect = self.recognizer.page_fingerprint_rect();
+        let visual_reference = image_fingerprint(&current_page.roi.image, fingerprint_rect);
         let mut same_viewport_frames = 0usize;
         let mut observations = 0usize;
         let no_movement_grace = if input.is_full() {
@@ -194,7 +196,7 @@ impl PageNavigator {
         loop {
             let image = automation.capture()?;
             let observed_elapsed = start.elapsed();
-            let signature = image_fingerprint(&image);
+            let signature = image_fingerprint(&image, fingerprint_rect);
             let distance = fingerprint_distance(&visual_reference, &signature);
             // The fingerprint only triggers scanning, not movement confirmation.
             // Recovery offsets refer to the old map, so let the reverse input

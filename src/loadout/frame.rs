@@ -3,6 +3,7 @@ use image::RgbaImage;
 
 use crate::capture::{CaptureRegion, CaptureSource};
 use crate::game_settings::GameColorSettings;
+use crate::image_rect::ImageRect;
 use crate::vision::{Calibration, RoiGeometry, luma601_u8, resolve_calibration_roi_for_size};
 
 const ROI_FINGERPRINT_SAMPLES: u32 = 32;
@@ -25,14 +26,14 @@ pub fn bind_loadout_region<'a>(
     })
 }
 
-pub fn image_fingerprint(rgba: &RgbaImage) -> Vec<u8> {
+pub fn image_fingerprint(rgba: &RgbaImage, rect: ImageRect) -> Vec<u8> {
     let samples = ROI_FINGERPRINT_SAMPLES;
     let mut fingerprint = Vec::with_capacity((samples * samples) as usize);
 
     for row in 0..samples {
         for col in 0..samples {
-            let x = ((col as f32 + 0.5) * rgba.width() as f32 / samples as f32) as u32;
-            let y = ((row as f32 + 0.5) * rgba.height() as f32 / samples as f32) as u32;
+            let x = rect.x + ((col as f32 + 0.5) * rect.w as f32 / samples as f32) as u32;
+            let y = rect.y + ((row as f32 + 0.5) * rect.h as f32 / samples as f32) as u32;
             let x = x.min(rgba.width().saturating_sub(1));
             let y = y.min(rgba.height().saturating_sub(1));
 

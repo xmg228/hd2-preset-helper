@@ -9,5 +9,5 @@ pub use direct_select::{BoosterApplyOutcome, apply_stratagem_preset_from_home};
 pub use frame::bind_loadout_region;
 pub use home::{
     UiState, collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,
-    wait_for_stable_ui_state,
+    wait_for_ui_state,
 };
