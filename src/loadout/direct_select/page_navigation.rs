@@ -11,8 +11,6 @@ use crate::vision::{
     TemplateClassifier, TemplateMatchCandidate,
 };
 
-use super::super::frame::{fingerprint_distance, image_fingerprint};
-
 use super::ScrollDirection;
 use super::list_map::{ListMap, LocatedPage};
 
@@ -20,13 +18,10 @@ const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
 const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(150);
 const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 2;
 const PAGE_TURN_ALIGNMENT_TIMEOUT: Duration = Duration::from_millis(400);
-const PAGE_CHANGE_THRESHOLD: f32 = 6.0;
+const SCROLLBAR_MOVEMENT_TOLERANCE_PX: f32 = 0.75;
 const PAGE_SCROLL_NOTCHES: i32 = 5;
 const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
 const PAGE_ALIGNMENT_RECOVERY_NOTCHES: i32 = 2;
-// A full turn moves about 253.5 px in the reference UI.
-const PAGE_TURN_SHIFT_REFERENCE_PX: f32 = 253.5;
-const PAGE_TURN_SHORT_THRESHOLD_RATIO: f32 = 0.80;
 
 pub(super) struct PageSnapshot {
     pub(super) roi: RoiObservation,
@@ -53,7 +48,7 @@ pub(super) struct PageNavigator {
 }
 
 pub(super) enum PageTurnResult {
-    Moved { page: PageSnapshot, short: bool },
+    Moved(PageSnapshot),
     NoMovement(PageSnapshot),
     Recovered(PageSnapshot),
 }
@@ -144,12 +139,9 @@ impl PageNavigator {
         )?;
         if let Some(placement) = placement {
             let moved = placement.has_moved();
-            let expected_full_shift = PAGE_TURN_SHIFT_REFERENCE_PX * self.recognizer.ui_scale();
-            let short = placement.vertical_shift.abs()
-                < expected_full_shift * PAGE_TURN_SHORT_THRESHOLD_RATIO;
             list_map.commit(&page, placement, "page-turn", automation.evidence());
             return Ok(if moved {
-                PageTurnResult::Moved { page, short }
+                PageTurnResult::Moved(page)
             } else {
                 PageTurnResult::NoMovement(page)
             });
@@ -157,7 +149,7 @@ impl PageNavigator {
 
         warn!(
             ?input,
-            "page turn remained unplaced in the temporary list map; scrolling back for recovery"
+            "page turn remained unconfirmed; scrolling back for recovery"
         );
         let recovery = PageTurnInput::Recovery(input.direction().opposite());
         automation.scroll(recovery.scroll_notches())?;
@@ -166,7 +158,7 @@ impl PageNavigator {
         let (page, placement) =
             self.observe_page_turn(automation, list_map, &page, recovery, None)?;
         let placement = placement.context(
-            "neither the page turn nor the page after a recovery scroll could be placed in the temporary list map",
+            "neither the page turn nor the recovery scroll could be confirmed in the temporary list map",
         )?;
         list_map.commit(&page, placement, "recovery", automation.evidence());
         Ok(PageTurnResult::Recovered(page))
@@ -181,7 +173,7 @@ impl PageNavigator {
         direction: Option<ScrollDirection>,
     ) -> Result<(PageSnapshot, Option<LocatedPage>)> {
         let start = Instant::now();
-        let visual_reference = image_fingerprint(&current_page.roi.image);
+        let scrollbar_reference = current_page.roi.scrollbar;
         let mut same_viewport_frames = 0usize;
         let mut observations = 0usize;
         let no_movement_grace = if input.is_full() {
@@ -193,14 +185,25 @@ impl PageNavigator {
         loop {
             let image = automation.capture()?;
             let observed_elapsed = start.elapsed();
-            let signature = image_fingerprint(&image);
-            let distance = fingerprint_distance(&visual_reference, &signature);
-            // The fingerprint only triggers scanning, not movement confirmation.
-            // Recovery offsets refer to the old map, so let the reverse input
-            // settle before accepting a displaced frame from the capture queue.
-            if observed_elapsed < no_movement_grace
-                && (direction.is_none() || distance < PAGE_CHANGE_THRESHOLD)
-            {
+            let scrollbar = self.recognizer.detect_scrollbar(&image);
+            let input_observed =
+                scrollbar_reference
+                    .zip(scrollbar)
+                    .is_some_and(|(before, after)| {
+                        let delta =
+                            0.5 * (after.upper_y + after.lower_y - before.upper_y - before.lower_y);
+                        match input.direction() {
+                            ScrollDirection::Up => delta < -SCROLLBAR_MOVEMENT_TOLERANCE_PX,
+                            ScrollDirection::Down => delta > SCROLLBAR_MOVEMENT_TOLERANCE_PX,
+                        }
+                    });
+            let at_boundary = scrollbar.is_some_and(|bar| match input.direction() {
+                ScrollDirection::Up => bar.at_top,
+                ScrollDirection::Down => bar.at_bottom,
+            });
+            // Observe the input relative to its preceding frame (also during
+            // recovery); map placement still uses the last committed page.
+            if !input_observed && !at_boundary && observed_elapsed < no_movement_grace {
                 continue;
             }
 
@@ -215,59 +218,63 @@ impl PageNavigator {
             );
 
             if let Some(placement) = assessment.placement.as_ref() {
-                if placement.has_moved() {
+                let moved = placement.has_moved();
+                // A visible thumb away from the requested endpoint disproves
+                // a boundary. Only no-thumb Booster lists need a static probe.
+                let static_booster = self.item_kind == ItemKind::Booster
+                    && scrollbar_reference.is_none()
+                    && scrollbar.is_none();
+                let confirmed = if moved {
+                    same_viewport_frames = 0;
+                    input_observed || direction.is_none()
+                } else {
+                    same_viewport_frames += 1;
+                    at_boundary
+                        || ((direction.is_none() || static_booster)
+                            && observed_elapsed >= no_movement_grace
+                            && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES)
+                };
+                if confirmed {
                     list_map.record_assessment(
                         automation.evidence(),
                         &page,
                         &assessment,
-                        "page-turn-moved",
+                        if moved {
+                            "page-turn-moved"
+                        } else {
+                            "page-turn-no-movement"
+                        },
                     );
                     debug!(
                         target: "hd2_preset_helper::perf",
                         vertical_shift = placement.vertical_shift,
                         elapsed_s = start.elapsed().as_secs_f64(),
-                        "page turn confirmed by map placement"
-                    );
-                    return Ok((page, assessment.placement.take()));
-                }
-
-                same_viewport_frames += 1;
-                if observed_elapsed >= no_movement_grace
-                    && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES
-                {
-                    list_map.record_assessment(
-                        automation.evidence(),
-                        &page,
-                        &assessment,
-                        "page-turn-no-movement",
-                    );
-                    debug!(
-                        target: "hd2_preset_helper::perf",
-                        elapsed_s = start.elapsed().as_secs_f64(),
                         same_viewport_frames,
-                        "page turn confirmed at the same map position"
+                        "page turn confirmed by scrollbar and map evidence"
                     );
                     return Ok((page, assessment.placement.take()));
                 }
             } else {
                 same_viewport_frames = 0;
-                if start.elapsed() >= PAGE_TURN_ALIGNMENT_TIMEOUT && observations >= 2 {
-                    debug!(
-                        observations,
-                        slots = page.slot_samples.len(),
-                        fingerprint_distance = distance,
-                        elapsed_s = start.elapsed().as_secs_f64(),
-                        timeout_s = PAGE_TURN_ALIGNMENT_TIMEOUT.as_secs_f64(),
-                        "page turn placement remained unconfirmed"
-                    );
-                    list_map.record_assessment(
-                        automation.evidence(),
-                        &page,
-                        &assessment,
-                        "page-turn-unplaced",
-                    );
-                    return Ok((page, None));
-                }
+            }
+            if start.elapsed() >= PAGE_TURN_ALIGNMENT_TIMEOUT && observations >= 2 {
+                debug!(
+                    observations,
+                    slots = page.slot_samples.len(),
+                    ?scrollbar_reference,
+                    ?scrollbar,
+                    input_observed,
+                    elapsed_s = start.elapsed().as_secs_f64(),
+                    timeout_s = PAGE_TURN_ALIGNMENT_TIMEOUT.as_secs_f64(),
+                    "page turn remained unconfirmed by scrollbar and map evidence"
+                );
+                list_map.record_assessment(
+                    automation.evidence(),
+                    &page,
+                    &assessment,
+                    "page-turn-unconfirmed",
+                );
+                return Ok((page, None));
             }
         }
     }

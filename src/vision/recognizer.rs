@@ -53,6 +53,13 @@ impl RecognizerSession {
         super::geometry::list_entry_ready(image, self.geometry)
     }
 
+    pub(crate) fn detect_scrollbar(
+        &self,
+        image: &image::RgbaImage,
+    ) -> Option<super::ScrollbarObservation> {
+        super::scrollbar::detect(image, self.geometry)
+    }
+
     pub fn detect(
         &self,
         image: crate::capture::CapturedFrame,

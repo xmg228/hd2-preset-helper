@@ -548,16 +548,10 @@ fn select_items_from_open_list(
             input,
             wheel_attempts,
         )? {
-            PageTurnResult::Moved { page, short } => {
+            PageTurnResult::Moved(page) => {
                 current_page = page;
-                boundary_candidate = (input.is_full() && short).then_some(direction);
-                if boundary_candidate.is_some() {
-                    debug!(
-                        remaining_items = remaining.len(),
-                        ?direction,
-                        "short page turn accepted; list boundary will be nudged after processing this page"
-                    );
-                } else if input.is_nudge() {
+                boundary_candidate = None;
+                if input.is_nudge() {
                     debug!(
                         remaining_items = remaining.len(),
                         ?direction,
