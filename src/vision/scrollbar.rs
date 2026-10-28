@@ -8,6 +8,7 @@ use super::RoiGeometry;
 const CENTER_X: f64 = 413.5;
 const TRACK_TOP: f64 = 183.0;
 const TRACK_BOTTOM: f64 = 711.0;
+const CAP_HEIGHT: f64 = 2.0;
 const YELLOW_NOISE_FLOOR: f64 = 16.0;
 const CAP_RESPONSE_THRESHOLD: f64 = 40.0;
 const ENDPOINT_TOLERANCE_PX: f64 = 0.75;
@@ -17,6 +18,8 @@ pub struct ScrollbarObservation {
     /// Yellow cap centers in native ROI pixels, like the observed slot centers.
     pub upper_y: f32,
     pub lower_y: f32,
+    /// Full thumb height / full track height, including the yellow caps.
+    pub length_ratio: f32,
     pub at_top: bool,
     pub at_bottom: bool,
 }
@@ -114,6 +117,9 @@ pub(super) fn detect(image: &RgbaImage, geometry: RoiGeometry) -> Option<Scrollb
     Some(ScrollbarObservation {
         upper_y: upper.center as f32,
         lower_y: lower.center as f32,
+        length_ratio: ((lower.center - upper.center + CAP_HEIGHT * scale)
+            / ((TRACK_BOTTOM - TRACK_TOP + CAP_HEIGHT) * scale))
+            .min(1.0) as f32,
         at_top: (upper.center - top).abs() <= ENDPOINT_TOLERANCE_PX,
         at_bottom: (lower.center - bottom).abs() <= ENDPOINT_TOLERANCE_PX,
     })

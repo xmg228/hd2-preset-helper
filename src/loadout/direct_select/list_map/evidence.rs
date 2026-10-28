@@ -13,15 +13,13 @@ pub(super) fn record(
     assessment: &AlignmentAssessment,
     context: &str,
 ) {
-    // A bounded contact sheet preserves the exact map samples referenced by the
-    // top two hypotheses, even after later commits replace those samples.
+    // Preserve the exact samples used to verify this local geometric alignment,
+    // even after later commits replace those samples.
     let pairs = assessment
-        .candidates
-        .iter()
-        .filter(|candidate| !candidate.pairs.is_empty())
-        .take(2)
-        .flat_map(|candidate| &candidate.pairs)
-        .collect::<Vec<_>>();
+        .evaluation
+        .as_ref()
+        .map(|result| result.pairs.as_slice())
+        .unwrap_or_default();
     let width = pairs
         .iter()
         .map(|pair| {
@@ -69,6 +67,7 @@ pub(super) fn record(
     evidence.record(context, Some(&page.roi.image), json!({
         "alignment": assessment, "map_slots": map_slots(map), "current_slots": current_slots, "matches": matches,
         "pair_sheet": pair_sheet, "scrollbar": page.roi.scrollbar,
+        "previous_scrollbar": map.scrollbar,
     }));
     if width == 0 || height == 0 {
         return;

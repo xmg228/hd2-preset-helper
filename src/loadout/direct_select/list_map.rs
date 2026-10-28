@@ -4,7 +4,7 @@ use serde::Serialize;
 use tracing::debug;
 
 use crate::item::ItemKind;
-use crate::vision::{RoiObservation, Slot, SlotKind, TemplateMatchCandidate};
+use crate::vision::{RoiObservation, ScrollbarObservation, Slot, SlotKind, TemplateMatchCandidate};
 
 use super::ScrollDirection;
 use super::click_plan::DirectClickTarget;
@@ -12,8 +12,7 @@ use super::page_navigation::{PageSnapshot, SlotSample};
 
 mod evidence;
 
-const PAGE_ALIGNMENT_MIN_SCORE: f32 = 0.70;
-const PAGE_ALIGNMENT_MIN_MARGIN: f32 = 0.04;
+const PAGE_ALIGNMENT_MIN_SCORE: f32 = 0.65;
 const POSITION_TOLERANCE_PX: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -109,8 +108,14 @@ struct AlignmentConstraints {
 }
 
 #[derive(Debug, Serialize)]
-struct AlignmentCandidate {
-    hypothesis_y: f32,
+struct AlignmentPrediction {
+    offset_y: f32,
+    radius: f32,
+    source: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct AlignmentEvaluation {
     offset_y: f32,
     mean_score: f32,
     support: usize,
@@ -128,7 +133,8 @@ struct AlignmentPair {
 #[derive(Debug, Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 enum AlignmentRejection {
-    NoPairs,
+    NoGeometryPairs,
+    NoVisualPairs,
     WrongDirection,
     GeometryConflict {
         current: usize,
@@ -143,9 +149,9 @@ pub(super) struct AlignmentAssessment {
     constraints: AlignmentConstraints,
     current_offset_y: f32,
     required_score: f32,
-    required_margin: f32,
     reason: &'static str,
-    candidates: Vec<AlignmentCandidate>,
+    prediction: Option<AlignmentPrediction>,
+    evaluation: Option<AlignmentEvaluation>,
     pub(super) placement: Option<LocatedPage>,
 }
 
@@ -172,6 +178,7 @@ pub(super) struct ListMap {
     item_kind: ItemKind,
     slots: Vec<MapSlot>,
     current: PagePlacement,
+    scrollbar: Option<ScrollbarObservation>,
     items: HashMap<String, SlotId>,
     candidate_evidence: HashMap<String, HashMap<SlotId, CandidateEvidence>>,
     active_fallbacks: HashMap<String, MappedCandidate>,
@@ -194,6 +201,7 @@ impl ListMap {
                 support: page.slot_samples.len(),
                 slots: Vec::new(),
             },
+            scrollbar: None,
             items: HashMap::new(),
             candidate_evidence: HashMap::new(),
             active_fallbacks: HashMap::new(),
@@ -300,136 +308,115 @@ impl ListMap {
         page: &PageSnapshot,
         constraints: AlignmentConstraints,
     ) -> AlignmentAssessment {
-        let mut candidates = self.alignment_candidates(page, constraints);
-        candidates.sort_by(|left, right| {
-            left.rejection
-                .is_some()
-                .cmp(&right.rejection.is_some())
-                .then_with(|| compare_alignment(left, right))
-        });
-        let best = candidates
-            .first()
-            .filter(|candidate| candidate.rejection.is_none());
-        let runner_up = candidates
-            .get(1)
-            .filter(|candidate| candidate.rejection.is_none());
-        let margin = best
-            .zip(runner_up)
-            .map(|(best, runner)| best.mean_score - runner.mean_score);
-        let reason = match best {
-            None => "no_eligible_candidates",
-            Some(best) if best.mean_score < PAGE_ALIGNMENT_MIN_SCORE => "low_score",
-            Some(_) if margin.is_some_and(|margin| margin < PAGE_ALIGNMENT_MIN_MARGIN) => {
-                "ambiguous"
-            }
+        let prediction = self.predict_alignment(page);
+        let evaluation = prediction
+            .as_ref()
+            .map(|prediction| self.evaluate_alignment(page, prediction, constraints));
+        let reason = match evaluation.as_ref() {
+            None => "scrollbar_unavailable",
+            Some(result) if result.rejection.is_some() => "rejected",
+            Some(result) if result.mean_score < PAGE_ALIGNMENT_MIN_SCORE => "low_score",
             Some(_) => "accepted",
         };
-        let placement = best
+        let placement = evaluation
+            .as_ref()
             .filter(|_| reason == "accepted")
-            .map(|best| LocatedPage {
-                page: self.placement_at_offset(page, best.offset_y, best.mean_score, best.support),
-                vertical_shift: self.current.offset_y - best.offset_y,
+            .map(|result| LocatedPage {
+                page: self.placement_at_offset(
+                    page,
+                    result.offset_y,
+                    result.mean_score,
+                    result.support,
+                ),
+                vertical_shift: self.current.offset_y - result.offset_y,
             });
         debug!(
             direction = ?constraints.direction, excluded = ?constraints.excluded,
             current_offset_y = self.current.offset_y,
-            best_offset_y = best.map(|best| best.offset_y),
-            best_mean_score = best.map(|best| best.mean_score),
-            best_support = best.map(|best| best.support),
-            runner_up_mean_score = runner_up.map(|runner| runner.mean_score),
-            runner_up_offset_y = runner_up.map(|runner| runner.offset_y),
-            margin, required_score = PAGE_ALIGNMENT_MIN_SCORE,
-            required_margin = PAGE_ALIGNMENT_MIN_MARGIN, reason,
-            "continuous slot map alignment evaluated"
+            predicted_offset_y = prediction.as_ref().map(|prediction| prediction.offset_y),
+            offset_y = evaluation.as_ref().map(|result| result.offset_y),
+            mean_score = evaluation.as_ref().map(|result| result.mean_score),
+            support = evaluation.as_ref().map(|result| result.support),
+            required_score = PAGE_ALIGNMENT_MIN_SCORE, reason,
+            "local slot map alignment evaluated"
         );
         AlignmentAssessment {
             constraints,
             current_offset_y: self.current.offset_y,
             required_score: PAGE_ALIGNMENT_MIN_SCORE,
-            required_margin: PAGE_ALIGNMENT_MIN_MARGIN,
             reason,
             placement,
-            candidates,
+            prediction,
+            evaluation,
         }
     }
 
-    fn alignment_candidates(
-        &self,
-        page: &PageSnapshot,
-        constraints: AlignmentConstraints,
-    ) -> Vec<AlignmentCandidate> {
-        let offsets = page.slot_samples.iter().flat_map(|current| {
-            self.slots
-                .iter()
-                .enumerate()
-                .filter(move |(index, mapped)| {
-                    let id = SlotId(*index);
-                    mapped.col == current.col
-                        && !self.selected.contains(&id)
-                        && self.no_booster_option != Some(id)
-                        && constraints.excluded != Some(id)
+    fn predict_alignment(&self, page: &PageSnapshot) -> Option<AlignmentPrediction> {
+        match (self.scrollbar, page.roi.scrollbar) {
+            (Some(before), Some(after)) => {
+                let ratio = 0.5 * (before.length_ratio + after.length_ratio);
+                let delta = 0.5 * (after.upper_y + after.lower_y - before.upper_y - before.lower_y);
+                Some(AlignmentPrediction {
+                    offset_y: self.current.offset_y + delta / ratio,
+                    // A quarter of the core height stays well inside a half-row:
+                    // enough to refine the coarse estimate, not choose another row.
+                    radius: (page.slot_samples.first()?.height as f32 * 0.25)
+                        .max(POSITION_TOLERANCE_PX),
+                    source: "scrollbar",
                 })
-                .map(move |(_, mapped)| mapped.content_y - current.page_y)
-        });
-        offset_hypotheses(offsets)
-            .into_iter()
-            .map(|offset_y| {
-                let mut candidate = self.evaluate_alignment(page, offset_y, constraints.excluded);
-                if candidate.rejection.is_none()
-                    && constraints.direction.is_some_and(|direction| {
-                        !self.direction_allows(candidate.offset_y, direction)
-                    })
-                {
-                    candidate.rejection = Some(AlignmentRejection::WrongDirection);
-                }
-                candidate
-            })
-            .collect()
+            }
+            (None, None) if self.item_kind == ItemKind::Booster => {
+                // A fitting Booster list has no thumb. Test the existing position
+                // with geometry AND icon evidence; absence alone confirms nothing.
+                Some(AlignmentPrediction {
+                    offset_y: self.current.offset_y,
+                    radius: POSITION_TOLERANCE_PX,
+                    source: "same_position",
+                })
+            }
+            _ => None,
+        }
     }
 
     fn evaluate_alignment(
         &self,
         page: &PageSnapshot,
-        offset_y: f32,
-        excluded: Option<SlotId>,
-    ) -> AlignmentCandidate {
-        let mut pairs = Vec::new();
-        let mut offsets = Vec::new();
-        for (current_index, current) in page.slot_samples.iter().enumerate() {
-            let Some(index) = self.nearest_mapped_slot(current, offset_y, excluded) else {
-                continue;
-            };
-            let mapped = &self.slots[index];
-            let Some(cosine) = best_shifted_response_cosine(&mapped.sample, current) else {
-                continue;
-            };
-            pairs.push(AlignmentPair {
-                current: current_index,
-                mapped: index,
-                cosine,
-            });
-            offsets.push(mapped.content_y - current.page_y);
-        }
-        let mut candidate = AlignmentCandidate {
-            hypothesis_y: offset_y,
-            offset_y,
+        prediction: &AlignmentPrediction,
+        constraints: AlignmentConstraints,
+    ) -> AlignmentEvaluation {
+        let mut offsets = page
+            .slot_samples
+            .iter()
+            .filter_map(|current| {
+                let index =
+                    self.nearest_mapped_slot(current, prediction.offset_y, prediction.radius)?;
+                Some(self.slots[index].content_y - current.page_y)
+            })
+            .collect::<Vec<_>>();
+        let mut result = AlignmentEvaluation {
+            offset_y: prediction.offset_y,
             mean_score: 0.0,
-            support: pairs.len(),
-            pairs,
+            support: 0,
+            pairs: Vec::new(),
             rejection: None,
         };
         if offsets.is_empty() {
-            candidate.rejection = Some(AlignmentRejection::NoPairs);
-            return candidate;
+            result.rejection = Some(AlignmentRejection::NoGeometryPairs);
+            return result;
         }
         offsets.sort_unstable_by(f32::total_cmp);
-        candidate.offset_y = interpolated_median(&offsets);
-        candidate.mean_score =
-            candidate.pairs.iter().map(|pair| pair.cosine).sum::<f32>() / candidate.support as f32;
+        result.offset_y = interpolated_median(&offsets);
+        if constraints
+            .direction
+            .is_some_and(|direction| !self.direction_allows(result.offset_y, direction))
+        {
+            result.rejection = Some(AlignmentRejection::WrongDirection);
+            return result;
+        }
         // Excluded/selected cells still constrain geometry. Preserve the first
         // actual conflict, rather than losing it in an Option/filter chain.
         for (current_index, current) in page.slot_samples.iter().enumerate() {
-            let content_y = current.page_y + candidate.offset_y;
+            let content_y = current.page_y + result.offset_y;
             let top = content_y - current.center_y;
             let bottom = top + current.height as f32;
             for (mapped_index, mapped) in self
@@ -443,38 +430,62 @@ impl ListMap {
                 let mapped_bottom = mapped_top + mapped.sample.height as f32;
                 let overlap = bottom.min(mapped_bottom) - top.max(mapped_top);
                 if center_distance > POSITION_TOLERANCE_PX && overlap > POSITION_TOLERANCE_PX {
-                    candidate.rejection = Some(AlignmentRejection::GeometryConflict {
+                    result.rejection = Some(AlignmentRejection::GeometryConflict {
                         current: current_index,
                         mapped: mapped_index,
                         center_distance,
                         overlap,
                     });
-                    return candidate;
+                    return result;
                 }
             }
         }
-        candidate
+        // Geometry chooses the single rigid alignment. Appearance only verifies
+        // it; selected, empty and just-clicked cells cannot supply icon evidence.
+        for (current_index, current) in page.slot_samples.iter().enumerate() {
+            let Some(index) =
+                self.nearest_mapped_slot(current, result.offset_y, POSITION_TOLERANCE_PX)
+            else {
+                continue;
+            };
+            let id = SlotId(index);
+            if self.selected.contains(&id)
+                || self.no_booster_option == Some(id)
+                || constraints.excluded == Some(id)
+            {
+                continue;
+            }
+            if let Some(cosine) = best_shifted_response_cosine(&self.slots[index].sample, current) {
+                result.pairs.push(AlignmentPair {
+                    current: current_index,
+                    mapped: index,
+                    cosine,
+                });
+            }
+        }
+        result.support = result.pairs.len();
+        if result.support == 0 {
+            result.rejection = Some(AlignmentRejection::NoVisualPairs);
+        } else {
+            result.mean_score =
+                result.pairs.iter().map(|pair| pair.cosine).sum::<f32>() / result.support as f32;
+        }
+        result
     }
 
     fn nearest_mapped_slot(
         &self,
         current: &SlotSample,
         offset_y: f32,
-        excluded: Option<SlotId>,
+        tolerance: f32,
     ) -> Option<usize> {
         let expected_y = current.page_y + offset_y;
         self.slots
             .iter()
             .enumerate()
-            .filter(|(index, mapped)| {
-                let id = SlotId(*index);
-                mapped.col == current.col
-                    && !self.selected.contains(&id)
-                    && self.no_booster_option != Some(id)
-                    && excluded != Some(id)
-            })
+            .filter(|(_, mapped)| mapped.col == current.col)
             .map(|(index, mapped)| (index, (mapped.content_y - expected_y).abs()))
-            .filter(|(_, distance)| *distance <= POSITION_TOLERANCE_PX)
+            .filter(|(_, distance)| *distance <= tolerance)
             .min_by(|left, right| left.1.total_cmp(&right.1))
             .map(|(index, _)| index)
     }
@@ -498,15 +509,7 @@ impl ListMap {
             .slot_samples
             .iter()
             .filter_map(|current| {
-                let content_y = current.page_y + offset_y;
-                let (index, _) = self
-                    .slots
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, mapped)| mapped.col == current.col)
-                    .map(|(index, mapped)| (index, (mapped.content_y - content_y).abs()))
-                    .filter(|(_, distance)| *distance <= POSITION_TOLERANCE_PX)
-                    .min_by(|left, right| left.1.total_cmp(&right.1))?;
+                let index = self.nearest_mapped_slot(current, offset_y, POSITION_TOLERANCE_PX)?;
                 Some(PlacedSlot {
                     local: LocalPosition::of_sample(current),
                     id: SlotId(index),
@@ -563,6 +566,7 @@ impl ListMap {
         }
 
         self.current = placement;
+        self.scrollbar = page.roi.scrollbar;
         self.record_current(&page.roi);
         self.record_candidates(&page.match_candidates);
         debug!(
@@ -739,22 +743,6 @@ impl ListMap {
     }
 }
 
-fn offset_hypotheses(offsets: impl Iterator<Item = f32>) -> Vec<f32> {
-    let mut offsets = offsets.collect::<Vec<_>>();
-    offsets.sort_unstable_by(f32::total_cmp);
-    let mut hypotheses = Vec::new();
-    let mut start = 0;
-    while start < offsets.len() {
-        let mut end = start + 1;
-        while end < offsets.len() && offsets[end] - offsets[end - 1] <= POSITION_TOLERANCE_PX {
-            end += 1;
-        }
-        hypotheses.push(interpolated_median(&offsets[start..end]));
-        start = end;
-    }
-    hypotheses
-}
-
 fn interpolated_median(values: &[f32]) -> f32 {
     let middle = values.len() / 2;
     if values.len().is_multiple_of(2) {
@@ -762,13 +750,6 @@ fn interpolated_median(values: &[f32]) -> f32 {
     } else {
         values[middle]
     }
-}
-
-fn compare_alignment(left: &AlignmentCandidate, right: &AlignmentCandidate) -> std::cmp::Ordering {
-    right
-        .mean_score
-        .total_cmp(&left.mean_score)
-        .then_with(|| right.support.cmp(&left.support))
 }
 
 fn best_shifted_response_cosine(left: &SlotSample, right: &SlotSample) -> Option<f32> {

@@ -569,6 +569,20 @@ pub(super) fn supported_columns<const N: usize>(slots: &[SlotEvidence; N]) -> [b
     slots.map(|slot| slot.cross_support >= threshold)
 }
 
+pub(super) fn occupied_prefix_len(supported: &[bool]) -> usize {
+    supported
+        .iter()
+        .rposition(|&supported| supported)
+        .map_or(1, |col| col + 1)
+}
+
+pub(super) fn prefix_row_score<const N: usize>(slots: &[SlotEvidence; N]) -> f32 {
+    // Occupancy is left-packed. Include weak columns inside that prefix, not
+    // just the supported columns, so isolated right-hand peaks are discounted.
+    let occupied = occupied_prefix_len(&supported_columns(slots));
+    slots[..occupied].iter().map(|slot| slot.q).sum::<f32>() / occupied as f32
+}
+
 fn median_top_three<const N: usize>(rows: &[RowCandidate<N>]) -> f32 {
     let mut values = rows.iter().map(|row| row.score).collect::<Vec<_>>();
     values.sort_unstable_by(|left, right| right.total_cmp(left));

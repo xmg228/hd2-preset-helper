@@ -7,8 +7,9 @@ use rayon::prelude::*;
 use tracing::{debug, trace};
 
 use super::borders::{
-    FixedEdgeProfiles, SamplingParams, SlotScratch, mean_rgb, round_ties_even, score_slot_direct,
-    select_rows, supported_columns, tangent_positions, vertical_tangent_offsets,
+    FixedEdgeProfiles, SamplingParams, SlotScratch, mean_rgb, occupied_prefix_len,
+    prefix_row_score, round_ties_even, score_slot_direct, select_rows, supported_columns,
+    tangent_positions, vertical_tangent_offsets,
 };
 use crate::item::ItemKind;
 use crate::vision::color;
@@ -211,7 +212,7 @@ fn detect_list(image: &RgbaImage, geometry: RoiGeometry, item_kind: ItemKind) ->
             let slots = std::array::from_fn(|col| profiles.score_slot(col, y, scratch));
             RowCandidate {
                 y,
-                score: slots.into_iter().map(|slot| slot.q).fold(0.0, f32::max),
+                score: prefix_row_score(&slots),
                 slots,
             }
         })
@@ -233,10 +234,7 @@ fn detect_list(image: &RgbaImage, geometry: RoiGeometry, item_kind: ItemKind) ->
         .into_iter()
         .map(|row| {
             let supported = supported_columns(&row.slots);
-            let occupied_columns = supported
-                .iter()
-                .rposition(|&supported| supported)
-                .map_or(1, |col| col + 1);
+            let occupied_columns = occupied_prefix_len(&supported);
             let y = refine_row_aa(image, row.y as f64, &supported, columns, params)
                 .unwrap_or(row.y as f64);
             DetectedRow {
