@@ -250,12 +250,14 @@ export component SettingToggle inherits Rectangle {
     in property <string> text;
     in property <string> description;
     in property <bool> enabled;
-    in property <length> content-padding: 8px;
+    in property <bool> compact;
+    in property <length> content-padding: root.compact ? 0px : 8px;
     in-out property <bool> checked;
-    min-height: root.description == "" ? 36px : 64px;
+    private property <bool> pointer-focus;
+    min-height: root.description == "" ? (root.compact ? 28px : 36px) : 64px;
     vertical-stretch: 0;
     border-radius: 4px;
-    border-width: keys.has-focus ? 1px : 0px;
+    border-width: keys.has-focus && !root.pointer-focus ? 1px : 0px;
     border-color: Theme.accent-soft;
     background: touch.has-hover && enabled ? Theme.control : transparent;
     accessible-role: checkbox;
@@ -265,39 +267,51 @@ export component SettingToggle inherits Rectangle {
     accessible-checked: checked;
     accessible-action-default => { if (root.enabled) { root.checked = !root.checked; } }
     forward-focus: keys;
-    HorizontalLayout {
+    GridLayout {
         padding: root.content-padding;
-        spacing: 12px;
+        spacing: root.compact ? 8px : 12px;
         VerticalLayout {
+            row: 0; col: root.compact ? 1 : 0;
             horizontal-stretch: 1;
             alignment: center;
             spacing: 4px;
-            Text { text: root.text; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+            Text {
+                text: root.text;
+                color: root.compact ? Theme.text-secondary : Theme.text;
+                font-size: root.compact ? 13px : 14px;
+                wrap: word-wrap;
+            }
             if (root.description != ""): Text { text: root.description; color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
         }
-        Rectangle {
+        VerticalLayout {
+            row: 0; col: root.compact ? 0 : 1;
             width: 18px;
-            height: 18px;
-            cross-axis-self-alignment: center;
-            border-radius: 3px;
-            border-width: 1px;
-            border-color: root.checked ? Theme.accent-soft : Theme.inactive;
-            background: root.checked ? Theme.accent-soft : transparent;
-            if root.checked: Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 18;
-                viewbox-height: 18;
-                commands: "M 4 9 L 7.5 12.5 L 14 5.5";
-                fill: transparent;
-                stroke: Theme.background;
-                stroke-width: 2px;
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 3px;
+                border-width: 1px;
+                border-color: root.checked ? Theme.accent-soft : Theme.inactive;
+                background: root.checked ? Theme.accent-soft : transparent;
+                if root.checked: Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: 18;
+                    viewbox-height: 18;
+                    commands: "M 4 9 L 7.5 12.5 L 14 5.5";
+                    fill: transparent;
+                    stroke: Theme.background;
+                    stroke-width: 2px;
+                }
             }
         }
     }
     keys := FocusScope {
         enabled: root.enabled;
+        changed has-focus => { if (!self.has-focus) { root.pointer-focus = false; } }
         key-pressed(event) => {
+            root.pointer-focus = false;
             if (event.text == Key.Space || event.text == Key.Return) {
                 if (!event.repeat) { root.checked = !root.checked; }
                 return accept;
@@ -308,17 +322,22 @@ export component SettingToggle inherits Rectangle {
     touch := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
-        clicked => { keys.focus(); root.checked = !root.checked; }
+        clicked => {
+            keys.focus();
+            root.pointer-focus = true;
+            root.checked = !root.checked;
+        }
     }
 }
 
 export component DeletePresetDialog inherits Rectangle {
     in property <string> preset-title;
     in property <bool> enabled;
-    callback confirm();
+    private property <bool> skip-confirmation;
+    callback confirm(bool);
     callback cancel();
     forward-focus: keys;
-    public function focus-dialog() { cancel-button.focus(); }
+    public function focus-dialog() { root.skip-confirmation = false; cancel-button.focus(); }
     background: Theme.surface;
     border-color: Theme.border-strong;
     border-width: 1px;
@@ -340,14 +359,23 @@ export component DeletePresetDialog inherits Rectangle {
                 color: Theme.text-secondary;
                 font-size: 12px;
                 wrap: word-wrap;
-                vertical-stretch: 1;
+                vertical-stretch: 0;
+            }
+            HorizontalLayout {
+                alignment: start;
+                SettingToggle {
+                    compact: true;
+                    text: @tr("Don't ask again this session");
+                    checked <=> root.skip-confirmation;
+                    enabled: root.enabled;
+                }
             }
             HorizontalLayout {
                 height: 32px;
                 alignment: end;
                 spacing: 10px;
                 cancel-button := PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled; clicked => { root.cancel(); } }
-                PanelButton { min-width: 86px; text: @tr("Delete"); accent: true; enabled: root.enabled; clicked => { root.confirm(); } }
+                PanelButton { min-width: 86px; text: @tr("Delete"); accent: true; enabled: root.enabled; clicked => { root.confirm(root.skip-confirmation); } }
             }
         }
     }

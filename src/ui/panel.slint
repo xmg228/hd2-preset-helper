@@ -210,6 +210,7 @@ export component PresetPanel inherits Window {
     private property <string> editing-preset;
     private property <string> name-draft;
     private property <bool> apply-key-down;
+    private property <bool> skip-delete-confirmation;
     private property <length> row-height: 68px;
     private property <length> row-spacing: 4px;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
@@ -247,6 +248,10 @@ export component PresetPanel inherits Window {
         root.hovered-index = -1;
         root.apply-key-down = false;
         keyboard.focus();
+        if (root.skip-delete-confirmation) {
+            root.request-delete(root.current.name);
+            return;
+        }
         root.delete-open = true;
         delete-dialog.focus-dialog();
     }
@@ -817,9 +822,10 @@ export component PresetPanel inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);
-            height: 220px;
+            height: self.preferred-height;
             preset-title: UiText.preset-title(root.current.label, root.current.number);
-            confirm => {
+            confirm(skip-confirmation) => {
+                root.skip-delete-confirmation = skip-confirmation;
                 root.request-delete(root.current.name);
                 root.close-dialogs();
             }

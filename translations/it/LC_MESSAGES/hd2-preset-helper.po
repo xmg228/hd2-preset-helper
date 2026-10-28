@@ -217,6 +217,9 @@ msgstr "Eliminare il preset?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "Il contenuto salvato e la scorciatoia verranno eliminati. L'operazione è irreversibile."
 
+msgid "Don't ask again this session"
+msgstr "Non chiedere più durante questa sessione"
+
 msgid "Cancel"
 msgstr "Annulla"
 

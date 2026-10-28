@@ -217,6 +217,9 @@ msgstr "删除预设？"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "将删除此预设保存的内容和快捷键。此操作无法撤销。"
 
+msgid "Don't ask again this session"
+msgstr "本次运行不再提示"
+
 msgid "Cancel"
 msgstr "取消"
 

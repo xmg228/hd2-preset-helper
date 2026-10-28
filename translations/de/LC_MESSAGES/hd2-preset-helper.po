@@ -217,6 +217,9 @@ msgstr "Preset löschen?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "Gespeicherte Inhalte und Tastenkürzel werden gelöscht. Dies kann nicht rückgängig gemacht werden."
 
+msgid "Don't ask again this session"
+msgstr "In dieser Sitzung nicht mehr nachfragen"
+
 msgid "Cancel"
 msgstr "Abbrechen"
 

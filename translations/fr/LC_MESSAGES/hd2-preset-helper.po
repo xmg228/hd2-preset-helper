@@ -217,6 +217,9 @@ msgstr "Supprimer le préréglage ?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "Son contenu enregistré et son raccourci seront supprimés. Cette action est irréversible."
 
+msgid "Don't ask again this session"
+msgstr "Ne plus demander pendant cette session"
+
 msgid "Cancel"
 msgstr "Annuler"
 

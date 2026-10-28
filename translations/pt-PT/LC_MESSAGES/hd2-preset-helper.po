@@ -217,6 +217,9 @@ msgstr "Eliminar predefinição?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "O conteúdo guardado e o atalho serão eliminados. Esta ação não pode ser anulada."
 
+msgid "Don't ask again this session"
+msgstr "Não voltar a perguntar nesta sessão"
+
 msgid "Cancel"
 msgstr "Cancelar"
 

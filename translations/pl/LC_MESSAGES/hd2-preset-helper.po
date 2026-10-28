@@ -217,6 +217,9 @@ msgstr "Usunąć zestaw?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "Jego zapisana zawartość i skrót zostaną usunięte. Tej operacji nie można cofnąć."
 
+msgid "Don't ask again this session"
+msgstr "Nie pytaj ponownie w tej sesji"
+
 msgid "Cancel"
 msgstr "Anuluj"
 

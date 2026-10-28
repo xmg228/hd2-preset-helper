@@ -217,6 +217,9 @@ msgstr "プリセットを削除しますか？"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "保存した内容とショートカットも削除されます。この操作は元に戻せません。"
 
+msgid "Don't ask again this session"
+msgstr "今回の起動中は確認しない"
+
 msgid "Cancel"
 msgstr "キャンセル"
 

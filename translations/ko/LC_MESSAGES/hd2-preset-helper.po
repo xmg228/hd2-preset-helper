@@ -217,6 +217,9 @@ msgstr "프리셋을 삭제할까요?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "저장된 내용과 단축키도 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
 
+msgid "Don't ask again this session"
+msgstr "이번 실행 중에는 다시 묻지 않기"
+
 msgid "Cancel"
 msgstr "취소"
 

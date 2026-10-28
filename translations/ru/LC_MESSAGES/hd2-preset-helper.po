@@ -217,6 +217,9 @@ msgstr "Удалить набор?"
 msgid "Its saved content and shortcut will be deleted. This cannot be undone."
 msgstr "Его сохранённое содержимое и сочетание клавиш будут удалены. Это действие нельзя отменить."
 
+msgid "Don't ask again this session"
+msgstr "Больше не спрашивать в этом сеансе"
+
 msgid "Cancel"
 msgstr "Отмена"
 
