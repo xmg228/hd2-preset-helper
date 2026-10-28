@@ -14,13 +14,12 @@ use crate::vision::{
 use super::ScrollDirection;
 use super::list_map::{ListMap, LocatedPage};
 
-const PAGE_TURN_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(200);
-const PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE: Duration = Duration::from_millis(150);
-const PAGE_TURN_NO_MOVEMENT_FRAMES: usize = 2;
+const PAGE_RECOVERY_SETTLE_DELAY: Duration = Duration::from_millis(150);
+const PAGE_RECOVERY_STATIC_FRAMES: usize = 2;
 const PAGE_TURN_ALIGNMENT_TIMEOUT: Duration = Duration::from_millis(400);
 const SCROLLBAR_MOVEMENT_TOLERANCE_PX: f32 = 0.75;
 const PAGE_SCROLL_NOTCHES: i32 = 5;
-const PAGE_BOUNDARY_PROBE_NOTCHES: i32 = 1;
+const PAGE_RETRY_NOTCHES: i32 = 1;
 const PAGE_ALIGNMENT_RECOVERY_NOTCHES: i32 = 2;
 
 pub(super) struct PageSnapshot {
@@ -48,37 +47,32 @@ pub(super) struct PageNavigator {
 }
 
 pub(super) enum PageTurnResult {
-    Moved(PageSnapshot),
-    NoMovement(PageSnapshot),
+    Confirmed(PageSnapshot),
     Recovered(PageSnapshot),
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum PageTurnInput {
     Full(ScrollDirection),
-    Nudge(ScrollDirection),
+    Retry(ScrollDirection),
     Recovery(ScrollDirection),
 }
 
 impl PageTurnInput {
     pub(super) const fn direction(self) -> ScrollDirection {
         match self {
-            Self::Full(direction) | Self::Nudge(direction) | Self::Recovery(direction) => direction,
+            Self::Full(direction) | Self::Retry(direction) | Self::Recovery(direction) => direction,
         }
     }
 
-    pub(super) const fn is_full(self) -> bool {
-        matches!(self, Self::Full(_))
-    }
-
-    pub(super) const fn is_nudge(self) -> bool {
-        matches!(self, Self::Nudge(_))
+    pub(super) const fn is_retry(self) -> bool {
+        matches!(self, Self::Retry(_))
     }
 
     fn scroll_notches(self) -> i32 {
         let magnitude = match self {
             Self::Full(_) => PAGE_SCROLL_NOTCHES,
-            Self::Nudge(_) => PAGE_BOUNDARY_PROBE_NOTCHES,
+            Self::Retry(_) => PAGE_RETRY_NOTCHES,
             Self::Recovery(_) => PAGE_ALIGNMENT_RECOVERY_NOTCHES,
         };
         match self.direction() {
@@ -129,24 +123,21 @@ impl PageNavigator {
         let span = debug_span!("turn_page", wheel_attempt, ?input);
         let _guard = span.enter();
 
+        current_page
+            .roi
+            .scrollbar
+            .context("cannot turn a list page without a scrollbar; no scroll was sent")?;
         automation.scroll(input.scroll_notches())?;
-        let (page, placement) = self.observe_page_turn(
-            automation,
-            list_map,
-            current_page,
-            input,
-            Some(input.direction()),
-        )?;
+        let (page, placement) =
+            self.observe_page_turn(automation, list_map, current_page, input)?;
         if let Some(placement) = placement {
-            let moved = placement.has_moved();
             list_map.commit(&page, placement, "page-turn", automation.evidence());
-            return Ok(if moved {
-                PageTurnResult::Moved(page)
-            } else {
-                PageTurnResult::NoMovement(page)
-            });
+            return Ok(PageTurnResult::Confirmed(page));
         }
 
+        page.roi.scrollbar.context(
+            "the list scrollbar disappeared before the page turn could be confirmed; no recovery scroll was sent",
+        )?;
         warn!(
             ?input,
             "page turn remained unconfirmed; scrolling back for recovery"
@@ -155,8 +146,7 @@ impl PageNavigator {
         automation.scroll(recovery.scroll_notches())?;
         // The rejected page was never committed. Recovery may land on either
         // side of the last confirmed page, or return to that same position.
-        let (page, placement) =
-            self.observe_page_turn(automation, list_map, &page, recovery, None)?;
+        let (page, placement) = self.observe_page_turn(automation, list_map, &page, recovery)?;
         let placement = placement.context(
             "neither the page turn nor the recovery scroll could be confirmed in the temporary list map",
         )?;
@@ -170,16 +160,17 @@ impl PageNavigator {
         list_map: &ListMap,
         current_page: &PageSnapshot,
         input: PageTurnInput,
-        direction: Option<ScrollDirection>,
     ) -> Result<(PageSnapshot, Option<LocatedPage>)> {
         let start = Instant::now();
         let scrollbar_reference = current_page.roi.scrollbar;
         let mut same_viewport_frames = 0usize;
         let mut observations = 0usize;
-        let no_movement_grace = if input.is_full() {
-            PAGE_TURN_NO_MOVEMENT_GRACE
+        let recovering = matches!(input, PageTurnInput::Recovery(_));
+        let direction = (!recovering).then_some(input.direction());
+        let response_wait = if recovering {
+            PAGE_RECOVERY_SETTLE_DELAY
         } else {
-            PAGE_BOUNDARY_NUDGE_NO_MOVEMENT_GRACE
+            PAGE_TURN_ALIGNMENT_TIMEOUT
         };
 
         loop {
@@ -203,7 +194,7 @@ impl PageNavigator {
             });
             // Observe the input relative to its preceding frame (also during
             // recovery); map placement still uses the last committed page.
-            if !input_observed && !at_boundary && observed_elapsed < no_movement_grace {
+            if !input_observed && !at_boundary && observed_elapsed < response_wait {
                 continue;
             }
 
@@ -219,20 +210,15 @@ impl PageNavigator {
 
             if let Some(placement) = assessment.placement.as_ref() {
                 let moved = placement.has_moved();
-                // A visible thumb away from the requested endpoint disproves
-                // a boundary. Only no-thumb Booster lists need a static probe.
-                let static_booster = self.item_kind == ItemKind::Booster
-                    && scrollbar_reference.is_none()
-                    && scrollbar.is_none();
                 let confirmed = if moved {
                     same_viewport_frames = 0;
-                    input_observed || direction.is_none()
+                    input_observed || at_boundary || recovering
                 } else {
                     same_viewport_frames += 1;
                     at_boundary
-                        || ((direction.is_none() || static_booster)
-                            && observed_elapsed >= no_movement_grace
-                            && same_viewport_frames >= PAGE_TURN_NO_MOVEMENT_FRAMES)
+                        || (recovering
+                            && observed_elapsed >= PAGE_RECOVERY_SETTLE_DELAY
+                            && same_viewport_frames >= PAGE_RECOVERY_STATIC_FRAMES)
                 };
                 if confirmed {
                     list_map.record_assessment(

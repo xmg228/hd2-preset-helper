@@ -240,7 +240,6 @@ fn apply_stratagems_from_home(
                     .find(|slot| slot.kind == SlotKind::StratagemEmpty)
             })
             .context("no home slot available for a missing Stratagem")?;
-        let starts_at_top = entry.kind == SlotKind::StratagemEmpty;
         let count = empty_count + usize::from(entry.kind == SlotKind::Stratagem);
         debug!(
             kept = equipped.len(),
@@ -273,7 +272,6 @@ fn apply_stratagems_from_home(
                 count,
                 in_saved_order: apply_in_saved_order && empty_count == 4,
             },
-            starts_at_top,
         )? {
             ListSelectionOutcome::Applied(home) => home,
             ListSelectionOutcome::Unavailable => {
@@ -313,9 +311,6 @@ fn apply_booster_from_home(
         &item_ids,
         opened_list,
         ListSelectionMode::FirstAvailable,
-        home.slots
-            .iter()
-            .any(|slot| slot.kind == SlotKind::HomeBoosterEmpty),
     )? {
         ListSelectionOutcome::Applied(_) => Ok(BoosterApplyOutcome::Applied),
         ListSelectionOutcome::Unavailable => Ok(BoosterApplyOutcome::Unavailable),
@@ -329,7 +324,6 @@ fn select_items_from_open_list(
     items: &[String],
     initial_observation: RoiObservation,
     mode: ListSelectionMode,
-    starts_at_top: bool,
 ) -> Result<ListSelectionOutcome> {
     let item_kind = navigator.item_kind();
     let requested_items = match mode {
@@ -340,7 +334,6 @@ fn select_items_from_open_list(
         "preset_list_selection",
         item_kind = %item_kind.label(),
         requested_items,
-        starts_at_top,
         mode = match mode {
             ListSelectionMode::Stratagems { in_saved_order: true, .. } => "saved_order",
             ListSelectionMode::Stratagems { in_saved_order: false, .. } => "visible_first",
@@ -351,9 +344,8 @@ fn select_items_from_open_list(
     let mut remaining = items.to_vec();
     let mut selections_left = requested_items;
     let mut wheel_attempts = 0u32;
-    let mut boundary_candidate = None;
-    // Empty entries open at the top; equipped entries open at their current item.
-    let mut top_reached = starts_at_top;
+    let mut retry_direction = None;
+    let mut top_reached = false;
     let mut bottom_reached = false;
     let mut current_page = {
         let span = debug_span!("scan_page", wheel_attempts);
@@ -367,7 +359,7 @@ fn select_items_from_open_list(
             "selection_page",
             wheel_attempts,
             remaining_items = remaining.len(),
-            ?boundary_candidate
+            ?retry_direction
         );
         let _page_guard = page_span.enter();
         // Only accepted pages contribute boundary evidence; unplaced turn frames
@@ -435,7 +427,7 @@ fn select_items_from_open_list(
                         confirmed: false,
                     });
                     wheel_attempts = 0;
-                    boundary_candidate = None;
+                    retry_direction = None;
                     debug!(
                         next_item_id = %remaining[0],
                         "trying the fallback booster"
@@ -462,7 +454,7 @@ fn select_items_from_open_list(
                     list_map.commit(&page, placement, "post-click", automation.evidence());
                     current_page = page;
                     wheel_attempts = 0;
-                    boundary_candidate = None;
+                    retry_direction = None;
                     debug!(
                         item_id = %selected_item_id,
                         remaining_items = remaining.len(),
@@ -485,6 +477,14 @@ fn select_items_from_open_list(
         }
 
         let item_id = &remaining[0];
+        // A settled list without a thumb fits in the viewport. Do not probe it
+        // with wheel input or treat a missing match as a completed scan fallback.
+        let scrollbar = current_page.roi.scrollbar.with_context(|| {
+            format!(
+                "target item {item_id} was not found in the visible {} list; no scrollbar is present",
+                item_kind.label()
+            )
+        })?;
         if top_reached
             && bottom_reached
             && !list_map.contains_item(item_id)
@@ -520,22 +520,18 @@ fn select_items_from_open_list(
                 );
             }
         };
-        if current_page
-            .roi
-            .scrollbar
-            .is_some_and(|scrollbar| match direction {
-                ScrollDirection::Up => scrollbar.at_top,
-                ScrollDirection::Down => scrollbar.at_bottom,
-            })
-        {
+        if match direction {
+            ScrollDirection::Up => scrollbar.at_top,
+            ScrollDirection::Down => scrollbar.at_bottom,
+        } {
             bail!(
                 "target item {item_id} was not found before the {} of the {} list",
                 direction.boundary_label(),
                 item_kind.label(),
             );
         }
-        let input = if boundary_candidate == Some(direction) {
-            PageTurnInput::Nudge(direction)
+        let input = if retry_direction == Some(direction) {
+            PageTurnInput::Retry(direction)
         } else {
             PageTurnInput::Full(direction)
         };
@@ -548,72 +544,20 @@ fn select_items_from_open_list(
             input,
             wheel_attempts,
         )? {
-            PageTurnResult::Moved(page) => {
+            PageTurnResult::Confirmed(page) => {
                 current_page = page;
-                boundary_candidate = None;
-                if input.is_nudge() {
-                    debug!(
-                        remaining_items = remaining.len(),
-                        ?direction,
-                        "nudge moved the viewport; normal page turns will resume"
-                    );
-                }
+                retry_direction = None;
             }
             PageTurnResult::Recovered(page) => {
                 current_page = page;
-                if input.is_nudge() {
-                    bail!("page navigation remained ambiguous after a boundary probe");
+                if input.is_retry() {
+                    bail!("page navigation remained ambiguous after a recovery retry");
                 }
-                boundary_candidate = Some(direction);
+                retry_direction = Some(direction);
                 debug!(
                     remaining_items = remaining.len(),
                     ?direction,
-                    "temporary list map recovered; the next forward turn will use a nudge"
-                );
-            }
-            PageTurnResult::NoMovement(last_page) => {
-                current_page = last_page;
-                if input.is_nudge() {
-                    match direction {
-                        ScrollDirection::Up => top_reached = true,
-                        ScrollDirection::Down => bottom_reached = true,
-                    }
-                    boundary_candidate = None;
-                    if !(top_reached && bottom_reached) && !list_map.contains_item(item_id) {
-                        debug!(
-                            ?direction,
-                            "list boundary confirmed; searching the other side before enabling fallback"
-                        );
-                        wheel_attempts = 0;
-                        continue;
-                    }
-                    if top_reached
-                        && bottom_reached
-                        && let Some(score) = list_map.activate_best_candidate(item_id)
-                    {
-                        warn!(
-                            item_id,
-                            score,
-                            "no candidate passed the threshold; using the best observed slot"
-                        );
-                        continue;
-                    }
-                    debug!(
-                        remaining_items = remaining.len(),
-                        ?direction,
-                        "list boundary confirmed by a conservative probe"
-                    );
-                    bail!(
-                        "target item {item_id} was not found before the {} of the {} list",
-                        direction.boundary_label(),
-                        item_kind.label(),
-                    );
-                }
-                boundary_candidate = Some(direction);
-                debug!(
-                    remaining_items = remaining.len(),
-                    ?direction,
-                    "full page turn produced no movement; scheduling a small boundary nudge"
+                    "temporary list map recovered; retrying forward with a smaller scroll"
                 );
             }
         }

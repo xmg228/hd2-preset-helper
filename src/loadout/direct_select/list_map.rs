@@ -365,9 +365,9 @@ impl ListMap {
                     source: "scrollbar",
                 })
             }
-            (None, None) if self.item_kind == ItemKind::Booster => {
-                // A fitting Booster list has no thumb. Test the existing position
-                // with geometry AND icon evidence; absence alone confirms nothing.
+            (None, None) => {
+                // A fitting list stays at the existing position. Verify it with
+                // geometry AND icon evidence before reusing the map after clicks.
                 Some(AlignmentPrediction {
                     offset_y: self.current.offset_y,
                     radius: POSITION_TOLERANCE_PX,
