@@ -181,10 +181,7 @@ impl PageNavigator {
         direction: Option<ScrollDirection>,
     ) -> Result<(PageSnapshot, Option<LocatedPage>)> {
         let start = Instant::now();
-        // Keep the original screen extent; the expanded ROI's header must not
-        // dilute the existing page-change threshold with unrelated content.
-        let fingerprint_rect = self.recognizer.page_fingerprint_rect();
-        let visual_reference = image_fingerprint(&current_page.roi.image, fingerprint_rect);
+        let visual_reference = image_fingerprint(&current_page.roi.image);
         let mut same_viewport_frames = 0usize;
         let mut observations = 0usize;
         let no_movement_grace = if input.is_full() {
@@ -196,7 +193,7 @@ impl PageNavigator {
         loop {
             let image = automation.capture()?;
             let observed_elapsed = start.elapsed();
-            let signature = image_fingerprint(&image, fingerprint_rect);
+            let signature = image_fingerprint(&image);
             let distance = fingerprint_distance(&visual_reference, &signature);
             // The fingerprint only triggers scanning, not movement confirmation.
             // Recovery offsets refer to the old map, so let the reverse input

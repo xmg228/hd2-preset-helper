@@ -18,12 +18,12 @@ type RowCandidate = super::borders::RowCandidate<4>;
 use super::{HOME_COLS, LIST_COLS, RoiGeometry, SLOT_SIDE_LOGICAL, Slot, SlotKind, SlotLayout};
 const GRID_PITCH_LOGICAL: f64 = 85.0;
 const HOME_BOOSTER_X_LOGICAL: f64 = 343.0;
-const HOME_Y_LOGICAL: f64 = 574.0;
-const LIST_ENTRY_Y_LOGICAL: f64 = 12.0;
+const HOME_Y_LOGICAL: f64 = 478.0;
+const READY_BORDER_X_LOGICAL: [f64; 2] = [8.0, 426.0];
 const FIXED_ROW_Y_SEARCH_LOGICAL: f64 = 2.0;
 const FRAME_SCORE_THRESHOLD: f32 = 0.05;
-const LIST_Y_MIN_LOGICAL: f64 = 186.0;
-const LIST_Y_MAX_LOGICAL: f64 = 621.0;
+const LIST_Y_MIN_LOGICAL: f64 = 90.0;
+const LIST_Y_MAX_LOGICAL: f64 = 525.0;
 const LIST_MAX_ROWS: usize = 10;
 
 const AA_RADIUS: i32 = 4;
@@ -144,25 +144,31 @@ fn detect_home(image: &RgbaImage, geometry: RoiGeometry) -> Vec<Slot> {
 }
 
 pub(super) fn list_entry_ready(image: &RgbaImage, geometry: RoiGeometry) -> bool {
-    let params = stratagem_sampling(geometry.scale);
-    let nominal_y = geometry.logical_origin_y + LIST_ENTRY_Y_LOGICAL * geometry.scale;
-    let best = fixed_row_candidate(
-        image,
-        home_columns(geometry),
-        nominal_y,
-        geometry.scale,
-        params,
-    );
-    let score = best.as_ref().map_or(0.0, |candidate| candidate.score);
-    let ready = score >= FRAME_SCORE_THRESHOLD;
-    trace!(
-        score,
-        nominal_y,
-        best_y = ?best.as_ref().map(|candidate| candidate.y),
-        ready,
-        "list entry frame evaluated"
-    );
-    ready
+    let scale = geometry.scale;
+    if !scale.is_finite() || scale <= 0.0 {
+        return false;
+    }
+    // The Ready button slides below the panel clip when either list opens.
+    // Scan both solid sides, including the final antialiased corner pixels.
+    let top = (geometry.logical_origin_y + 566.0 * scale).floor() as i32;
+    let bottom = (geometry.logical_origin_y + 612.0 * scale).ceil() as i32;
+    for center in READY_BORDER_X_LOGICAL {
+        let left = (geometry.logical_origin_x + (center - 2.0) * scale).floor() as i32;
+        let right = (geometry.logical_origin_x + (center + 2.0) * scale).ceil() as i32;
+        // An unavailable sampling window is not evidence that the border left.
+        if left < 0 || top < 0 || right > image.width() as i32 || bottom > image.height() as i32 {
+            return false;
+        }
+        for y in top..bottom {
+            for x in left..right {
+                let [r, g, b, _] = image.get_pixel(x as u32, y as u32).0;
+                if g > 110 && r.min(g).saturating_sub(b) > 60 {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn fixed_row_candidate(

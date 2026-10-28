@@ -97,7 +97,7 @@ pub(super) fn wait_for_filled_home(
 }
 
 /// Wait for the requested layout at its resting position. Home additionally
-/// retains its two-observation Y check; list entry uses the fixed upper row.
+/// retains its two-observation Y check; list entry waits for the Ready border to leave.
 pub fn wait_for_ui_state(
     automation: &mut AutomationSession<'_>,
     recognizer: RecognizerSession,
@@ -124,6 +124,7 @@ pub fn wait_for_ui_state(
     loop {
         attempt += 1;
         let image = automation.capture()?;
+        // Border absence only gates the transition; the list must still be detected.
         let entry_ready =
             !matches!(target_state, UiState::List(_)) || recognizer.list_entry_ready(&image);
         // List geometry alone can also find rows in the home screen's background.

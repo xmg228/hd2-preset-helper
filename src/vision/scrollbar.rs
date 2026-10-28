@@ -6,8 +6,8 @@ use super::RoiGeometry;
 
 // Reference ROI coordinates. Sample inside the 7 px wide thumb, not its edges.
 const CENTER_X: f64 = 413.5;
-const TRACK_TOP: f64 = 183.0;
-const TRACK_BOTTOM: f64 = 711.0;
+const TRACK_TOP: f64 = 87.0;
+const TRACK_BOTTOM: f64 = 615.0;
 const CAP_HEIGHT: f64 = 2.0;
 const YELLOW_NOISE_FLOOR: f64 = 16.0;
 const CAP_RESPONSE_THRESHOLD: f64 = 40.0;
