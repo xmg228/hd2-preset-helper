@@ -12,6 +12,7 @@ pub struct SettingsDraft {
     pub apply_in_saved_order: bool,
     pub auto_ready_up: bool,
     pub save_fallback_when_taken: bool,
+    pub check_updates_automatically: bool,
 }
 
 impl SettingsDraft {
@@ -40,6 +41,12 @@ impl SettingsDraft {
             for (name, binding) in &self.shortcuts.presets {
                 super::write_slot_field(document, name, "shortcut", binding)?;
             }
+            super::write_setting(
+                document,
+                "updates",
+                "check_automatically",
+                self.check_updates_automatically,
+            )?;
             Ok(())
         })
     }

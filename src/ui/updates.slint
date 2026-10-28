@@ -1,0 +1,92 @@
+import { Theme } from "theme.slint";
+import { PanelButton, SettingToggle } from "controls.slint";
+
+export enum UpdatePhase { idle, checking, up-to-date, available, downloading, installing, restarting, failed }
+
+export component UpdateView inherits Rectangle {
+    vertical-stretch: 0;
+    in property <bool> enabled;
+    in property <bool> install-allowed;
+    in-out property <bool> check-automatically;
+    in property <UpdatePhase> phase;
+    in property <string> current-version;
+    in property <string> available-version;
+    in property <string> error;
+    private property <bool> has-update: available-version != "";
+    private property <bool> busy: phase == UpdatePhase.downloading || phase == UpdatePhase.installing || phase == UpdatePhase.restarting;
+    private property <bool> install-action: has-update && install-allowed && phase != UpdatePhase.failed && phase != UpdatePhase.checking;
+    private property <string> status: phase == UpdatePhase.checking ? @tr("Checking for updates…")
+        : phase == UpdatePhase.up-to-date ? @tr("Up to date")
+        : phase == UpdatePhase.downloading ? @tr("Downloading update…")
+        : phase == UpdatePhase.installing ? @tr("Installing update…")
+        : phase == UpdatePhase.restarting ? @tr("Restarting…") : "";
+    callback check();
+    callback notes();
+    callback install();
+    VerticalLayout {
+        padding: 8px;
+        spacing: 8px;
+        HorizontalLayout {
+            height: 32px;
+            spacing: 8px;
+            Text {
+                text: @tr("Version {}", root.current-version);
+                color: Theme.text; font-size: 14px;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+                overflow: elide;
+                Tooltip { text: @markdown("\{parent.text}"); }
+            }
+            if root.has-update: Text {
+                text: "→ " + root.available-version;
+                color: Theme.accent; font-size: 14px;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+                overflow: elide;
+                Tooltip { text: @markdown("\{root.available-version}"); }
+            }
+            if (root.has-update && !root.busy && root.phase != UpdatePhase.checking): PanelButton {
+                horizontal-stretch: 0;
+                horizontal-padding: 4px;
+                height: 24px;
+                cross-axis-self-alignment: center;
+                text: @tr("Release notes");
+                enabled: root.enabled;
+                clicked => { root.notes(); }
+            }
+            Text {
+                text: root.status == "" ? "" : "· " + root.status;
+                color: Theme.text-secondary; font-size: 12px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+                Tooltip { text: @markdown("\{root.status}"); }
+            }
+            PanelButton {
+                horizontal-stretch: 0;
+                text: root.install-action ? @tr("Update and restart") : @tr("Check for updates");
+                filled: true;
+                enabled: root.enabled && !root.busy && root.phase != UpdatePhase.checking;
+                clicked => { if (root.install-action) { root.install(); } else { root.check(); } }
+            }
+        }
+        if (root.phase == UpdatePhase.failed && root.error != ""): Text {
+            text: root.error;
+            color: Theme.error; font-size: 12px;
+            wrap: word-wrap;
+            max-height: 72px;
+            overflow: elide;
+            Tooltip { text: @markdown("\{root.error}"); }
+        }
+        if (!root.install-allowed && root.has-update): Text {
+            text: @tr("Install releases manually in this build.");
+            color: Theme.text-secondary; font-size: 11px; wrap: word-wrap;
+        }
+        SettingToggle {
+            content-padding: 0px;
+            text: @tr("Check for updates automatically");
+            checked <=> root.check-automatically;
+            enabled: root.enabled && !root.busy;
+        }
+    }
+}

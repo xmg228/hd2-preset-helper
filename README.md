@@ -6,14 +6,18 @@ HD2 Preset Helper is a Windows utility for saving and applying loadout presets i
 
 The program recognizes the game interface through screen capture and completes selections using standard mouse and keyboard input. It does not modify game files, inject code into the game process, read game memory, or alter network traffic.
 
+Recognition and preset actions run locally. Network access is used only to check
+for and download application updates from GitHub.
+
 ## Download and install
 
 1. Download the latest ZIP from [GitHub Releases](../../releases/latest).
 2. Extract it to a separate writable folder.
 3. Run `HD2PresetHelper.exe`.
 
-To update, exit the app and extract the new folder over the existing one,
-keeping your `data/` folder.
+The app checks for stable updates automatically. In **Settings**, you can check
+manually, install updates, or turn off automatic checks.
+For manual updates, exit the app and replace `HD2PresetHelper.exe`, keeping `data/`.
 
 The app stays in the system tray when the panel is hidden. Left-click the tray
 icon to reopen it, or right-click and select **Exit** to quit.
@@ -87,13 +91,16 @@ Windows scaling and HDR status, and a screenshot of the affected screen.
 
 ## Building from source
 
-With Rust installed, run:
+With Rust and `cargo-about 0.9.3` installed and on `PATH`, run:
 
 ```powershell
 cargo build --release --locked
 ```
 
 The executable is written to `target\release\HD2PresetHelper.exe`.
+
+License notices are generated automatically when their inputs change.
+Generation may require network access to retrieve original copyright notices.
 
 ## Legal
 
@@ -102,6 +109,7 @@ endorsed by Arrowhead Game Studios or Sony Interactive Entertainment.
 
 The project's original source code is licensed under the
 [GNU General Public License version 3 or later](LICENSE).
-Windows releases use Slint under GPLv3. Third-party notices and exact dependency
-source links are in `licenses/THIRD_PARTY_NOTICES.txt`, also available from the
-matching [release](https://github.com/xmg228/hd2-preset-helper/releases).
+Windows releases use Slint under GPLv3. Licenses and exact dependency source links
+are embedded in the executable under **Settings → About → Open-source licenses**.
+Third-party notices are also available from the matching
+[release](https://github.com/xmg228/hd2-preset-helper/releases).

@@ -11,6 +11,9 @@ monitor = "auto"
 # "auto" follows the system language. Select a fixed language in Settings > General.
 language = "auto"
 
+[updates]
+check_automatically = true
+
 [presets]
 # Shared scope for saving and applying, remembered by the panel.
 # Unchecked sections stay unchanged. Applying skips unsaved sections.

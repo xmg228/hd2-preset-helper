@@ -24,7 +24,10 @@ impl AppController {
         self.panel_return_target = game.as_ref().map(|target| target.identity());
         let anchor = game.as_ref().map(|target| target.client_origin());
         self.ui.show_panel(anchor)?;
-        self.worker.send(Work::LoadPreviews)
+        if !self.updates.installing() {
+            self.worker.send(Work::LoadPreviews)?;
+        }
+        Ok(())
     }
 
     pub(super) fn close_panel(&mut self) -> Result<()> {
@@ -48,6 +51,7 @@ impl AppController {
         hotkey_id: Option<i32>,
     ) -> Result<()> {
         if self.exiting
+            || self.updates.installing()
             || !matches!(self.state, ActionState::Idle)
             || Instant::now() < self.ready_after
         {
@@ -163,7 +167,15 @@ impl AppController {
                         }
                     }
                 }
-                UiRequest::OpenSettings => self.open_settings(),
+                UiRequest::OpenSettings { show_about } => self.open_settings(show_about),
+                UiRequest::CheckUpdates => self.check_updates(),
+                UiRequest::ViewUpdateNotes => self.view_update_notes(),
+                UiRequest::ViewProject => self.open_link(env!("CARGO_PKG_REPOSITORY")),
+                UiRequest::InstallUpdate => {
+                    if let Err(error) = self.install_update() {
+                        self.update_failed(&error);
+                    }
+                }
                 UiRequest::SaveSettings(draft) => match self.save_settings(draft) {
                     Ok(()) => {}
                     Err(error) => {

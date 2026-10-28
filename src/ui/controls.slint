@@ -156,11 +156,12 @@ export component PanelComboBox inherits Rectangle {
 
 export component PanelButton inherits Rectangle {
     in property <string> text;
+    in property <length> horizontal-padding: 12px;
     in property <bool> accent;
     in property <bool> filled;
     in property <bool> enabled: true;
     callback clicked();
-    preferred-width: label.preferred-width + 24px;
+    preferred-width: label.preferred-width + root.horizontal-padding * 2;
     border-radius: 4px;
     border-width: filled || keys.has-focus ? 1px : 0px;
     border-color: keys.has-focus ? Theme.accent-soft : Theme.border;
@@ -242,6 +243,72 @@ export component IconButton inherits Rectangle {
         mouse-cursor: root.enabled ? pointer : default;
         clicked => { if (root.enabled) { keys.focus(); root.clicked(); } }
         Tooltip { text: @markdown("\{root.label}"); }
+    }
+}
+
+export component SettingToggle inherits Rectangle {
+    in property <string> text;
+    in property <string> description;
+    in property <bool> enabled;
+    in property <length> content-padding: 8px;
+    in-out property <bool> checked;
+    min-height: root.description == "" ? 36px : 64px;
+    vertical-stretch: 0;
+    border-radius: 4px;
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: Theme.accent-soft;
+    background: touch.has-hover && enabled ? Theme.control : transparent;
+    accessible-role: checkbox;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-action-default => { if (root.enabled) { root.checked = !root.checked; } }
+    forward-focus: keys;
+    HorizontalLayout {
+        padding: root.content-padding;
+        spacing: 12px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+            Text { text: root.text; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+            if (root.description != ""): Text { text: root.description; color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+        }
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            cross-axis-self-alignment: center;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: root.checked ? Theme.accent-soft : Theme.inactive;
+            background: root.checked ? Theme.accent-soft : transparent;
+            if root.checked: Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 18;
+                viewbox-height: 18;
+                commands: "M 4 9 L 7.5 12.5 L 14 5.5";
+                fill: transparent;
+                stroke: Theme.background;
+                stroke-width: 2px;
+            }
+        }
+    }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                if (!event.repeat) { root.checked = !root.checked; }
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { keys.focus(); root.checked = !root.checked; }
     }
 }
 

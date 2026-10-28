@@ -232,6 +232,52 @@ msgstr "세부 정보 복사"
 msgid "Dismiss last failure"
 msgstr "이전 오류 알림 닫기"
 
+# Updates.
+msgid "View available update"
+msgstr "사용 가능한 업데이트 보기"
+
+msgid "About"
+msgstr "정보"
+
+msgid "Back"
+msgstr "뒤로"
+
+msgid "Open-source licenses"
+msgstr "오픈 소스 라이선스"
+
+msgid "Version {}"
+msgstr "버전 {}"
+
+msgid "Check for updates"
+msgstr "업데이트 확인"
+
+msgid "Release notes"
+msgstr "업데이트 내용"
+
+msgid "Update and restart"
+msgstr "업데이트 후 재시작"
+
+msgid "Checking for updates…"
+msgstr "업데이트 확인 중…"
+
+msgid "Up to date"
+msgstr "최신 버전"
+
+msgid "Downloading update…"
+msgstr "업데이트 다운로드 중…"
+
+msgid "Installing update…"
+msgstr "업데이트 설치 중…"
+
+msgid "Restarting…"
+msgstr "재시작 중…"
+
+msgid "Install releases manually in this build."
+msgstr "이 빌드에서는 수동으로 업데이트하세요."
+
+msgid "Check for updates automatically"
+msgstr "자동으로 업데이트 확인"
+
 # Tray.
 msgid "Exit"
 msgstr "종료"

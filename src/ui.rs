@@ -1,12 +1,13 @@
 //! Interactive presentation and its event loop. No capture, injected input or game-window APIs.
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
@@ -61,8 +62,14 @@ pub enum UiRequest {
         preset: String,
         label: String,
     },
-    OpenSettings,
+    OpenSettings {
+        show_about: bool,
+    },
     SaveSettings(SettingsDraft),
+    CheckUpdates,
+    ViewUpdateNotes,
+    ViewProject,
+    InstallUpdate,
     AddPreset,
     DeletePreset(String),
     HidePanel,
@@ -100,6 +107,7 @@ impl AppUi {
             })
             .select()?;
         let window = PresetPanel::new()?;
+        window.set_current_version(env!("CARGO_PKG_VERSION").into());
         #[cfg(target_os = "windows")]
         window.set_language_fonts(
             UiLanguage::ALL
@@ -225,12 +233,13 @@ impl AppUi {
     }
 
     pub fn show_panel(&mut self, anchor: Option<(i32, i32)>) -> Result<()> {
+        let updating = self.window.get_update_busy();
         self.panel_hide_at = None;
         self.anchor = anchor;
         self.status.hide()?;
         self.window.invoke_focus_list();
         self.window.set_pending(false);
-        self.window.set_loading(true);
+        self.window.set_loading(!updating);
         self.window.set_status("".into());
         // Evaluate the initial hidden value before changing the lazy animation binding.
         let _ = self.window.get_panel_opacity();
@@ -246,7 +255,12 @@ impl AppUi {
                 Ok(())
             })
             .transpose()?;
-        self.window.invoke_focus_list();
+        if updating {
+            self.window.set_settings_open(true);
+            self.window.invoke_focus_settings(true);
+        } else {
+            self.window.invoke_focus_list();
+        }
         Ok(())
     }
 
@@ -340,9 +354,9 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn open_settings(&self, draft: SettingsDraft) {
+    pub fn open_settings(&self, draft: SettingsDraft, show_about: bool) {
         self.window.invoke_finish_rename(true);
-        settings::open(&self.window, draft);
+        settings::open(&self.window, draft, show_about);
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {
@@ -419,7 +433,9 @@ impl AppUi {
     }
 
     pub fn shortcuts_blocked(&self) -> bool {
-        self.window.get_editing_name() || self.window.get_recording_shortcut() >= 0
+        self.window.get_editing_name()
+            || self.window.get_recording_shortcut() >= 0
+            || (self.window.get_settings_open() && self.window.get_viewing_licenses())
     }
 
     pub fn settings_saved(&mut self, config: &ShortcutBindings) {
@@ -450,6 +466,16 @@ impl AppUi {
     pub fn settings_failed(&self, error: &str) {
         self.window.set_settings_saving(false);
         self.window.set_settings_error(error.into());
+    }
+
+    pub fn set_update_install_allowed(&self, allowed: bool) {
+        self.window.set_update_install_allowed(allowed);
+    }
+
+    pub fn set_update_state(&self, phase: UpdatePhase, version: &str, error: &str) {
+        self.window.set_update_phase(phase);
+        self.window.set_update_version(version.into());
+        self.window.set_update_error(error.into());
     }
 
     pub fn set_shortcut_warning(&self, warning: &str) {
@@ -693,28 +719,28 @@ fn image(image: &image::RgbaImage) -> slint::Image {
 }
 
 /// The UI owns the main event loop; the application supplies one non-blocking tick.
-pub fn run(mut tick: impl FnMut() -> Result<bool> + 'static) -> Result<()> {
-    let error = Rc::new(RefCell::new(None));
-    let tick_error = error.clone();
+pub fn run<T: 'static>(mut tick: impl FnMut() -> Result<ControlFlow<T>> + 'static) -> Result<T> {
+    let result = Rc::new(RefCell::new(None));
+    let tick_result = result.clone();
     let timer = slint::Timer::default();
     timer.start(
         slint::TimerMode::Repeated,
         Duration::from_millis(10),
         move || {
-            let done = match tick() {
-                Ok(done) => done,
-                Err(error) => {
-                    *tick_error.borrow_mut() = Some(error);
-                    true
-                }
+            let outcome = match tick() {
+                Ok(ControlFlow::Continue(())) => return,
+                Ok(ControlFlow::Break(value)) => Ok(value),
+                Err(error) => Err(error),
             };
-            if done {
-                let _ = slint::quit_event_loop();
-            }
+            *tick_result.borrow_mut() = Some(outcome);
+            let _ = slint::quit_event_loop();
         },
     );
     slint::run_event_loop_until_quit()?;
-    error.borrow_mut().take().map_or(Ok(()), Err)
+    result
+        .borrow_mut()
+        .take()
+        .context("the UI event loop exited without a result")?
 }
 
 /// Placement uses desktop coordinates only inside the presentation layer.

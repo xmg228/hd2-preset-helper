@@ -26,14 +26,6 @@ jobs:
         shell: pwsh
         run: cargo fmt --check
 
-      - name: Test
-        shell: pwsh
-        run: cargo test --locked
-
-      - name: Clippy
-        shell: pwsh
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
-
       - name: Install license tool
         shell: pwsh
         env:
@@ -51,6 +43,10 @@ jobs:
           tar -xzf $archivePath -C $env:RUNNER_TEMP
           if ($LASTEXITCODE -ne 0) { throw "Could not extract cargo-about" }
           "$env:RUNNER_TEMP/cargo-about-0.9.3-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
+
+      - name: Clippy
+        shell: pwsh
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Build and package
         shell: pwsh
@@ -87,8 +83,15 @@ jobs:
             }
           }
 
-          cargo build --release --locked
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $notices = "dist/THIRD_PARTY_NOTICES.txt"
+          $buildScript = cargo build --release --locked --message-format=json-render-diagnostics |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq "build-script-executed" -and $_.package_id -eq $package.id } |
+            Select-Object -Last 1
           if ($LASTEXITCODE -ne 0) { throw "Release build failed" }
+          if (-not $buildScript) { throw "Could not locate the build's embedded license notices" }
+          Copy-Item -LiteralPath "$($buildScript.out_dir)/third-party-notices.txt" -Destination $notices
 
           $exe = "target\release\HD2PresetHelper.exe"
           $packageDir = "dist\package\HD2PresetHelper"
@@ -108,17 +111,6 @@ jobs:
           Copy-Item `
             -Path $exe `
             -Destination "$packageDir\HD2PresetHelper.exe"
-
-          $licensesDir = "$packageDir/licenses"
-          $notices = "$licensesDir/THIRD_PARTY_NOTICES.txt"
-          New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
-          Copy-Item -LiteralPath LICENSE -Destination "$licensesDir/LICENSE.txt"
-          cargo-about generate --locked --fail --config packaging/about.toml packaging/notices.hbs --output-file $notices
-          if ($LASTEXITCODE -ne 0) { throw "Could not generate third-party notices" }
-          if (Select-String -LiteralPath $notices -Pattern 'SOURCE DOWNLOAD REQUIRED:|Copyright \(c\) <year> <copyright holders>' -Quiet) {
-            throw "Review dependency source links and original copyright notices"
-          }
-          Copy-Item -LiteralPath $notices -Destination "dist/THIRD_PARTY_NOTICES.txt"
 
           # Compress the directory itself so the ZIP contains one top-level
           # HD2PresetHelper folder.

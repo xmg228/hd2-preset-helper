@@ -232,6 +232,52 @@ msgstr "Copia dettagli"
 msgid "Dismiss last failure"
 msgstr "Chiudi l'ultimo messaggio di errore"
 
+# Updates.
+msgid "View available update"
+msgstr "Visualizza l’aggiornamento disponibile"
+
+msgid "About"
+msgstr "Informazioni"
+
+msgid "Back"
+msgstr "Indietro"
+
+msgid "Open-source licenses"
+msgstr "Licenze open source"
+
+msgid "Version {}"
+msgstr "Versione {}"
+
+msgid "Check for updates"
+msgstr "Verifica aggiornamenti"
+
+msgid "Release notes"
+msgstr "Note di rilascio"
+
+msgid "Update and restart"
+msgstr "Aggiorna e riavvia"
+
+msgid "Checking for updates…"
+msgstr "Verifica degli aggiornamenti…"
+
+msgid "Up to date"
+msgstr "Aggiornato"
+
+msgid "Downloading update…"
+msgstr "Download dell’aggiornamento…"
+
+msgid "Installing update…"
+msgstr "Installazione dell’aggiornamento…"
+
+msgid "Restarting…"
+msgstr "Riavvio…"
+
+msgid "Install releases manually in this build."
+msgstr "Installa gli aggiornamenti manualmente per questa build."
+
+msgid "Check for updates automatically"
+msgstr "Verifica automaticamente gli aggiornamenti"
+
 # Tray.
 msgid "Exit"
 msgstr "Esci"

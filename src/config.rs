@@ -20,6 +20,21 @@ pub const AUTO_MONITOR: &str = "auto";
 pub struct AppConfig {
     pub presets: PresetsConfig,
     pub ui: UiSettings,
+    pub updates: UpdatesConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdatesConfig {
+    pub check_automatically: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check_automatically: true,
+        }
+    }
 }
 
 impl AppConfig {

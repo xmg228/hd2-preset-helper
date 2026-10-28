@@ -4,7 +4,7 @@
 
 HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设工具。预设可包含战略配备、强化资源和装备，通过面板保存，再通过面板或自定义快捷键应用。
 
-程序通过屏幕捕获识别游戏界面，再模拟正常的鼠标和键盘操作完成选择。它不会修改游戏文件、向游戏进程注入代码、读取游戏内存或更改网络流量。程序没有联网功能，所有识别和操作均在本地完成。
+程序通过屏幕捕获识别游戏界面，再模拟正常的鼠标和键盘操作完成选择。它不会修改游戏文件、向游戏进程注入代码、读取游戏内存或更改网络流量。识别和预设操作均在本地完成，仅检查和下载程序更新时连接 GitHub。
 
 ## 下载与安装
 
@@ -14,7 +14,7 @@ HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设
 
 隐藏面板后程序仍驻留在系统托盘中。左键单击托盘图标重新打开面板，右键选择 **退出** 退出程序。
 
-更新时，先退出程序，再将新文件夹覆盖到原文件夹，保留其中的 `data/`。
+程序自动检查正式版更新，也可在**设置**中手动检查、安装或关闭自动检查。手动更新时，先退出程序，再替换 `HD2PresetHelper.exe`，保留 `data/`。
 
 卸载时，退出程序并删除程序文件夹即可，已保存的预设也会一并删除。
 
@@ -75,7 +75,7 @@ HD2 Preset Helper 是一款适用于《绝地潜兵 2》的 Windows 配装预设
 
 ## 从源码构建
 
-安装 Rust 后，在项目根目录运行：
+安装 Rust 和 `cargo-about 0.9.3`，确保它们位于 `PATH` 中，然后在项目根目录运行：
 
 ```powershell
 cargo build --release --locked
@@ -83,10 +83,12 @@ cargo build --release --locked
 
 生成的可执行文件位于 `target\release\HD2PresetHelper.exe`。
 
+许可声明会在输入变化后自动生成；获取原始版权声明时可能需要联网。
+
 ## 法律声明
 
 HD2 Preset Helper 是非官方第三方工具，与 Arrowhead Game Studios 或 Sony Interactive Entertainment 没有从属关系，也未获得其认可或背书。
 
 本项目的原创源代码采用 [GNU General Public License version 3 or later](LICENSE) 许可。
-Windows 发布版按 GPLv3 使用 Slint。第三方声明及精确版本的依赖源码链接位于
-`licenses/THIRD_PARTY_NOTICES.txt`，也可在对应的 [Release](https://github.com/xmg228/hd2-preset-helper/releases) 下载。
+Windows 发布版按 GPLv3 使用 Slint。许可正文及精确版本的依赖源码链接内嵌于程序，
+可在**设置 → 关于 → 开源许可**中查看。第三方声明也可在对应的 [Release](https://github.com/xmg228/hd2-preset-helper/releases) 下载。

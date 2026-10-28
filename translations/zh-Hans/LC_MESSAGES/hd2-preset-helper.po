@@ -232,6 +232,52 @@ msgstr "复制详情"
 msgid "Dismiss last failure"
 msgstr "关闭上次错误提示"
 
+# Updates.
+msgid "View available update"
+msgstr "有新版本，查看更新"
+
+msgid "About"
+msgstr "关于"
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Open-source licenses"
+msgstr "开源许可"
+
+msgid "Version {}"
+msgstr "版本 {}"
+
+msgid "Check for updates"
+msgstr "检查更新"
+
+msgid "Release notes"
+msgstr "更新说明"
+
+msgid "Update and restart"
+msgstr "更新并重启"
+
+msgid "Checking for updates…"
+msgstr "正在检查更新…"
+
+msgid "Up to date"
+msgstr "已是最新"
+
+msgid "Downloading update…"
+msgstr "正在下载更新…"
+
+msgid "Installing update…"
+msgstr "正在安装更新…"
+
+msgid "Restarting…"
+msgstr "正在重启…"
+
+msgid "Install releases manually in this build."
+msgstr "此构建请手动安装更新。"
+
+msgid "Check for updates automatically"
+msgstr "自动检查更新"
+
 # Tray.
 msgid "Exit"
 msgstr "退出"

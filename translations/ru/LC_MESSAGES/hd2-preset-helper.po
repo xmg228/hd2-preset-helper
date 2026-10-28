@@ -232,6 +232,52 @@ msgstr "Копировать подробности"
 msgid "Dismiss last failure"
 msgstr "Закрыть последнюю ошибку"
 
+# Updates.
+msgid "View available update"
+msgstr "Посмотреть доступное обновление"
+
+msgid "About"
+msgstr "О программе"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Open-source licenses"
+msgstr "Лицензии открытого ПО"
+
+msgid "Version {}"
+msgstr "Версия {}"
+
+msgid "Check for updates"
+msgstr "Проверить обновления"
+
+msgid "Release notes"
+msgstr "Что нового"
+
+msgid "Update and restart"
+msgstr "Обновить и перезапустить"
+
+msgid "Checking for updates…"
+msgstr "Проверка обновлений…"
+
+msgid "Up to date"
+msgstr "Последняя версия"
+
+msgid "Downloading update…"
+msgstr "Загрузка обновления…"
+
+msgid "Installing update…"
+msgstr "Установка обновления…"
+
+msgid "Restarting…"
+msgstr "Перезапуск…"
+
+msgid "Install releases manually in this build."
+msgstr "В этой сборке устанавливайте обновления вручную."
+
+msgid "Check for updates automatically"
+msgstr "Автоматически проверять обновления"
+
 # Tray.
 msgid "Exit"
 msgstr "Выход"

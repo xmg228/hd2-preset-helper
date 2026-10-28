@@ -1,9 +1,11 @@
 mod failure;
 mod panel;
 mod settings;
+mod update;
 mod worker;
 
-use std::path::Path;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
@@ -47,13 +49,13 @@ fn panel_hotkey(config: &ShortcutBindings) -> Result<input::Hotkeys> {
     input::Hotkeys::new(&specs)
 }
 
-pub fn run() -> Result<()> {
+pub fn run() -> Result<Option<PathBuf>> {
     let Some(_instance) = platform::SingleInstance::try_acquire()? else {
         platform::show_notice(
             "HD2 Preset Helper",
             "HD2 Preset Helper is already running. Check the system tray.",
         );
-        return Ok(());
+        return Ok(None);
     };
     let paths = AppPaths::resolve()?;
     let _log_guard = crate::logging::init(
@@ -96,7 +98,7 @@ pub fn run() -> Result<()> {
     result
 }
 
-fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
+fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf>> {
     let shortcut_bindings = config.shortcut_bindings();
     let bindings = preset_hotkeys(&shortcut_bindings)?;
     let specs: Vec<_> = bindings.iter().map(|binding| binding.hotkey).collect();
@@ -140,6 +142,7 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
         ready_after: Instant::now(),
         prewarm_requested: false,
         panel_return_target: None,
+        updates: update::Updates::new(config.updates.check_automatically),
         ui,
     };
     info!(
@@ -154,11 +157,12 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<()> {
     ui::run(move || {
         if opening {
             if !app.ui.prepare_windows()? {
-                return Ok(false);
+                return Ok(ControlFlow::Continue(()));
             }
             opening = false;
             app.open_panel()?;
-            return Ok(false);
+            app.initialize_updates();
+            return Ok(ControlFlow::Continue(()));
         }
         app.tick()
     })
@@ -196,16 +200,21 @@ struct AppController {
     ready_after: Instant,
     prewarm_requested: bool,
     panel_return_target: Option<crate::window::WindowIdentity>,
+    updates: update::Updates,
     ui: ui::AppUi,
 }
 
 impl AppController {
-    fn tick(&mut self) -> Result<bool> {
+    fn tick(&mut self) -> Result<ControlFlow<Option<PathBuf>>> {
         // Handle UI requests before shortcuts that use the updated settings.
         self.poll_ui()?;
+        if let Some(executable) = self.poll_updates()? {
+            return Ok(ControlFlow::Break(Some(executable)));
+        }
         let game_active = game_window::is_game_foreground();
         let panel_active = self.ui.is_panel_active();
         let shortcuts_enabled = !self.exiting
+            && !self.updates.installing()
             && !matches!(
                 self.state,
                 ActionState::Activating { .. } | ActionState::Running
@@ -305,14 +314,16 @@ impl AppController {
                 }
             }
         }
-        if self.exiting && !matches!(self.state, ActionState::Running) {
-            return Ok(true);
+        if self.exiting && !matches!(self.state, ActionState::Running) && !self.updates.installing()
+        {
+            return Ok(ControlFlow::Break(None));
         }
-        Ok(false)
+        Ok(ControlFlow::Continue(()))
     }
 
     fn handle_preset_hotkey(&mut self, id: i32) -> Result<()> {
         if self.exiting
+            || self.updates.installing()
             || self.ui.shortcuts_blocked()
             || !matches!(self.state, ActionState::Idle)
             || Instant::now() < self.ready_after
@@ -333,7 +344,11 @@ impl AppController {
         self.exiting = true;
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
-        self.ui.hide_panel()?;
+        // Keep progress visible while a requested update finishes; never exit
+        // midway through replacing program files.
+        if !self.updates.installing() {
+            self.ui.hide_panel()?;
+        }
         if matches!(
             self.state,
             ActionState::Waiting { .. } | ActionState::Activating { .. }

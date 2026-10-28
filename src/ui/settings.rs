@@ -17,6 +17,7 @@ pub(super) fn connect(
     panel: &PresetPanel,
     send: Sender<UiRequest>,
 ) -> impl FnMut(&WindowEvent) -> EventResult + use<> {
+    panel.on_license_text(|| crate::licenses::text().into());
     // ComboBox accepts strings; Slint supplies the translated parts reactively.
     panel.on_project_monitor_labels(|choices, automatic, unavailable, display, primary| {
         let labels = choices
@@ -39,8 +40,24 @@ pub(super) fn connect(
         Rc::new(VecModel::from(labels)).into()
     });
     let open_send = send.clone();
-    panel.on_edit_settings(move || {
-        let _ = open_send.send(UiRequest::OpenSettings);
+    panel.on_edit_settings(move |show_about| {
+        let _ = open_send.send(UiRequest::OpenSettings { show_about });
+    });
+    let check_send = send.clone();
+    panel.on_check_updates(move || {
+        let _ = check_send.send(UiRequest::CheckUpdates);
+    });
+    let notes_send = send.clone();
+    panel.on_view_update_notes(move || {
+        let _ = notes_send.send(UiRequest::ViewUpdateNotes);
+    });
+    let project_send = send.clone();
+    panel.on_view_project(move || {
+        let _ = project_send.send(UiRequest::ViewProject);
+    });
+    let install_send = send.clone();
+    panel.on_install_update(move || {
+        let _ = install_send.send(UiRequest::InstallUpdate);
     });
     let weak = panel.as_weak();
     panel.on_clear_shortcut(move |index| {
@@ -64,6 +81,7 @@ pub(super) fn connect(
             apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
             auto_ready_up: panel.get_draft_auto_ready_up(),
             save_fallback_when_taken: panel.get_draft_save_fallback_when_taken(),
+            check_updates_automatically: panel.get_draft_check_updates_automatically(),
         }));
     });
 
@@ -131,7 +149,7 @@ pub(super) fn connect(
     }
 }
 
-pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
+pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, show_about: bool) {
     let rows = std::iter::once(ShortcutRow {
         name: "".into(),
         binding: draft.shortcuts.panel.as_str().into(),
@@ -186,13 +204,14 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft) {
     panel.set_draft_apply_in_saved_order(draft.apply_in_saved_order);
     panel.set_draft_auto_ready_up(draft.auto_ready_up);
     panel.set_draft_save_fallback_when_taken(draft.save_fallback_when_taken);
+    panel.set_draft_check_updates_automatically(draft.check_updates_automatically);
     panel.set_shortcut_rows(Rc::new(VecModel::from(rows)).into());
     panel.set_settings_error("".into());
     panel.set_settings_saving(false);
     panel.set_recording_shortcut(-1);
     panel.invoke_focus_list();
     panel.set_settings_open(true);
-    panel.invoke_focus_settings();
+    panel.invoke_focus_settings(show_about);
 }
 
 fn bindings(panel: &PresetPanel) -> ShortcutBindings {

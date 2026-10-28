@@ -232,6 +232,52 @@ msgstr "Copiar detalhes"
 msgid "Dismiss last failure"
 msgstr "Fechar aviso do último erro"
 
+# Updates.
+msgid "View available update"
+msgstr "Ver atualização disponível"
+
+msgid "About"
+msgstr "Sobre"
+
+msgid "Back"
+msgstr "Voltar"
+
+msgid "Open-source licenses"
+msgstr "Licenças de código aberto"
+
+msgid "Version {}"
+msgstr "Versão {}"
+
+msgid "Check for updates"
+msgstr "Buscar atualizações"
+
+msgid "Release notes"
+msgstr "Notas da versão"
+
+msgid "Update and restart"
+msgstr "Atualizar e reiniciar"
+
+msgid "Checking for updates…"
+msgstr "Buscando atualizações…"
+
+msgid "Up to date"
+msgstr "Atualizado"
+
+msgid "Downloading update…"
+msgstr "Baixando atualização…"
+
+msgid "Installing update…"
+msgstr "Instalando atualização…"
+
+msgid "Restarting…"
+msgstr "Reiniciando…"
+
+msgid "Install releases manually in this build."
+msgstr "Instale as atualizações manualmente nesta compilação."
+
+msgid "Check for updates automatically"
+msgstr "Buscar atualizações automaticamente"
+
 # Tray.
 msgid "Exit"
 msgstr "Sair"

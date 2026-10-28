@@ -9,6 +9,8 @@ accepted = [
     "BSL-1.0",
     "GPL-3.0-only",
     "GPL-3.0-or-later",
+    # Mozilla root certificate data used by the update client's TLS verifier.
+    "CDLA-Permissive-2.0",
 ]
 targets = ["x86_64-pc-windows-msvc"]
 ignore-dev-dependencies = true
@@ -33,6 +35,22 @@ checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
 path = "LICENSE-LIBM-MIT"
 license = "MIT"
 checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997"
+
+# Use dedicated license files, not Rust sources carrying the WHATWG notice.
+[encoding_rs.clarify]
+license = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+[[encoding_rs.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[[encoding_rs.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c"
+[[encoding_rs.clarify.files]]
+path = "LICENSE-WHATWG"
+license = "BSD-3-Clause"
+checksum = "838118388fe5c2e7f1dbbaeed13e1c7f3ebf88be91319c7c1d77c18e987d1a50"
 
 # These crates omit their license files from the published package. Resolve
 # them at each crate's original commit, not the upstream default branch.

@@ -232,6 +232,52 @@ msgstr "複製詳細資訊"
 msgid "Dismiss last failure"
 msgstr "關閉上次錯誤提示"
 
+# Updates.
+msgid "View available update"
+msgstr "有新版本，檢視更新"
+
+msgid "About"
+msgstr "關於"
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Open-source licenses"
+msgstr "開源授權"
+
+msgid "Version {}"
+msgstr "版本 {}"
+
+msgid "Check for updates"
+msgstr "檢查更新"
+
+msgid "Release notes"
+msgstr "更新說明"
+
+msgid "Update and restart"
+msgstr "更新並重新啟動"
+
+msgid "Checking for updates…"
+msgstr "正在檢查更新…"
+
+msgid "Up to date"
+msgstr "已是最新"
+
+msgid "Downloading update…"
+msgstr "正在下載更新…"
+
+msgid "Installing update…"
+msgstr "正在安裝更新…"
+
+msgid "Restarting…"
+msgstr "正在重新啟動…"
+
+msgid "Install releases manually in this build."
+msgstr "此組建請手動安裝更新。"
+
+msgid "Check for updates automatically"
+msgstr "自動檢查更新"
+
 # Tray.
 msgid "Exit"
 msgstr "結束"

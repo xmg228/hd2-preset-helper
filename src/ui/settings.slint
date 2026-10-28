@@ -1,72 +1,11 @@
 import { Theme } from "theme.slint";
-import { ScrollView } from "std-widgets.slint";
-import { PanelButton, PanelComboBox } from "controls.slint";
+import { ScrollView, TextEdit } from "std-widgets.slint";
+import { IconButton, PanelButton, PanelComboBox, SettingToggle } from "controls.slint";
 import { ShortcutEditor } from "shortcuts.slint";
 import { ShortcutRow } from "models.slint";
+import { UpdateView, UpdatePhase } from "updates.slint";
 
-component SettingToggle inherits Rectangle {
-    in property <string> text;
-    in property <string> description;
-    in property <bool> enabled;
-    in-out property <bool> checked;
-    min-height: 64px;
-    vertical-stretch: 0;
-    border-radius: 4px;
-    border-width: keys.has-focus ? 1px : 0px;
-    border-color: Theme.accent-soft;
-    background: touch.has-hover && enabled ? Theme.control : transparent;
-    accessible-role: checkbox;
-    accessible-label: text;
-    accessible-enabled: enabled;
-    accessible-checkable: true;
-    accessible-checked: checked;
-    accessible-action-default => { if (root.enabled) { root.checked = !root.checked; } }
-    forward-focus: keys;
-    HorizontalLayout {
-        padding: 8px;
-        spacing: 12px;
-        VerticalLayout {
-            horizontal-stretch: 1;
-            alignment: center;
-            spacing: 4px;
-            Text { text: root.text; color: Theme.text; font-size: 14px; wrap: word-wrap; }
-            Text { text: root.description; color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
-        }
-        Rectangle {
-            width: 18px;
-            height: 18px;
-            border-radius: 3px;
-            border-width: 1px;
-            border-color: root.checked ? Theme.accent-soft : Theme.inactive;
-            background: root.checked ? Theme.accent-soft : transparent;
-            if root.checked: Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 18;
-                viewbox-height: 18;
-                commands: "M 4 9 L 7.5 12.5 L 14 5.5";
-                fill: transparent;
-                stroke: Theme.background;
-                stroke-width: 2px;
-            }
-        }
-    }
-    keys := FocusScope {
-        enabled: root.enabled;
-        key-pressed(event) => {
-            if (event.text == Key.Space || event.text == Key.Return) {
-                if (!event.repeat) { root.checked = !root.checked; }
-                return accept;
-            }
-            return reject;
-        }
-    }
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => { keys.focus(); root.checked = !root.checked; }
-    }
-}
+enum SettingsPage { general, shortcuts, about, licenses }
 
 export component SettingsDialog inherits Rectangle {
     in property <bool> enabled;
@@ -78,16 +17,34 @@ export component SettingsDialog inherits Rectangle {
     in-out property <bool> apply-in-saved-order;
     in-out property <bool> auto-ready-up;
     in-out property <bool> save-fallback-when-taken;
+    in-out property <bool> check-updates-automatically;
+    in property <UpdatePhase> update-phase;
+    in property <string> current-version;
+    in property <string> update-version;
+    in property <string> update-error;
+    in property <bool> update-install-allowed;
     in-out property <int> recording: -1;
     in property <string> error;
     in property <string> shortcut-warning;
     in property <bool> saving;
-    private property <bool> general: true;
+    private property <SettingsPage> page: SettingsPage.general;
+    private property <string> notices;
+    out property <bool> viewing-licenses: page == SettingsPage.licenses;
     callback clear(int);
     callback save();
     callback cancel();
+    callback check-updates();
+    callback view-update-notes();
+    callback install-update();
+    callback view-project();
+    callback license-text() -> string;
     forward-focus: keys;
-    public function focus-dialog() { root.general = root.shortcut-warning == ""; keys.focus(); }
+    public function focus-dialog(show-about: bool) {
+        root.page = show-about ? SettingsPage.about
+            : root.shortcut-warning == "" ? SettingsPage.general : SettingsPage.shortcuts;
+        root.notices = "";
+        keys.focus();
+    }
     background: Theme.surface;
     border-color: Theme.border-strong;
     border-width: 1px;
@@ -97,7 +54,9 @@ export component SettingsDialog inherits Rectangle {
         enabled: root.enabled;
         key-pressed(event) => {
             if (event.text == Key.Escape && !root.saving) {
-                if (root.recording >= 0) { root.recording = -1; } else { root.cancel(); }
+                if (root.recording >= 0) { root.recording = -1; }
+                else if (root.viewing-licenses) { root.page = SettingsPage.about; keys.focus(); }
+                else { root.cancel(); }
                 return accept;
             }
             return reject;
@@ -111,18 +70,27 @@ export component SettingsDialog inherits Rectangle {
                 alignment: start;
                 spacing: 8px;
                 PanelButton {
-                    min-width: 100px; text: @tr("General"); filled: root.general;
+                    min-width: 100px; text: @tr("General"); filled: root.page == SettingsPage.general;
                     enabled: root.enabled && !root.saving;
-                    clicked => { root.recording = -1; root.general = true; }
+                    clicked => { root.recording = -1; root.page = SettingsPage.general; }
                 }
                 PanelButton {
-                    min-width: 100px; text: @tr("Shortcuts"); filled: !root.general;
+                    min-width: 100px; text: @tr("Shortcuts"); filled: root.page == SettingsPage.shortcuts;
                     enabled: root.enabled && !root.saving;
-                    clicked => { root.general = false; }
+                    clicked => { root.page = SettingsPage.shortcuts; }
+                }
+                PanelButton {
+                    min-width: 100px; text: @tr("About");
+                    filled: root.page == SettingsPage.about || root.viewing-licenses;
+                    enabled: root.enabled && !root.saving;
+                    clicked => {
+                        root.recording = -1;
+                        root.page = SettingsPage.about;
+                    }
                 }
             }
             Rectangle { height: 1px; background: Theme.border; }
-            if root.general: ScrollView {
+            if (root.page == SettingsPage.general): ScrollView {
                 content-width: self.visible-width - 8px;
                 VerticalLayout {
                     alignment: start;
@@ -173,13 +141,87 @@ export component SettingsDialog inherits Rectangle {
                     }
                 }
             }
-            if !root.general: ShortcutEditor {
+            if (root.page == SettingsPage.about): ScrollView {
+                content-width: self.visible-width - 8px;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        height: 36px;
+                        padding-left: 8px;
+                        Text {
+                            text: "HD2 Preset Helper";
+                            color: Theme.text; font-size: 18px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    UpdateView {
+                        check-automatically <=> root.check-updates-automatically;
+                        enabled: root.enabled && !root.saving;
+                        install-allowed: root.update-install-allowed;
+                        phase: root.update-phase;
+                        current-version: root.current-version;
+                        available-version: root.update-version;
+                        error: root.update-error;
+                        check => { root.check-updates(); }
+                        notes => { root.view-update-notes(); }
+                        install => { root.install-update(); }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    HorizontalLayout {
+                        padding: 8px;
+                        height: 48px;
+                        alignment: center;
+                        spacing: 8px;
+                        PanelButton {
+                            text: "GitHub";
+                            enabled: root.enabled && !root.saving;
+                            clicked => { root.view-project(); }
+                        }
+                        PanelButton {
+                            text: @tr("Open-source licenses");
+                            enabled: root.enabled && !root.saving;
+                            clicked => {
+                                if (root.notices == "") { root.notices = root.license-text(); }
+                                root.page = SettingsPage.licenses;
+                                keys.focus();
+                            }
+                        }
+                    }
+                }
+            }
+            if (root.page == SettingsPage.shortcuts): ShortcutEditor {
                 rows: root.rows;
                 recording <=> root.recording;
                 enabled: root.enabled && !root.saving;
                 clear(index) => { keys.focus(); root.clear(index); }
             }
-            if (!root.general && root.shortcut-warning != "" && root.error == ""): Text {
+            if root.viewing-licenses: VerticalLayout {
+                spacing: 8px;
+                HorizontalLayout {
+                    height: 28px;
+                    spacing: 8px;
+                    IconButton {
+                        label: @tr("Back");
+                        path: "M 19 12 H 5 M 12 5 L 5 12 L 12 19";
+                        enabled: root.enabled;
+                        clicked => { root.page = SettingsPage.about; keys.focus(); }
+                    }
+                    Text {
+                        text: @tr("Open-source licenses");
+                        color: Theme.text-secondary; font-size: 12px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                }
+                TextEdit {
+                    text: root.notices;
+                    read-only: true;
+                    enabled: root.enabled;
+                    font-size: 12px;
+                }
+            }
+            if (root.page == SettingsPage.shortcuts && root.shortcut-warning != "" && root.error == ""): Text {
                 text: @tr("Currently unavailable:\n") + root.shortcut-warning;
                 color: Theme.warning;
                 wrap: word-wrap;

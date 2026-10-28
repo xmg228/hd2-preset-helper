@@ -93,3 +93,24 @@ pub fn app_paths() -> Result<AppPaths> {
         last_failure: data.join("last_failure.zip"),
     })
 }
+
+pub fn open_url(url: &str) -> Result<()> {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::HSTRING;
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &HSTRING::from(url),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    anyhow::ensure!(
+        result.0 as isize > 32,
+        "could not open the page in the browser"
+    );
+    Ok(())
+}

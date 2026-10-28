@@ -232,6 +232,52 @@ msgstr "詳細をコピー"
 msgid "Dismiss last failure"
 msgstr "前回のエラー表示を閉じる"
 
+# Updates.
+msgid "View available update"
+msgstr "利用可能な更新を表示"
+
+msgid "About"
+msgstr "このアプリについて"
+
+msgid "Back"
+msgstr "戻る"
+
+msgid "Open-source licenses"
+msgstr "オープンソースライセンス"
+
+msgid "Version {}"
+msgstr "バージョン {}"
+
+msgid "Check for updates"
+msgstr "更新を確認"
+
+msgid "Release notes"
+msgstr "更新内容"
+
+msgid "Update and restart"
+msgstr "更新して再起動"
+
+msgid "Checking for updates…"
+msgstr "更新を確認中…"
+
+msgid "Up to date"
+msgstr "最新バージョン"
+
+msgid "Downloading update…"
+msgstr "更新をダウンロード中…"
+
+msgid "Installing update…"
+msgstr "更新をインストール中…"
+
+msgid "Restarting…"
+msgstr "再起動中…"
+
+msgid "Install releases manually in this build."
+msgstr "このビルドでは手動で更新してください。"
+
+msgid "Check for updates automatically"
+msgstr "更新を自動的に確認"
+
 # Tray.
 msgid "Exit"
 msgstr "終了"

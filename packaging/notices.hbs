@@ -1,34 +1,11 @@
-{{#each crates}}
-{{#unless package.source}}
-HD2 Preset Helper {{package.version}}
-===================================
-
-The project's original source code is licensed under GPL-3.0-or-later.
-This executable includes Slint under GPL-3.0-only and is distributed under GPLv3.
-See LICENSE.txt for the GNU GPLv3 text. License notices below also cover
-build-time components that are not all linked into the executable.
-
-Corresponding source
---------------------
-Project source: {{package.repository}}/archive/refs/tags/v{{package.version}}.zip
-
-The archive contains Cargo.lock, build scripts, UI files, resources and build
-instructions. With the required Rust toolchain and Windows build tools
-installed, run: cargo build --release --locked
-
-Cargo retrieves the locked dependency versions automatically. Their original
-source archives are also directly available from the links below.
-{{/unless}}
-{{/each}}
-
 Dependency source archives
 --------------------------
 {{#each crates}}
 {{#if package.source}}
 {{#if (eq package.source "registry+https://github.com/rust-lang/crates.io-index")}}
-{{package.name}} {{package.version}}: https://crates.io/api/v1/crates/{{package.name}}/{{package.version}}/download
+{{{package.name}}} {{{package.version}}}: https://crates.io/api/v1/crates/{{{package.name}}}/{{{package.version}}}/download
 {{else}}
-SOURCE DOWNLOAD REQUIRED: {{package.name}} {{package.version}} ({{package.source}})
+SOURCE DOWNLOAD REQUIRED: {{{package.name}}} {{{package.version}}} ({{{package.source}}})
 {{/if}}
 {{/if}}
 {{/each}}
@@ -37,8 +14,8 @@ License notices
 ---------------
 {{#each licenses}}
 
-{{name}} ({{id}})
-Used by:{{#each used_by}} {{crate.name}} {{crate.version}}{{#unless @last}},{{/unless}}{{/each}}
+{{{name}}} ({{{id}}})
+Used by:{{#each used_by}} {{{crate.name}}}{{#unless (eq crate.name "hd2-preset-helper")}} {{{crate.version}}}{{/unless}}{{#unless @last}},{{/unless}}{{/each}}
 
 {{{text}}}
 {{/each}}
@@ -54,7 +31,7 @@ The line-edit interface also includes:
 Copyright © 2025 Klarälvdalens Datakonsult AB, a KDAB Group company
 <info@kdab.com>, author Nathan Collins <nathan.collins@kdab.com>
 
-The Slint framework is used under GPL-3.0-only. See LICENSE.txt.
+The Slint framework is used under GPL-3.0-only.
 Source: https://github.com/slint-ui/slint/tree/v1.18.1
 
 Fluent widget icons
