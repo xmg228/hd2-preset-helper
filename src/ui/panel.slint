@@ -353,11 +353,20 @@ export component PresetPanel inherits Window {
                     spacing: 12px;
                     WindowMoveArea {
                         horizontal-stretch: 1;
-                        Text {
-                            width: parent.width;
-                            text: "HD2 Preset Helper";
-                            color: Theme.text;
-                            vertical-alignment: center;
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            Text {
+                                text: "HD2 Preset Helper";
+                                color: Theme.text;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "v" + root.current-version;
+                                color: Theme.text-secondary;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
                         }
                     }
                     if (root.update-version != ""): IconButton {
