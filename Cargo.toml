@@ -45,6 +45,8 @@ zip = { version = "9.1.3", default-features = false, features = ["deflate-flate2
 slint-build = "~1.18.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Enable system proxy discovery for self_update's HTTP client.
+ureq = { version = "3.5.0", default-features = false, features = ["win-system-proxy"] }
 windows = { version = "0.62.2", features = [
     "Foundation",
     "Graphics",
