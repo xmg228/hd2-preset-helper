@@ -139,7 +139,6 @@ jobs:
             "dist\THIRD_PARTY_NOTICES.txt",
             "--verify-tag",
             "--generate-notes",
-            "--notes", "Source code: [project](https://github.com/xmg228/hd2-preset-helper/archive/refs/tags/$env:GITHUB_REF_NAME.zip) and [dependency sources and licenses](https://github.com/xmg228/hd2-preset-helper/releases/download/$env:GITHUB_REF_NAME/THIRD_PARTY_NOTICES.txt).",
             "--title", "HD2 Preset Helper $env:GITHUB_REF_NAME"
           )
 
