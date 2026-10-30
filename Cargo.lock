@@ -1858,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "hd2-preset-helper"
-version = "0.3.4"
+version = "0.3.5-rc.1"
 dependencies = [
  "anyhow",
  "base64",
