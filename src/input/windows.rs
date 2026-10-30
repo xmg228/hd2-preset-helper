@@ -1,17 +1,18 @@
 use std::{mem::size_of, thread::sleep, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use tracing::{trace, warn};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC,
-    MAPVK_VSC_TO_VK_EX, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSE_EVENT_FLAGS,
-    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MapVirtualKeyW, SendInput, VIRTUAL_KEY,
+    GetAsyncKeyState, GetKeyboardLayout, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD,
+    INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
+    MAPVK_VK_TO_VSC, MAPVK_VSC_TO_VK_EX, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MapVirtualKeyExW,
+    MapVirtualKeyW, SendInput, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    WHEEL_DELTA,
+    GetSystemMetrics, GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WHEEL_DELTA,
 };
 
 use crate::window::{ClientPoint, WindowTarget};
@@ -23,9 +24,16 @@ pub use hotkeys::Hotkeys;
 
 const CLICK_MOVE_SETTLE_DELAY: Duration = Duration::from_millis(30);
 
+#[derive(Clone, Copy)]
+struct KeyPress {
+    key: Key,
+    // Reuse the press's scan code for release, even if the keyboard layout changes.
+    scan_code: u16,
+}
+
 #[derive(Default)]
 struct InjectedInputState {
-    keys: Vec<Key>,
+    keys: Vec<KeyPress>,
     left_mouse_down: bool,
 }
 
@@ -37,36 +45,10 @@ pub struct InputSession {
 impl Key {
     fn scan_code(self) -> u16 {
         match self {
-            Key::A => 0x1E,
-            Key::B => 0x30,
-            Key::D => 0x20,
-            Key::E => 0x12,
-            Key::F => 0x21,
-            Key::G => 0x22,
-            Key::H => 0x23,
-            Key::I => 0x17,
-            Key::J => 0x24,
-            Key::K => 0x25,
-            Key::L => 0x26,
-            Key::M => 0x32,
-            Key::N => 0x31,
-            Key::O => 0x18,
-            Key::P => 0x19,
-            Key::Q => 0x10,
-            Key::R => 0x13,
-            Key::S => 0x1F,
-            Key::T => 0x14,
-            Key::U => 0x16,
-            Key::V => 0x2F,
-            Key::W => 0x11,
-            Key::X => 0x2D,
-            Key::Y => 0x15,
             Key::Up => 0x48,
             Key::Down => 0x50,
             Key::Left => 0x4B,
             Key::Right => 0x4D,
-            Key::Z => 0x2C,
-            Key::C => 0x2E,
             Key::Space => 0x39,
             Key::Escape => 0x01,
             Key::Minus => 0x0C,
@@ -305,39 +287,68 @@ impl HotkeyModifiers {
     }
 }
 
-fn keyboard_input(key: Key, up: bool) -> INPUT {
-    // Pause has a special multi-byte scan sequence; let Windows generate it.
-    let mut flags = if key == Key::Pause {
-        Default::default()
-    } else {
-        KEYEVENTF_SCANCODE
-    };
-    if up {
-        flags |= KEYEVENTF_KEYUP;
-    }
-    if key.is_extended() {
-        flags |= KEYEVENTF_EXTENDEDKEY;
+impl KeyPress {
+    fn resolve(key: Key, target: &WindowTarget) -> Result<Self> {
+        let virtual_key = key.virtual_key();
+        let scan_code = if (0x41..=0x5A).contains(&virtual_key) {
+            // Letters name logical keys; resolve them using the game, not our UI thread.
+            let thread = unsafe { GetWindowThreadProcessId(target.native_handle(), None) };
+            ensure!(
+                thread != 0,
+                "could not query the game window's keyboard layout; no key was sent"
+            );
+            let layout = unsafe { GetKeyboardLayout(thread) };
+            ensure!(
+                !layout.0.is_null(),
+                "the game window's keyboard layout is unavailable; no key was sent"
+            );
+            let scan_code = unsafe { MapVirtualKeyExW(virtual_key, MAPVK_VK_TO_VSC, Some(layout)) };
+            ensure!(
+                scan_code != 0,
+                "key {} has no scan code in the game's keyboard layout; no key was sent",
+                key.name()
+            );
+            scan_code as u16
+        } else {
+            key.scan_code()
+        };
+        Ok(Self { key, scan_code })
     }
 
-    INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(if key == Key::Pause {
-                    key.virtual_key() as u16
-                } else {
-                    0
-                }),
-                wScan: if key == Key::Pause {
-                    0
-                } else {
-                    key.scan_code()
+    fn input(self, up: bool) -> INPUT {
+        // Pause has a special multi-byte scan sequence; let Windows generate it.
+        let mut flags = if self.key == Key::Pause {
+            Default::default()
+        } else {
+            KEYEVENTF_SCANCODE
+        };
+        if up {
+            flags |= KEYEVENTF_KEYUP;
+        }
+        if self.key.is_extended() {
+            flags |= KEYEVENTF_EXTENDEDKEY;
+        }
+
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(if self.key == Key::Pause {
+                        self.key.virtual_key() as u16
+                    } else {
+                        0
+                    }),
+                    wScan: if self.key == Key::Pause {
+                        0
+                    } else {
+                        self.scan_code
+                    },
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
                 },
-                dwFlags: flags,
-                time: 0,
-                dwExtraInfo: 0,
             },
-        },
+        }
     }
 }
 
@@ -378,20 +389,6 @@ impl InputSession {
 
     fn ensure_target(&self) -> Result<()> {
         self.target.ensure_input_target()
-    }
-
-    fn key_down(&mut self, key: Key) -> Result<()> {
-        send_single_input(keyboard_input(key, false), "key press input")?;
-        if !self.injected.keys.contains(&key) {
-            self.injected.keys.push(key);
-        }
-        Ok(())
-    }
-
-    fn key_up(&mut self, key: Key) -> Result<()> {
-        send_single_input(keyboard_input(key, true), "key release input")?;
-        self.injected.keys.retain(|pressed| *pressed != key);
-        Ok(())
     }
 
     fn left_button_down(&mut self) -> Result<()> {
@@ -460,14 +457,18 @@ impl InputSession {
 
     pub fn tap_key(&mut self, key: Key, hold_ms: u64) -> Result<()> {
         self.ensure_target()?;
+        let press = KeyPress::resolve(key, &self.target)?;
         trace!(
             key = key.name(),
+            scan_code = press.scan_code,
             hold_s = hold_ms as f64 / 1000.0,
             "key tap input"
         );
-        self.key_down(key)?;
+        send_single_input(press.input(false), "key press input")?;
+        self.injected.keys.push(press);
         sleep(Duration::from_millis(hold_ms));
-        self.key_up(key)?;
+        send_single_input(press.input(true), "key release input")?;
+        self.injected.keys.pop();
         Ok(())
     }
 
@@ -477,18 +478,16 @@ impl InputSession {
             return;
         }
 
-        let key_names = state.keys.iter().map(|key| key.name()).collect::<Vec<_>>();
+        let key_names = state
+            .keys
+            .iter()
+            .map(|press| press.key.name())
+            .collect::<Vec<_>>();
         let mut inputs = Vec::with_capacity(state.keys.len() + state.left_mouse_down as usize);
         if state.left_mouse_down {
             inputs.push(mouse_input(MOUSEEVENTF_LEFTUP));
         }
-        inputs.extend(
-            state
-                .keys
-                .iter()
-                .rev()
-                .map(|key| keyboard_input(*key, true)),
-        );
+        inputs.extend(state.keys.iter().rev().map(|press| press.input(true)));
 
         let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) } as usize;
         if sent != inputs.len() {
