@@ -8,12 +8,34 @@ use semver::Version;
 
 const ASSET_API: &str = "https://api.github.com/repos/xmg228/hd2-preset-helper/releases/assets/";
 const BINARY_IN_ARCHIVE: &str = "HD2PresetHelper/HD2PresetHelper.exe";
+const STAGED_BINARY: &str = "HD2PresetHelper.exe";
 
 #[derive(Clone)]
 pub struct AvailableUpdate {
     pub version: String,
     asset_url: String,
     sha256: String,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+/// An already verified executable. Dropping it discards the temporary download.
+pub struct PreparedUpdate {
+    directory: tempfile::TempDir,
+}
+
+impl PreparedUpdate {
+    /// Only the executable is replaced. Licenses are embedded; user data is untouched.
+    pub fn install(self, executable: &Path) -> Result<()> {
+        replace_with_backup(executable, || {
+            self_replace::self_replace(self.directory.path().join(STAGED_BINARY))
+                .context("could not replace the installed executable")
+        })
+    }
 }
 
 impl AvailableUpdate {
@@ -104,12 +126,11 @@ fn newer_stable(candidate: &str, current: &str) -> Result<bool> {
     Ok(candidate.pre.is_empty() && candidate.cmp_precedence(&Version::parse(current)?).is_gt())
 }
 
-/// Only the executable is replaced. Licenses are embedded; user data is untouched.
-pub fn install(
+/// Download and verify into a temporary directory without touching the running executable.
+pub fn prepare(
     update: &AvailableUpdate,
-    executable: &Path,
-    on_install: impl Fn() + Send + Sync + 'static,
-) -> Result<()> {
+    on_progress: impl Fn(DownloadProgress) + Send + Sync + 'static,
+) -> Result<PreparedUpdate> {
     ensure!(
         installation_supported(),
         "automatic installation is disabled for this build"
@@ -117,6 +138,8 @@ pub fn install(
     update.validate(env!("CARGO_PKG_VERSION"))?;
     let name = format!("HD2PresetHelper-v{}-windows-x64.zip", update.version);
     let url = update.asset_url.clone();
+    let directory = tempfile::Builder::new().prefix("hd2-update-").tempdir()?;
+    let binary = directory.path().join(STAGED_BINARY);
     let mut builder = updater();
     builder
         .release_tag(format!("v{}", update.version))
@@ -127,25 +150,28 @@ pub fn install(
                 .cloned()
         })
         .bin_path_in_archive(BINARY_IN_ARCHIVE)
-        .bin_install_path(executable)
+        // Keep self_update's selection, checksum and extraction pipeline, but stage
+        // its output here. Replacement of the running program is a separate action.
+        .bin_install_path(&binary)
         .timeout(Duration::from_secs(120))
+        .progress_callback(move |downloaded, total| {
+            on_progress(DownloadProgress { downloaded, total });
+        })
         .verify_checksum(self_update::Checksum::Sha256(update.sha256.clone()))
         // The explicitly pinned checksum is mandatory, even if GitHub omits its digest later.
         .verify_release_digest(false)
-        .verify_binary(move |binary| {
+        .verify_binary(|binary| {
             if binary.metadata()?.len() == 0 {
                 return Err(self_update::Error::verification_rejected(
                     "the update contains an empty executable",
                 ));
             }
-            on_install();
             Ok(())
         });
     let installer = builder.build()?;
-    replace_with_backup(executable, || {
-        installer.update()?;
-        Ok(())
-    })
+    installer.update()?;
+    ensure!(binary.is_file(), "the update did not produce an executable");
+    Ok(PreparedUpdate { directory })
 }
 
 fn replace_with_backup(executable: &Path, replace: impl FnOnce() -> Result<()>) -> Result<()> {

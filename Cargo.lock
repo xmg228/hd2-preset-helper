@@ -1866,6 +1866,7 @@ dependencies = [
  "half",
  "image",
  "rayon",
+ "self-replace",
  "self_update",
  "semver",
  "serde",

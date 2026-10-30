@@ -257,7 +257,13 @@ msgstr "Procurar atualizações"
 msgid "Release notes"
 msgstr "Notas da versão"
 
-msgid "Update and restart"
+msgid "Download update"
+msgstr "Transferir atualização"
+
+msgid "Ready to restart"
+msgstr "Pronto para reiniciar"
+
+msgid "Restart to update"
 msgstr "Atualizar e reiniciar"
 
 msgid "Checking for updates…"

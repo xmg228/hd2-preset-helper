@@ -257,7 +257,13 @@ msgstr "Проверить обновления"
 msgid "Release notes"
 msgstr "Что нового"
 
-msgid "Update and restart"
+msgid "Download update"
+msgstr "Скачать обновление"
+
+msgid "Ready to restart"
+msgstr "Готово к перезапуску"
+
+msgid "Restart to update"
 msgstr "Обновить и перезапустить"
 
 msgid "Checking for updates…"

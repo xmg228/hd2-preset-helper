@@ -190,8 +190,10 @@ export component PresetPanel inherits Window {
     in property <string> current-version;
     in property <string> update-version;
     in property <string> update-error;
+    in property <float> update-download-fraction: -1;
+    in property <string> update-download-size;
     in property <bool> update-install-allowed;
-    out property <bool> update-busy: update-phase == UpdatePhase.downloading || update-phase == UpdatePhase.installing || update-phase == UpdatePhase.restarting;
+    out property <bool> update-installing: update-phase == UpdatePhase.installing || update-phase == UpdatePhase.restarting;
     in-out property <int> recording-shortcut: -1;
     in property <string> settings-error;
     in property <bool> settings-saving;
@@ -206,7 +208,7 @@ export component PresetPanel inherits Window {
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
     private property <PresetRow> preview: presets[!editing-name && hovered-index >= 0 ? hovered-index : current-index];
-    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-busy;
+    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-installing;
     private property <string> editing-preset;
     private property <string> name-draft;
     private property <bool> apply-key-down;
@@ -222,6 +224,7 @@ export component PresetPanel inherits Window {
     callback save-settings();
     callback check-updates();
     callback view-update-notes();
+    callback download-update();
     callback install-update();
     callback view-project();
     callback license-text() -> string;
@@ -369,7 +372,20 @@ export component PresetPanel inherits Window {
                             }
                         }
                     }
-                    if (root.update-version != ""): IconButton {
+                    if (root.update-phase == UpdatePhase.ready): PanelButton {
+                        text: @tr("Restart to update");
+                        height: 28px;
+                        horizontal-stretch: 0;
+                        cross-axis-self-alignment: center;
+                        filled: true;
+                        enabled: root.interactive;
+                        clicked => {
+                            root.finish-rename(true);
+                            root.edit-settings(true);
+                            root.install-update();
+                        }
+                    }
+                    if (root.update-version != "" && root.update-phase != UpdatePhase.ready): IconButton {
                         label: @tr("View available update");
                         path: "M 21 12 A 9 9 0 0 0 5.64 5.64 L 3 8 M 3 3 V 8 H 8 M 3 12 A 9 9 0 0 0 18.36 18.36 L 21 16 M 16 16 H 21 V 21";
                         enabled: root.interactive;
@@ -788,7 +804,7 @@ export component PresetPanel inherits Window {
         }
         settings := SettingsDialog {
             visible: root.settings-open;
-            enabled: root.settings-open && !root.pending && !root.update-busy;
+            enabled: root.settings-open && !root.pending && !root.update-installing;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(560px, parent.width - 32px);
@@ -806,6 +822,8 @@ export component PresetPanel inherits Window {
             current-version: root.current-version;
             update-version: root.update-version;
             update-error: root.update-error;
+            update-download-fraction: root.update-download-fraction;
+            update-download-size: root.update-download-size;
             update-install-allowed: root.update-install-allowed;
             recording <=> root.recording-shortcut;
             error: root.settings-error;
@@ -816,6 +834,7 @@ export component PresetPanel inherits Window {
             cancel => { root.close-dialogs(); }
             check-updates => { root.check-updates(); }
             view-update-notes => { root.view-update-notes(); }
+            download-update => { root.download-update(); }
             install-update => { root.install-update(); }
             view-project => { root.view-project(); }
             license-text => { root.license-text(); }

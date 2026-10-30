@@ -257,8 +257,14 @@ msgstr "检查更新"
 msgid "Release notes"
 msgstr "更新说明"
 
-msgid "Update and restart"
-msgstr "更新并重启"
+msgid "Download update"
+msgstr "下载更新"
+
+msgid "Ready to restart"
+msgstr "更新已就绪"
+
+msgid "Restart to update"
+msgstr "重启以更新"
 
 msgid "Checking for updates…"
 msgstr "正在检查更新…"

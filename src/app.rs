@@ -344,7 +344,7 @@ impl AppController {
         self.exiting = true;
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
-        // Keep progress visible while a requested update finishes; never exit
+        // Keep installation visible while replacement finishes; never exit
         // midway through replacing program files.
         if !self.updates.installing() {
             self.ui.hide_panel()?;

@@ -22,6 +22,8 @@ export component SettingsDialog inherits Rectangle {
     in property <string> current-version;
     in property <string> update-version;
     in property <string> update-error;
+    in property <float> update-download-fraction;
+    in property <string> update-download-size;
     in property <bool> update-install-allowed;
     in-out property <int> recording: -1;
     in property <string> error;
@@ -35,6 +37,7 @@ export component SettingsDialog inherits Rectangle {
     callback cancel();
     callback check-updates();
     callback view-update-notes();
+    callback download-update();
     callback install-update();
     callback view-project();
     callback license-text() -> string;
@@ -163,8 +166,11 @@ export component SettingsDialog inherits Rectangle {
                         current-version: root.current-version;
                         available-version: root.update-version;
                         error: root.update-error;
+                        download-fraction: root.update-download-fraction;
+                        download-size: root.update-download-size;
                         check => { root.check-updates(); }
                         notes => { root.view-update-notes(); }
+                        download => { root.download-update(); }
                         install => { root.install-update(); }
                     }
                     Rectangle { height: 1px; background: Theme.border; }

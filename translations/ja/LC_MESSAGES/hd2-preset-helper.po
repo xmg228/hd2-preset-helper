@@ -257,7 +257,13 @@ msgstr "更新を確認"
 msgid "Release notes"
 msgstr "更新内容"
 
-msgid "Update and restart"
+msgid "Download update"
+msgstr "更新をダウンロード"
+
+msgid "Ready to restart"
+msgstr "再起動の準備ができました"
+
+msgid "Restart to update"
 msgstr "更新して再起動"
 
 msgid "Checking for updates…"

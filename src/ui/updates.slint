@@ -1,7 +1,7 @@
 import { Theme } from "theme.slint";
 import { PanelButton, SettingToggle } from "controls.slint";
 
-export enum UpdatePhase { idle, checking, up-to-date, available, downloading, installing, restarting, failed }
+export enum UpdatePhase { idle, checking, up-to-date, available, downloading, ready, installing, restarting, failed }
 
 export component UpdateView inherits Rectangle {
     vertical-stretch: 0;
@@ -12,16 +12,20 @@ export component UpdateView inherits Rectangle {
     in property <string> current-version;
     in property <string> available-version;
     in property <string> error;
+    in property <float> download-fraction;
+    in property <string> download-size;
     private property <bool> has-update: available-version != "";
-    private property <bool> busy: phase == UpdatePhase.downloading || phase == UpdatePhase.installing || phase == UpdatePhase.restarting;
-    private property <bool> install-action: has-update && install-allowed && phase != UpdatePhase.failed && phase != UpdatePhase.checking;
+    private property <bool> installing: phase == UpdatePhase.installing || phase == UpdatePhase.restarting;
+    private property <bool> update-action: has-update && install-allowed && phase != UpdatePhase.failed && phase != UpdatePhase.checking;
     private property <string> status: phase == UpdatePhase.checking ? @tr("Checking for updates…")
         : phase == UpdatePhase.up-to-date ? @tr("Up to date")
         : phase == UpdatePhase.downloading ? @tr("Downloading update…")
+        : phase == UpdatePhase.ready ? @tr("Ready to restart")
         : phase == UpdatePhase.installing ? @tr("Installing update…")
         : phase == UpdatePhase.restarting ? @tr("Restarting…") : "";
     callback check();
     callback notes();
+    callback download();
     callback install();
     VerticalLayout {
         padding: 8px;
@@ -45,7 +49,7 @@ export component UpdateView inherits Rectangle {
                 overflow: elide;
                 Tooltip { text: @markdown("\{root.available-version}"); }
             }
-            if (root.has-update && !root.busy && root.phase != UpdatePhase.checking): PanelButton {
+            if (root.has-update && !root.installing && root.phase != UpdatePhase.checking): PanelButton {
                 horizontal-stretch: 0;
                 horizontal-padding: 4px;
                 height: 24px;
@@ -64,13 +68,42 @@ export component UpdateView inherits Rectangle {
             }
             PanelButton {
                 horizontal-stretch: 0;
-                text: root.install-action ? @tr("Update and restart") : @tr("Check for updates");
+                text: root.phase == UpdatePhase.ready || root.installing ? @tr("Restart to update")
+                    : root.update-action ? @tr("Download update") : @tr("Check for updates");
                 filled: true;
-                enabled: root.enabled && !root.busy && root.phase != UpdatePhase.checking;
-                clicked => { if (root.install-action) { root.install(); } else { root.check(); } }
+                enabled: root.enabled && !root.installing && root.phase != UpdatePhase.checking && root.phase != UpdatePhase.downloading;
+                clicked => {
+                    if (root.phase == UpdatePhase.ready) { root.install(); }
+                    else if (root.update-action) { root.download(); }
+                    else { root.check(); }
+                }
             }
         }
-        if (root.phase == UpdatePhase.failed && root.error != ""): Text {
+        if (root.phase == UpdatePhase.downloading && root.download-size != ""): HorizontalLayout {
+            height: 18px;
+            spacing: 8px;
+            if (root.download-fraction >= 0): Rectangle {
+                height: 3px;
+                cross-axis-self-alignment: center;
+                horizontal-stretch: 1;
+                border-radius: 1.5px;
+                background: Theme.border;
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * root.download-fraction;
+                    border-radius: 1.5px;
+                    background: Theme.accent;
+                }
+            }
+            Text {
+                text: root.download-fraction < 0 ? root.download-size
+                    : floor(root.download-fraction * 100) + "% · " + root.download-size;
+                color: Theme.text-secondary; font-size: 12px;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+        }
+        if (root.error != ""): Text {
             text: root.error;
             color: Theme.error; font-size: 12px;
             wrap: word-wrap;
@@ -86,7 +119,7 @@ export component UpdateView inherits Rectangle {
             content-padding: 0px;
             text: @tr("Check for updates automatically");
             checked <=> root.check-automatically;
-            enabled: root.enabled && !root.busy;
+            enabled: root.enabled && !root.installing;
         }
     }
 }

@@ -9,18 +9,22 @@ use tracing::{debug, info, warn};
 
 use super::{ActionState, AppController};
 use crate::ui::UpdatePhase;
-use crate::update::{self, AvailableUpdate};
+use crate::update::{self, AvailableUpdate, DownloadProgress, PreparedUpdate};
 
 enum UpdateEvent {
     Checked(Result<Option<AvailableUpdate>>),
-    Installing,
+    Download(DownloadProgress),
+    Prepared(Result<PreparedUpdate>),
     Installed(Result<PathBuf>),
 }
 
 pub(super) struct Updates {
     pub automatic: bool,
     available: Option<AvailableUpdate>,
+    prepared: Option<PreparedUpdate>,
     next_check: Instant,
+    started: Instant,
+    download: DownloadProgress,
     events: Option<Receiver<UpdateEvent>>,
     installer: Option<thread::JoinHandle<()>>,
 }
@@ -30,7 +34,10 @@ impl Updates {
         Self {
             automatic,
             available: None,
+            prepared: None,
             next_check: Instant::now(),
+            started: Instant::now(),
+            download: DownloadProgress::default(),
             events: None,
             installer: None,
         }
@@ -72,10 +79,12 @@ impl AppController {
     }
 
     pub(super) fn check_updates(&mut self) {
-        if self.exiting || self.updates.events.is_some() {
+        if self.exiting || self.updates.events.is_some() || self.updates.prepared.is_some() {
             return;
         }
         self.updates.next_check = Instant::now() + Duration::from_secs(24 * 60 * 60);
+        self.updates.started = Instant::now();
+        self.updates.download = DownloadProgress::default();
         let (send, events) = mpsc::channel();
         match thread::Builder::new().name("update".into()).spawn(move || {
             let _ = send.send(UpdateEvent::Checked(update::check()));
@@ -88,9 +97,8 @@ impl AppController {
         }
     }
 
-    pub(super) fn install_update(&mut self) -> Result<()> {
-        if self.exiting || self.updates.events.is_some() || !matches!(self.state, ActionState::Idle)
-        {
+    pub(super) fn download_update(&mut self) -> Result<()> {
+        if self.exiting || self.updates.events.is_some() || self.updates.prepared.is_some() {
             return Ok(());
         }
         let Some(available) = self.updates.available.clone() else {
@@ -99,25 +107,49 @@ impl AppController {
         if !update::installation_supported() {
             return Ok(());
         }
+        self.updates.started = Instant::now();
+        self.updates.download = DownloadProgress::default();
+        let (send, events) = mpsc::channel();
+        thread::Builder::new()
+            .name("update".into())
+            .spawn(move || {
+                info!(version = %available.version, "update download started");
+                let progress = send.clone();
+                let result = update::prepare(&available, move |download| {
+                    let _ = progress.send(UpdateEvent::Download(download));
+                });
+                let _ = send.send(UpdateEvent::Prepared(result));
+            })?;
+        self.updates.events = Some(events);
+        self.present_update(UpdatePhase::Downloading, "");
+        Ok(())
+    }
+
+    pub(super) fn install_update(&mut self) -> Result<()> {
+        if self.exiting
+            || self.updates.events.is_some()
+            || self.updates.prepared.is_none()
+            || !matches!(self.state, ActionState::Idle)
+        {
+            return Ok(());
+        }
+        self.updates.started = Instant::now();
         // Capture the original path before self-replace renames the loaded image.
         let executable = std::env::current_exe()?;
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
+        let prepared = self.updates.prepared.take().unwrap();
         let (send, events) = mpsc::channel();
         let installer = thread::Builder::new()
             .name("update".into())
             .spawn(move || {
-                info!(version = %available.version, "update installation started");
-                let progress = send.clone();
-                let result = update::install(&available, &executable, move || {
-                    let _ = progress.send(UpdateEvent::Installing);
-                })
-                .map(|()| executable);
+                info!("update installation started");
+                let result = prepared.install(&executable).map(|()| executable);
                 let _ = send.send(UpdateEvent::Installed(result));
             })?;
         self.updates.installer = Some(installer);
         self.updates.events = Some(events);
-        self.present_update(UpdatePhase::Downloading, "");
+        self.present_update(UpdatePhase::Installing, "");
         Ok(())
     }
 
@@ -128,6 +160,8 @@ impl AppController {
     }
 
     pub(super) fn poll_updates(&mut self) -> Result<Option<PathBuf>> {
+        // Download callbacks arrive per chunk; publish only the newest value each tick.
+        let mut download_changed = false;
         loop {
             let event = match self.updates.events.as_ref().map(Receiver::try_recv) {
                 Some(Ok(event)) => event,
@@ -156,12 +190,38 @@ impl AppController {
                         Err(error) => self.update_failed(&error),
                     }
                 }
-                UpdateEvent::Installing => self.present_update(UpdatePhase::Installing, ""),
+                UpdateEvent::Download(download) => {
+                    self.updates.download = download;
+                    download_changed = true;
+                }
+                UpdateEvent::Prepared(result) => {
+                    download_changed = false;
+                    self.updates.finish();
+                    match result {
+                        Ok(prepared) => {
+                            self.updates.prepared = Some(prepared);
+                            info!(
+                                elapsed_s = self.updates.started.elapsed().as_secs_f64(),
+                                downloaded_bytes = self.updates.download.downloaded,
+                                total_bytes = self.updates.download.total,
+                                "update ready to install"
+                            );
+                            self.present_update(UpdatePhase::Ready, "");
+                        }
+                        Err(error) => self.update_failed(&error),
+                    }
+                }
                 UpdateEvent::Installed(result) => {
                     self.updates.finish();
                     match result {
                         Ok(executable) => {
-                            info!(restart = !self.exiting, "update installed");
+                            info!(
+                                restart = !self.exiting,
+                                elapsed_s = self.updates.started.elapsed().as_secs_f64(),
+                                downloaded_bytes = self.updates.download.downloaded,
+                                total_bytes = self.updates.download.total,
+                                "update installed"
+                            );
                             if !self.exiting {
                                 self.present_update(UpdatePhase::Restarting, "");
                                 self.request_exit()?;
@@ -172,6 +232,10 @@ impl AppController {
                     }
                 }
             }
+        }
+        if download_changed && self.updates.events.is_some() {
+            let DownloadProgress { downloaded, total } = self.updates.download;
+            self.ui.set_update_download(downloaded, total);
         }
         self.check_updates_automatically();
         Ok(None)
@@ -189,9 +253,22 @@ impl AppController {
     }
 
     pub(super) fn update_failed(&self, error: impl std::fmt::Display) {
-        // Checking/installing errors are not preset failures and have no image report.
+        // Update errors are not preset failures and have no image report.
         let error = format!("{error:#}");
-        warn!(error, "update request failed");
-        self.present_update(UpdatePhase::Failed, &error);
+        warn!(
+            elapsed_s = self.updates.started.elapsed().as_secs_f64(),
+            downloaded_bytes = self.updates.download.downloaded,
+            total_bytes = self.updates.download.total,
+            error,
+            "update request failed"
+        );
+        // A path/shortcut error before spawning the installer leaves the
+        // verified download intact, so allow retrying installation directly.
+        let phase = if self.updates.prepared.is_some() {
+            UpdatePhase::Ready
+        } else {
+            UpdatePhase::Failed
+        };
+        self.present_update(phase, &error);
     }
 }

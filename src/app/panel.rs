@@ -171,6 +171,11 @@ impl AppController {
                 UiRequest::CheckUpdates => self.check_updates(),
                 UiRequest::ViewUpdateNotes => self.view_update_notes(),
                 UiRequest::ViewProject => self.open_link(env!("CARGO_PKG_REPOSITORY")),
+                UiRequest::DownloadUpdate => {
+                    if let Err(error) = self.download_update() {
+                        self.update_failed(&error);
+                    }
+                }
                 UiRequest::InstallUpdate => {
                     if let Err(error) = self.install_update() {
                         self.update_failed(&error);

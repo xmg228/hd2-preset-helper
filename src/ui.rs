@@ -69,6 +69,7 @@ pub enum UiRequest {
     CheckUpdates,
     ViewUpdateNotes,
     ViewProject,
+    DownloadUpdate,
     InstallUpdate,
     AddPreset,
     DeletePreset(String),
@@ -233,13 +234,13 @@ impl AppUi {
     }
 
     pub fn show_panel(&mut self, anchor: Option<(i32, i32)>) -> Result<()> {
-        let updating = self.window.get_update_busy();
+        let installing = self.window.get_update_installing();
         self.panel_hide_at = None;
         self.anchor = anchor;
         self.status.hide()?;
         self.window.invoke_focus_list();
         self.window.set_pending(false);
-        self.window.set_loading(!updating);
+        self.window.set_loading(!installing);
         self.window.set_status("".into());
         // Evaluate the initial hidden value before changing the lazy animation binding.
         let _ = self.window.get_panel_opacity();
@@ -255,7 +256,7 @@ impl AppUi {
                 Ok(())
             })
             .transpose()?;
-        if updating {
+        if installing {
             self.window.set_settings_open(true);
             self.window.invoke_focus_settings(true);
         } else {
@@ -473,9 +474,31 @@ impl AppUi {
     }
 
     pub fn set_update_state(&self, phase: UpdatePhase, version: &str, error: &str) {
+        if matches!(phase, UpdatePhase::Checking | UpdatePhase::Downloading) {
+            self.window.set_update_download_fraction(-1.0);
+            self.window.set_update_download_size("".into());
+        }
         self.window.set_update_phase(phase);
         self.window.set_update_version(version.into());
         self.window.set_update_error(error.into());
+    }
+
+    pub fn set_update_download(&self, downloaded: u64, total: Option<u64>) {
+        const MIB: f64 = 1024.0 * 1024.0;
+        let total = total.filter(|&bytes| bytes > 0);
+        self.window
+            .set_update_download_fraction(total.map_or(-1.0, |total| {
+                (downloaded as f64 / total as f64).clamp(0.0, 1.0) as f32
+            }));
+        let downloaded = downloaded as f64 / MIB;
+        self.window.set_update_download_size(
+            total
+                .map_or_else(
+                    || format!("{downloaded:.1} MiB"),
+                    |total| format!("{downloaded:.1} / {:.1} MiB", total as f64 / MIB),
+                )
+                .into(),
+        );
     }
 
     pub fn set_shortcut_warning(&self, warning: &str) {
