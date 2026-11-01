@@ -604,6 +604,11 @@ impl AppUi {
         self.window.set_status(message.into());
     }
     pub fn preview_failed(&self, message: &str) {
+        let rows = self.window.get_presets();
+        for (index, mut row) in rows.iter().enumerate() {
+            row.equipment_cache_matches = -1;
+            rows.set_row_data(index, row);
+        }
         self.window.set_loading(false);
         self.set_status(message);
     }
@@ -623,6 +628,7 @@ impl AppUi {
                 let preview = previews.remove(name).unwrap_or(PresetPreview {
                     stratagems: PreviewContent::Missing,
                     equipment: PreviewContent::Missing,
+                    equipment_cache_matches: None,
                 });
                 PresetRow {
                     number: preset_number(name).into(),
@@ -631,6 +637,9 @@ impl AppUi {
                     shortcut: info.shortcut.as_str().into(),
                     stratagems: section(preview.stratagems),
                     equipment: section(preview.equipment),
+                    equipment_cache_matches: preview
+                        .equipment_cache_matches
+                        .map_or(-1, |n| n as i32),
                 }
             })
             .collect();

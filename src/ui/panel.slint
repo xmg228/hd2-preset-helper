@@ -12,6 +12,8 @@ export { ActionStatus, StatusItem, StatusTone } from "status.slint";
 
 component SelectableSection inherits Rectangle {
     in property <string> text;
+    in property <string> detail;
+    in property <string> detail-help;
     in property <bool> checked;
     in property <bool> enabled: true;
     in property <string> apply-label;
@@ -62,6 +64,18 @@ component SelectableSection inherits Rectangle {
                     fill: transparent;
                     stroke: Theme.background;
                     stroke-width: 2px;
+                }
+            }
+            if (root.detail != ""): Text {
+                text: root.detail;
+                color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+                font-size: 11px;
+                min-width: 0px;
+                horizontal-stretch: 0;
+                overflow: elide;
+                vertical-alignment: center;
+                if (root.detail-help != ""): Tooltip {
+                    text: @markdown("\{root.detail-help}");
                 }
             }
             Rectangle { horizontal-stretch: 1; }
@@ -656,6 +670,9 @@ export component PresetPanel inherits Window {
                             Rectangle { height: 1px; background: Theme.border; }
                             SelectableSection {
                                 text: @tr("Equipment");
+                                detail: !root.loading && root.preview.equipment.ready && root.preview.equipment-cache-matches >= 0
+                                    ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.items.length) : "";
+                                detail-help: @tr("Based on complete category caches. Uncovered items may still apply without scanning.");
                                 checked: root.scope-equipment;
                                 enabled: root.interactive;
                                 apply-label: @tr("Apply equipment");

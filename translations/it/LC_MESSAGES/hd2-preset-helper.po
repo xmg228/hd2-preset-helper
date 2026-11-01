@@ -94,6 +94,12 @@ msgstr "Usa «+ Nuovo preset» per iniziare."
 msgid "Equipment"
 msgstr "Equipaggiamento"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Copertura della cache: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Si basa sulle categorie interamente memorizzate nella cache. Gli elementi non coperti possono comunque essere applicati senza scorrere l'elenco."
+
 msgid "Start from either loadout page."
 msgstr "Puoi iniziare da una delle due pagine dell'equipaggiamento."
 

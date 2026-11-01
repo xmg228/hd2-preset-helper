@@ -94,6 +94,12 @@ msgstr "「+ 新規プリセット」から始めましょう。"
 msgid "Equipment"
 msgstr "装備"
 
+msgid "Cache coverage: {}/{}"
+msgstr "キャッシュカバー率：{}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "完全なカテゴリキャッシュに基づきます。未カバーの装備でも、リストを走査せずに適用できる場合があります。"
+
 msgid "Start from either loadout page."
 msgstr "どちらの装備選択ページからでも開始できます。"
 

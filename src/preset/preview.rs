@@ -1,6 +1,6 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -34,66 +34,98 @@ pub enum PreviewContent {
 pub struct PresetPreview {
     pub stratagems: PreviewContent,
     pub equipment: PreviewContent,
+    /// Strong cached-name matches at the current UI scale, not live verification.
+    pub equipment_cache_matches: Option<usize>,
 }
 
-pub fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
+/// Transient name samples, consumed by the worker before presentation crosses to the UI.
+pub(crate) struct LoadedPreview {
+    pub preview: PresetPreview,
+    /// All six names for a valid equipment preview; empty when missing or invalid.
+    pub equipment_names: Vec<TextSample>,
+}
+
+pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPreview)> + '_> {
     let file = if path.exists() {
         load_preset_file(path)?
     } else {
         PresetFile::default()
     };
-    let names: BTreeSet<_> = file.presets.keys().chain(file.equipment.keys()).collect();
-    Ok(names
-        .into_iter()
-        .map(|name| {
-            let stratagems = content(file.presets.get(name).map(|preset| {
-                stratagems::validate(name, preset)?;
-                preset
-                    .stratagems
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| (PreviewRole::Stratagem(index + 1), item))
-                    .chain(
-                        preset
-                            .booster
-                            .iter()
-                            .map(|item| (PreviewRole::Booster, item)),
-                    )
-                    .chain(
-                        preset
-                            .fallback_booster
-                            .iter()
-                            .map(|item| (PreviewRole::FallbackBooster, item)),
-                    )
-                    .map(|(role, item)| {
-                        Ok(PreviewImage {
-                            role,
-                            image: load_template_image(path, &item.path)?,
-                        })
+    let names: BTreeSet<_> = file
+        .presets
+        .keys()
+        .chain(file.equipment.keys())
+        .cloned()
+        .collect();
+    Ok(names.into_iter().map(move |name| {
+        let stratagems = content(file.presets.get(&name).map(|preset| {
+            stratagems::validate(&name, preset)?;
+            preset
+                .stratagems
+                .iter()
+                .enumerate()
+                .map(|(index, item)| (PreviewRole::Stratagem(index + 1), item))
+                .chain(
+                    preset
+                        .booster
+                        .iter()
+                        .map(|item| (PreviewRole::Booster, item)),
+                )
+                .chain(
+                    preset
+                        .fallback_booster
+                        .iter()
+                        .map(|item| (PreviewRole::FallbackBooster, item)),
+                )
+                .map(|(role, item)| {
+                    Ok(PreviewImage {
+                        role,
+                        image: load_template_image(path, &item.path)?,
                     })
-                    .collect()
-            }));
-            let equipment = content(file.equipment.get(name).map(|equipment| {
-                EquipmentKind::ALL
-                    .iter()
-                    .zip(&equipment.items)
-                    .map(|(kind, item)| {
-                        Ok(PreviewImage {
-                            role: PreviewRole::Equipment(*kind),
-                            image: load_name(path, &item.name, equipment.client_size)?,
-                        })
+                })
+                .collect()
+        }));
+        let samples = file.equipment.get(&name).map(|equipment| {
+            equipment
+                .items
+                .iter()
+                .map(|item| {
+                    super::equipment::load_text(
+                        path,
+                        &item.name,
+                        equipment.client_size,
+                        EquipmentText::Name,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()
+        });
+        let (equipment, equipment_names) = match samples {
+            Some(Ok(samples)) => {
+                let images = EquipmentKind::ALL
+                    .into_iter()
+                    .zip(&samples)
+                    .map(|(kind, sample)| PreviewImage {
+                        role: PreviewRole::Equipment(kind),
+                        image: name_preview(sample),
                     })
-                    .collect()
-            }));
-            (
-                name.clone(),
-                PresetPreview {
+                    .collect();
+                (PreviewContent::Ready(images), samples)
+            }
+            Some(Err(error)) => (PreviewContent::Invalid(format!("{error:#}")), Vec::new()),
+            None => (PreviewContent::Missing, Vec::new()),
+        };
+        (
+            name,
+            LoadedPreview {
+                preview: PresetPreview {
                     stratagems,
                     equipment,
+                    equipment_cache_matches: None,
                 },
-            )
-        })
-        .collect())
+                equipment_names,
+            },
+        )
+    }))
 }
 
 pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<RgbaImage> {

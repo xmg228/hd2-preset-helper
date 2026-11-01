@@ -94,6 +94,12 @@ msgstr "Нажмите «+ Новый набор», чтобы начать."
 msgid "Equipment"
 msgstr "Снаряжение"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Покрытие кэшем: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Учитываются полностью кэшированные категории. Не охваченные кэшем предметы иногда можно применить без обхода списка."
+
 msgid "Start from either loadout page."
 msgstr "Начните на любой из двух страниц выбора снаряжения."
 

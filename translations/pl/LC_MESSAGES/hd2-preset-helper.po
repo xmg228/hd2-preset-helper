@@ -94,6 +94,12 @@ msgstr "Aby zacząć, użyj „+ Nowy zestaw”."
 msgid "Equipment"
 msgstr "Sprzęt"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Pokrycie pamięcią podręczną: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Dotyczy kategorii w całości zapisanych w pamięci podręcznej. Nieobjęte nią elementy można czasem zastosować bez przeszukiwania listy."
+
 msgid "Start from either loadout page."
 msgstr "Możesz zacząć na dowolnej z dwóch stron wyposażenia."
 

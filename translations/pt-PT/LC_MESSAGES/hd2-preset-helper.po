@@ -94,6 +94,12 @@ msgstr "Usa «+ Nova predefinição» para começar."
 msgid "Equipment"
 msgstr "Equipamento"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Cobertura da cache: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Baseia-se em categorias completas na cache. Os itens não abrangidos podem ser aplicados sem percorrer a lista."
+
 msgid "Start from either loadout page."
 msgstr "Começa em qualquer um dos dois ecrãs de equipamento."
 

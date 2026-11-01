@@ -25,7 +25,9 @@ impl AppController {
         let anchor = game.as_ref().map(|target| target.client_origin());
         self.ui.show_panel(anchor)?;
         if !self.updates.installing() {
-            self.worker.send(Work::LoadPreviews)?;
+            self.worker.send(Work::LoadPreviews {
+                client_size: game.as_ref().map(WindowTarget::client_size),
+            })?;
         }
         Ok(())
     }

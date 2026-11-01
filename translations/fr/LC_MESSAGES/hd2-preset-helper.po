@@ -94,6 +94,12 @@ msgstr "Commencez avec « + Nouveau préréglage »."
 msgid "Equipment"
 msgstr "Équipement"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Couverture du cache : {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Basé sur les catégories entièrement mises en cache. Les éléments non couverts peuvent parfois être appliqués sans parcourir la liste."
+
 msgid "Start from either loadout page."
 msgstr "Vous pouvez commencer depuis l'une des deux pages d'équipement."
 

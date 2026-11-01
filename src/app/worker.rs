@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -9,16 +11,21 @@ use super::failure::save_failure_report;
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::app_paths::AppPaths;
 use crate::capture::CaptureSessionManager;
+use crate::item::EquipmentKind;
+use crate::loadout::equipment::EquipmentCache;
+use crate::preset::preview::{self, PresetPreview};
 use crate::preset_action::{
     PresetActionContext, PresetActionOptions, PresetActionOutcome, PresetCommand, execute_preset,
 };
-use crate::vision::RecognizerRuntime;
+use crate::vision::{RecognizerRuntime, equipment::EquipmentObserver};
 use crate::window::{WindowIdentity, WindowTarget};
 
 pub(super) enum Work {
     Prepare(WindowIdentity),
     Discard,
-    LoadPreviews,
+    LoadPreviews {
+        client_size: Option<(u32, u32)>,
+    },
     Run {
         preset: String,
         command: PresetCommand,
@@ -30,15 +37,8 @@ pub(super) enum Work {
 
 pub(super) enum WorkerEvent {
     Progress(AppEvent),
-    Finished {
-        saved: bool,
-    },
-    PreviewsLoaded(
-        std::result::Result<
-            std::collections::BTreeMap<String, crate::preset::preview::PresetPreview>,
-            String,
-        >,
-    ),
+    Finished { saved: bool },
+    PreviewsLoaded(std::result::Result<BTreeMap<String, PresetPreview>, String>),
 }
 
 pub(super) struct ActionWorker {
@@ -69,7 +69,7 @@ impl ActionWorker {
                 });
                 let mut capture_session = CaptureSessionManager::new();
                 let cache_path = paths.presets.with_file_name("equipment-cache.json");
-                let mut equipment_cache = crate::loadout::equipment::EquipmentCache::load(&cache_path);
+                let mut equipment_cache = EquipmentCache::load(&cache_path);
                 while let Ok(mut command) = receiver.recv() {
                     // Only the latest pending preparation hint matters. A Run or
                     // Shutdown command is a boundary and is never coalesced away.
@@ -82,8 +82,8 @@ impl ActionWorker {
                     match command {
                         Work::Prepare(target) => prepare_capture(&mut capture_session, target),
                         Work::Discard => capture_session.cancel_prepare(),
-                        Work::LoadPreviews => {
-                            let previews = crate::preset::preview::load(&paths.presets)
+                        Work::LoadPreviews { client_size } => {
+                            let previews = load_previews(&paths.presets, &equipment_cache, client_size)
                                 .map_err(|error| format!("{error:#}"));
                             if event_tx.send(WorkerEvent::PreviewsLoaded(previews)).is_err() { break; }
                         }
@@ -148,6 +148,32 @@ impl Drop for ActionWorker {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+fn load_previews(
+    path: &Path,
+    cache: &EquipmentCache,
+    client_size: Option<(u32, u32)>,
+) -> Result<BTreeMap<String, PresetPreview>> {
+    let scale = client_size
+        .and_then(|(w, h)| EquipmentObserver::resolve(w, h, EquipmentKind::Helmet).ok())
+        .map(|(_, roi)| roi.geometry.scale);
+    Ok(preview::load(path)?
+        .map(|(name, mut loaded)| {
+            if !loaded.equipment_names.is_empty() {
+                loaded.preview.equipment_cache_matches = scale.map(|scale| {
+                    EquipmentKind::ALL
+                        .into_iter()
+                        .zip(&loaded.equipment_names)
+                        .filter(|(kind, sample)| {
+                            cache.has_strong_match(*kind, scale, sample.signature())
+                        })
+                        .count()
+                });
+            }
+            (name, loaded.preview)
+        })
+        .collect())
 }
 
 fn prepare_capture(capture_session: &mut CaptureSessionManager, identity: WindowIdentity) {

@@ -39,6 +39,60 @@ struct Category {
     circular: bool,
 }
 
+/// Shared evidence; callers choose the strength required by their own decision.
+struct NameRanking<T> {
+    best: T,
+    score: f32,
+    runner_up: Option<f32>,
+}
+
+impl<T> NameRanking<T> {
+    fn margin(&self) -> f32 {
+        self.score - self.runner_up.unwrap_or(0.0)
+    }
+
+    fn accepts(&self, threshold: f32) -> bool {
+        self.score >= threshold && self.margin() >= NAME_MATCH_MARGIN
+    }
+}
+
+fn rank_names<'a, T>(
+    target: &TextSignature,
+    candidates: impl Iterator<Item = (T, &'a TextSignature)>,
+) -> Option<NameRanking<T>> {
+    let mut scores = candidates
+        .map(|(id, signature)| (id, signature.cosine(target)))
+        .collect::<Vec<_>>();
+    scores.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+    let mut scores = scores.into_iter();
+    let (best, score) = scores.next()?;
+    Some(NameRanking {
+        best,
+        score,
+        runner_up: scores.next().map(|(_, score)| score),
+    })
+}
+
+fn rank_targets(
+    categories: &[Category],
+    indices: impl IntoIterator<Item = usize>,
+    target: &TextSignature,
+) -> Option<NameRanking<(usize, Name)>> {
+    // Rank distinct names in the complete order, not occurrences or abandoned scans.
+    rank_names(
+        target,
+        indices.into_iter().flat_map(|category| {
+            let entry = &categories[category];
+            entry
+                .names
+                .iter()
+                .enumerate()
+                .filter(|(name, _)| entry.order.contains(name))
+                .map(move |(name, signature)| ((category, name), signature))
+        }),
+    )
+}
+
 impl Category {
     /// Name IDs are local to a search; retain only identities in the completed order.
     fn compact(&mut self) {
@@ -65,36 +119,22 @@ impl Category {
         }
     }
 
-    fn ranked_names(
-        &self,
-        name: &TextSignature,
-        candidates: impl Iterator<Item = Name>,
-    ) -> Vec<(Name, f32)> {
-        let mut scores = candidates
-            .map(|i| (i, self.names[i].cosine(name)))
-            .collect::<Vec<_>>();
-        scores.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
-        scores
-    }
-
     fn identify(&mut self, name: &TextSignature) -> Option<Name> {
-        let scores = self.ranked_names(name, 0..self.names.len());
-        if let Some(&(index, score)) = scores
-            .first()
-            .filter(|(_, s)| *s >= NAME_IDENTITY_THRESHOLD)
+        if let Some(ranking) = rank_names(name, self.names.iter().enumerate())
+            .filter(|ranking| ranking.score >= NAME_IDENTITY_THRESHOLD)
         {
-            let margin = score - scores.get(1).map_or(0.0, |entry| entry.1);
+            let margin = ranking.margin();
             if margin < NAME_MATCH_MARGIN {
                 tracing::debug!(
-                    best_name = index,
-                    best_cosine = score,
-                    runner_up_cosine = scores.get(1).map(|entry| entry.1),
+                    best_name = ranking.best,
+                    best_cosine = ranking.score,
+                    runner_up_cosine = ranking.runner_up,
                     margin,
                     required_margin = NAME_MATCH_MARGIN,
                     "equipment cache identity is ambiguous"
                 );
             }
-            return (margin >= NAME_MATCH_MARGIN).then_some(index);
+            return (margin >= NAME_MATCH_MARGIN).then_some(ranking.best);
         }
         // A moderately similar name may be a different item. Keep its own evidence.
         self.names.push(name.clone());
@@ -135,6 +175,20 @@ impl Drop for SearchCache<'_> {
 }
 
 impl EquipmentCache {
+    /// A strong candidate in a complete, same-scale map; never a live-position guarantee.
+    pub(crate) fn has_strong_match(
+        &self,
+        kind: EquipmentKind,
+        scale: f64,
+        target: &TextSignature,
+    ) -> bool {
+        self.scales.get(&scale.to_string()).is_some_and(|kinds| {
+            let categories = &kinds[kind.index()];
+            rank_targets(categories, 0..categories.len(), target)
+                .is_some_and(|ranking| ranking.accepts(NAME_IDENTITY_THRESHOLD))
+        })
+    }
+
     pub(super) fn search(&mut self, kind: EquipmentKind, scale: f64) -> SearchCache<'_> {
         SearchCache {
             // Decimal keys retain the exact UI scale, including in the JSON cache.
@@ -429,40 +483,27 @@ impl SearchCache<'_> {
         categories: impl IntoIterator<Item = usize>,
         target: &TextSignature,
     ) -> Option<Target> {
-        // Rank distinct names in the complete order, not occurrences or abandoned scans.
-        let mut scores = categories
-            .into_iter()
-            .flat_map(|category| {
-                let entry = &self.categories[category];
-                entry
-                    .names
-                    .iter()
-                    .enumerate()
-                    .filter(|(name, _)| entry.order.contains(name))
-                    .map(move |(name, signature)| Target {
-                        category,
-                        name,
-                        score: signature.cosine(target),
-                    })
-            })
-            .collect::<Vec<_>>();
-        scores.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
-        let best = *scores.first()?;
-        let margin = best.score - scores.get(1).map_or(0.0, |entry| entry.score);
-        let accepted = best.score >= NAME_MATCH_THRESHOLD && margin >= NAME_MATCH_MARGIN;
+        let ranking = rank_targets(self.categories, categories, target)?;
+        let (category, name) = ranking.best;
+        let margin = ranking.margin();
+        let accepted = ranking.accepts(NAME_MATCH_THRESHOLD);
         if !accepted {
             tracing::debug!(
-                category = best.category,
-                best_name = best.name,
-                best_cosine = best.score,
-                runner_up_cosine = scores.get(1).map(|entry| entry.score),
+                category,
+                best_name = name,
+                best_cosine = ranking.score,
+                runner_up_cosine = ranking.runner_up,
                 margin,
                 match_threshold = NAME_MATCH_THRESHOLD,
                 required_margin = NAME_MATCH_MARGIN,
                 "equipment cache target rejected"
             );
         }
-        accepted.then_some(best)
+        accepted.then_some(Target {
+            category,
+            name,
+            score: ranking.score,
+        })
     }
 
     pub fn take_order(&mut self, category: usize) -> Vec<Name> {

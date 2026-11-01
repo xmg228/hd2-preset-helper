@@ -94,6 +94,12 @@ msgstr "点击“+ 新建预设”开始使用。"
 msgid "Equipment"
 msgstr "装备"
 
+msgid "Cache coverage: {}/{}"
+msgstr "缓存覆盖：{}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "按完整分类缓存统计；未覆盖的装备也可能无需扫描即可应用。"
+
 msgid "Start from either loadout page."
 msgstr "可从任一配装页面开始。"
 

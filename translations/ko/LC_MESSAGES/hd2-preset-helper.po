@@ -94,6 +94,12 @@ msgstr "'+ 새 프리셋'을 눌러 시작하세요."
 msgid "Equipment"
 msgstr "장비"
 
+msgid "Cache coverage: {}/{}"
+msgstr "캐시 범위: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "완전한 분류 캐시를 기준으로 합니다. 포함되지 않은 장비도 목록 검색 없이 적용될 수 있습니다."
+
 msgid "Start from either loadout page."
 msgstr "두 장비 구성 페이지 중 어디서든 시작할 수 있습니다."
 

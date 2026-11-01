@@ -94,6 +94,12 @@ msgstr "按一下「+ 新增預設」開始使用。"
 msgid "Equipment"
 msgstr "裝備"
 
+msgid "Cache coverage: {}/{}"
+msgstr "快取涵蓋：{}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "依完整分類快取統計；未涵蓋的裝備也可能無需掃描即可套用。"
+
 msgid "Start from either loadout page."
 msgstr "可從任一配裝頁面開始。"
 

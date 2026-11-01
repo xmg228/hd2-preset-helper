@@ -94,6 +94,12 @@ msgstr "Usa «+ Nuevo preajuste» para empezar."
 msgid "Equipment"
 msgstr "Equipamiento"
 
+msgid "Cache coverage: {}/{}"
+msgstr "Cobertura de caché: {}/{}"
+
+msgid "Based on complete category caches. Uncovered items may still apply without scanning."
+msgstr "Se basa en categorías completas en caché. Los elementos no cubiertos pueden aplicarse sin recorrer la lista."
+
 msgid "Start from either loadout page."
 msgstr "Empieza desde cualquiera de las dos pantallas de equipamiento."
 
