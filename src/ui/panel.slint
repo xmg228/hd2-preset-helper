@@ -151,6 +151,76 @@ component StratagemPreview inherits Rectangle {
     }
 }
 
+enum PresetReorderPhase { idle, dragging, committing }
+
+component PresetCard inherits Rectangle {
+    in property <PresetRow> item;
+    in property <bool> selected;
+    in property <bool> hovered;
+    in property <bool> handle-hovered;
+    out property <length> handle-width: 18px;
+    in property <bool> scope-stratagems: true;
+    in property <bool> scope-equipment: true;
+    background: selected ? #302e22 : hovered ? #2d3032 : transparent;
+    border-width: 1px;
+    border-color: selected ? Theme.accent : transparent;
+    border-radius: 5px;
+    @children
+    for column in 2: Rectangle {
+        x: 6px + column * 4px;
+        y: (parent.height - self.height) / 2;
+        width: 2px;
+        height: 10px;
+        for row in 3: Rectangle {
+            y: row * 4px;
+            width: 2px;
+            height: 2px;
+            border-radius: 1px;
+            background: Theme.text-secondary;
+            opacity: root.handle-hovered ? 1 : root.hovered ? 0.7 : 0.4;
+        }
+    }
+    VerticalLayout {
+        padding: 5px;
+        padding-left: root.handle-width + 4px;
+        spacing: 2px;
+        alignment: start;
+        HorizontalLayout {
+            height: 18px;
+            spacing: 8px;
+            Text { text: UiText.preset-title(root.item.label, root.item.number); color: Theme.text; overflow: elide; horizontal-stretch: 1; }
+            Text {
+                text: root.item.shortcut;
+                max-width: 112px;
+                color: Theme.text-secondary;
+                font-size: 10px;
+                overflow: elide;
+                vertical-alignment: center;
+                Tooltip { text: @markdown("\{root.item.shortcut}"); }
+            }
+        }
+        if (root.item.stratagems.ready): StratagemPreview {
+            height: 18px;
+            icon-size: 18px;
+            compact: true;
+            items: root.item.stratagems.items;
+            opacity: root.scope-stratagems ? 1 : 0.65;
+        }
+        if (root.item.equipment.ready): NameImage {
+            source: root.item.equipment.items[3].picture;
+            height: 14px;
+            colorize: Theme.control-text;
+            opacity: root.scope-equipment ? 1 : 0.65;
+        }
+        if (!root.item.stratagems.ready && !root.item.equipment.ready): Text {
+            text: root.item.stratagems.saved || root.item.equipment.saved ? @tr("Preview unavailable") : @tr("Not saved");
+            color: Theme.text-secondary;
+            font-size: 11px;
+            overflow: elide;
+        }
+    }
+}
+
 export component PresetPanel inherits Window {
     title: "HD2 Preset Helper";
     always-on-top: true;
@@ -177,6 +247,7 @@ export component PresetPanel inherits Window {
     animate panel-opacity { duration: root.fade-duration; easing: linear; }
 
     in property <[PresetRow]> presets;
+    in property <data-transfer> preset-drag-data;
     in property <string> status;
     in-out property <string> failure-details;
     in property <string> failure-label;
@@ -217,23 +288,37 @@ export component PresetPanel inherits Window {
     private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
     private property <bool> include-equipment: scope-equipment && current.equipment.saved;
     out property <bool> editing-name: editing-preset != "";
+    out property <bool> reordering-preset: reorder-phase != PresetReorderPhase.idle;
     out property <bool> save-available: root.action-available(true, ActionScope.selected);
     out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
-    private property <PresetRow> preview: presets[!editing-name && hovered-index >= 0 ? hovered-index : current-index];
-    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-installing;
+    private property <PresetRow> preview: presets[!editing-name && !reordering-preset && hovered-index >= 0 ? hovered-index : current-index];
+    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-installing
+        && reorder-phase != PresetReorderPhase.committing;
     private property <string> editing-preset;
     private property <string> name-draft;
     private property <bool> apply-key-down;
     private property <bool> skip-delete-confirmation;
     private property <length> row-height: 68px;
     private property <length> row-spacing: 4px;
+    private property <length> row-pitch: row-height + row-spacing;
+    private property <PresetReorderPhase> reorder-phase;
+    private property <length> drag-y;
+    private property <length> drag-offset-y;
+    private property <int> drag-source-index: -1;
+    private property <bool> reorder-preview-visible: reordering-preset && drag-source-index >= 0 && drag-source-index < presets.length;
+    private property <length> drag-card-y: clamp(drag-y - drag-offset-y, 0px, max(0px, list-viewport.height - row-height));
+    // Use the unchanged row grid, not the animated card positions, to avoid feedback jitter.
+    private property <int> drag-target-index: reorder-preview-visible
+        ? clamp(round((drag-card-y - preset-list.content-y) / row-pitch), 0, max(0, presets.length - 1)) : -1;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
     callback request-action(bool, ActionScope);
     callback request-scope(bool, bool);
     callback request-rename(string, string);
     callback request-delete(string);
+    pure callback is-preset-drag(data-transfer) -> bool;
+    callback request-reorder(string, string);
     callback edit-settings(bool);
     callback save-settings();
     callback check-updates();
@@ -247,8 +332,14 @@ export component PresetPanel inherits Window {
     callback dismiss();
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() {
-        root.hovered-index = -1;
+        root.finish-reorder();
         if (!root.settings-open && !root.delete-open) { keyboard.focus(); }
+    }
+    public function finish-reorder() {
+        root.reorder-phase = PresetReorderPhase.idle;
+        root.drag-source-index = -1;
+        root.hovered-index = -1;
+        root.apply-key-down = false;
     }
     public function focus-settings(show-about: bool) { root.hovered-index = -1; settings.focus-dialog(show-about); }
     public function close-dialogs() {
@@ -289,7 +380,7 @@ export component PresetPanel inherits Window {
         if (save) { root.request-rename(preset, root.name-draft); }
     }
     function reveal-current() {
-        let top = root.current-index * (root.row-height + root.row-spacing);
+        let top = root.current-index * root.row-pitch;
         if (top + preset-list.content-y < 0px) {
             preset-list.content-y = -top;
         } else if (top + root.row-height + preset-list.content-y > preset-list.visible-height) {
@@ -299,7 +390,7 @@ export component PresetPanel inherits Window {
     public pure function action-available(saving: bool, scope: ActionScope) -> bool {
         let stratagems = scope == ActionScope.stratagems || (scope == ActionScope.selected && root.scope-stratagems);
         let equipment = scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment);
-        if (!root.interactive || root.presets.length == 0 || (!stratagems && !equipment)) { return false; }
+        if (!root.interactive || root.reordering-preset || root.presets.length == 0 || (!stratagems && !equipment)) { return false; }
         if (saving) { return true; }
         let include-stratagems = stratagems && root.current.stratagems.saved;
         let include-equipment = equipment && root.current.equipment.saved;
@@ -333,6 +424,7 @@ export component PresetPanel inherits Window {
             key-pressed(event) => {
                 if (root.editing-name) { return reject; }
                 if (event.text == Key.Escape) { root.dismiss(); return accept; }
+                if (root.reordering-preset) { return accept; }
                 if (!root.interactive) { return reject; }
                 if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
                     && (event.text == "s" || event.text == "S")) {
@@ -437,76 +529,134 @@ export component PresetPanel inherits Window {
                     VerticalLayout {
                         width: 210px;
                         spacing: 8px;
-                        preset-list := ScrollView {
+                        list-viewport := Rectangle {
                             min-height: 0px;
                             width: 210px;
-                            content-width: self.visible-width - 8px;
-                            changed visible-height => { root.reveal-current(); }
-                            changed content-height => { root.reveal-current(); }
-                            VerticalLayout {
-                                alignment: start;
-                                spacing: root.row-spacing;
-                                for preset[index] in root.presets: Rectangle {
-                                    height: root.row-height;
-                                    background: index == root.current-index ? #302e22 : touch.has-hover ? #2d3032 : transparent;
-                                    border-width: 1px;
-                                    border-color: index == root.current-index ? Theme.accent : transparent;
-                                    border-radius: 5px;
-                                    accessible-role: button;
-                                    accessible-label: UiText.preset-title(preset.label, preset.number);
-                                    accessible-description: UiText.section-message(preset.stratagems) + " " + UiText.section-message(preset.equipment);
-                                    accessible-enabled: root.interactive;
-                                    accessible-action-default => { root.current-index = index; }
-                                    touch := TouchArea {
-                                        enabled: root.interactive;
-                                        changed has-hover => {
-                                            if (self.has-hover) { root.hovered-index = index; }
-                                            else if (root.hovered-index == index) { root.hovered-index = -1; }
-                                        }
-                                        pointer-event(event) => {
-                                            if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
-                                        }
-                                        clicked => { root.current-index = index; keyboard.focus(); }
-                                        double-clicked => { root.apply-current(ActionScope.selected); }
-                                    }
-                                    VerticalLayout {
-                                        padding: 5px;
-                                        spacing: 2px;
-                                        alignment: start;
-                                        HorizontalLayout {
-                                            height: 18px;
-                                            spacing: 8px;
-                                            Text { text: UiText.preset-title(preset.label, preset.number); color: Theme.text; overflow: elide; horizontal-stretch: 1; }
-                                            Text {
-                                                text: preset.shortcut;
-                                                max-width: 112px;
-                                                color: Theme.text-secondary;
-                                                font-size: 10px;
-                                                overflow: elide;
-                                                vertical-alignment: center;
-                                                Tooltip { text: @markdown("\{preset.shortcut}"); }
+                            vertical-stretch: 1;
+                            preset-list := ScrollView {
+                                width: parent.width;
+                                height: parent.height;
+                                content-width: self.visible-width - 8px;
+                                changed visible-height => { root.reveal-current(); }
+                                changed content-height => { root.reveal-current(); }
+                                VerticalLayout {
+                                    alignment: start;
+                                    spacing: root.row-spacing;
+                                    for preset[index] in root.presets: Rectangle {
+                                        height: root.row-height;
+                                        card := PresetCard {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            y: !root.reorder-preview-visible ? 0px
+                                                : index >= root.drag-target-index && index < root.drag-source-index ? root.row-pitch
+                                                : index > root.drag-source-index && index <= root.drag-target-index ? -root.row-pitch : 0px;
+                                            animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
+                                            item: preset;
+                                            selected: index == root.current-index;
+                                            hovered: touch.has-hover || handle.has-hover;
+                                            handle-hovered: handle.has-hover;
+                                            scope-stratagems: root.scope-stratagems;
+                                            scope-equipment: root.scope-equipment;
+                                            opacity: root.reorder-preview-visible && index == root.drag-source-index ? 0 : 1;
+                                            accessible-role: button;
+                                            accessible-label: UiText.preset-title(preset.label, preset.number);
+                                            accessible-description: UiText.section-message(preset.stratagems) + " " + UiText.section-message(preset.equipment);
+                                            accessible-enabled: root.interactive && !root.reordering-preset;
+                                            accessible-action-default => { root.current-index = index; }
+                                            changed hovered => {
+                                                if (self.hovered) { root.hovered-index = index; }
+                                                else if (root.hovered-index == index) { root.hovered-index = -1; }
+                                            }
+                                            drag := DragArea {
+                                                x: 0px;
+                                                y: 0px;
+                                                width: card.handle-width;
+                                                height: parent.height;
+                                                enabled: root.interactive && !root.editing-name;
+                                                data: root.preset-drag-data;
+                                                allow-move: true;
+                                                changed dragging => {
+                                                    if (self.dragging) {
+                                                        root.reorder-phase = PresetReorderPhase.dragging;
+                                                        root.current-index = index;
+                                                        root.hovered-index = -1;
+                                                        root.apply-key-down = false;
+                                                        keyboard.focus();
+                                                    }
+                                                }
+                                                drag-finished(action) => {
+                                                    if (action == DragAction.move && root.drag-target-index >= 0
+                                                        && root.drag-target-index != index) {
+                                                        let before = root.drag-target-index + (root.drag-target-index > index ? 1 : 0);
+                                                        root.reorder-phase = PresetReorderPhase.committing;
+                                                        root.request-reorder(preset.name,
+                                                            before < root.presets.length ? root.presets[before].name : "");
+                                                    } else {
+                                                        root.finish-reorder();
+                                                    }
+                                                }
+                                                handle := TouchArea {
+                                                    enabled: root.interactive && !root.editing-name;
+                                                    mouse-cursor: self.pressed ? grabbing : grab;
+                                                    pointer-event(event) => {
+                                                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                                                            root.drag-source-index = index;
+                                                            root.drag-offset-y = self.mouse-y;
+                                                            root.drag-y = index * root.row-pitch + preset-list.content-y + self.mouse-y;
+                                                        } else if (event.kind == PointerEventKind.up && root.reorder-phase == PresetReorderPhase.idle) {
+                                                            root.drag-source-index = -1;
+                                                        }
+                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                                    }
+                                                    clicked => { root.current-index = index; keyboard.focus(); }
+                                                }
+                                            }
+                                            touch := TouchArea {
+                                                x: card.handle-width;
+                                                width: parent.width - self.x;
+                                                enabled: root.interactive && !root.reordering-preset;
+                                                mouse-cursor: pointer;
+                                                pointer-event(event) => {
+                                                    if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                                }
+                                                clicked => { root.current-index = index; keyboard.focus(); }
+                                                double-clicked => { root.apply-current(ActionScope.selected); }
                                             }
                                         }
-                                        if (preset.stratagems.ready): StratagemPreview {
-                                            height: 18px;
-                                            icon-size: 18px;
-                                            compact: true;
-                                            items: preset.stratagems.items;
-                                            opacity: root.scope-stratagems ? 1 : 0.65;
-                                        }
-                                        if (preset.equipment.ready): NameImage {
-                                            source: preset.equipment.items[3].picture;
-                                            height: 14px;
-                                            colorize: Theme.control-text;
-                                            opacity: root.scope-equipment ? 1 : 0.65;
-                                        }
-                                        if (!preset.stratagems.ready && !preset.equipment.ready): Text {
-                                            text: preset.stratagems.saved || preset.equipment.saved ? @tr("Preview unavailable") : @tr("Not saved");
-                                            color: Theme.text-secondary;
-                                            font-size: 11px;
-                                            overflow: elide;
-                                        }
                                     }
+                                }
+                            }
+                            Rectangle {
+                                x: 0px;
+                                y: 0px;
+                                width: preset-list.visible-width - 8px;
+                                height: parent.height;
+                                clip: true;
+                                PresetCard {
+                                    visible: root.reorder-preview-visible;
+                                    x: 0px;
+                                    y: root.reorder-phase == PresetReorderPhase.committing
+                                        ? root.drag-target-index * root.row-pitch + preset-list.content-y : root.drag-card-y;
+                                    width: parent.width;
+                                    height: root.row-height;
+                                    item: root.presets[max(0, root.drag-source-index)];
+                                    selected: true;
+                                    handle-hovered: true;
+                                    scope-stratagems: root.scope-stratagems;
+                                    scope-equipment: root.scope-equipment;
+                                    drop-shadow-color: #00000080;
+                                    drop-shadow-blur: 8px;
+                                    drop-shadow-offset-y: 2px;
+                                }
+                            }
+                            Timer {
+                                interval: 16ms;
+                                running: list-drop.has-drag && root.reorder-phase == PresetReorderPhase.dragging
+                                    && (root.drag-y < 28px || root.drag-y > list-viewport.height - 28px);
+                                triggered => {
+                                    let step = root.drag-y < 28px ? 8px : -8px;
+                                    preset-list.content-y = clamp(preset-list.content-y + step,
+                                        min(0px, preset-list.visible-height - preset-list.content-height), 0px);
                                 }
                             }
                         }
@@ -813,6 +963,21 @@ export component PresetPanel inherits Window {
                     }
                 }
             }
+        }
+        // Ignore horizontal motion while reordering; ordinary pointer events pass through.
+        list-drop := DropArea {
+            x: 0px;
+            y: list-viewport.absolute-position.y - surface.absolute-position.y;
+            width: parent.width;
+            height: list-viewport.height;
+            enabled: root.interactive && !root.editing-name && root.drag-source-index >= 0;
+            can-drop(event) => {
+                if (!root.is-preset-drag(event.data)) { return DragAction.none; }
+                root.reorder-phase = PresetReorderPhase.dragging;
+                root.drag-y = event.position.y;
+                return DragAction.move;
+            }
+            dropped(event) => { return self.can-drop(event); }
         }
         if (root.settings-open): Rectangle {
             background: #00000099;

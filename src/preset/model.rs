@@ -1,7 +1,7 @@
 //! An ordered preset tree; identity is independent of placement.
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::vision::SampleGeometry;
@@ -199,20 +199,47 @@ impl PresetLibrary {
     }
 
     pub(super) fn remove(&mut self, id: &str) -> Result<()> {
-        fn remove(entries: &mut Vec<Entry>, id: &str) -> bool {
-            let original_count = entries.len();
-            let mut removed = false;
-            entries.retain_mut(|entry| match entry {
-                Entry::Preset(preset) => preset.id != id,
-                Entry::Folder { entries, .. } => {
-                    removed |= remove(entries, id);
-                    true
-                }
-            });
-            removed || entries.len() != original_count
+        self.take_preset(id).map(|_| ())
+    }
+
+    pub(super) fn move_before(&mut self, id: &str, before: Option<&str>) -> Result<()> {
+        if let Some(before) = before {
+            self.get(before)?;
+            if id == before {
+                return Ok(());
+            }
         }
-        ensure!(remove(&mut self.entries, id), "preset not found: {id}");
+        let entry = self.take_preset(id)?;
+        if let Some(before) = before {
+            let (entries, index) = Self::locate_preset(&mut self.entries, before)
+                .context("validated destination preset was not found")?;
+            entries.insert(index, entry);
+        } else {
+            self.entries.push(entry);
+        }
         Ok(())
+    }
+
+    fn take_preset(&mut self, id: &str) -> Result<Entry> {
+        let (entries, index) = Self::locate_preset(&mut self.entries, id)
+            .with_context(|| format!("preset not found: {id}"))?;
+        Ok(entries.remove(index))
+    }
+
+    fn locate_preset<'a>(
+        entries: &'a mut Vec<Entry>,
+        id: &str,
+    ) -> Option<(&'a mut Vec<Entry>, usize)> {
+        if let Some(index) = entries
+            .iter()
+            .position(|entry| matches!(entry, Entry::Preset(preset) if preset.id == id))
+        {
+            return Some((entries, index));
+        }
+        entries.iter_mut().find_map(|entry| match entry {
+            Entry::Folder { entries, .. } => Self::locate_preset(entries, id),
+            _ => None,
+        })
     }
 
     pub(super) fn validate(&self) -> Result<()> {

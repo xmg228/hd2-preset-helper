@@ -86,6 +86,10 @@ pub(crate) fn rename(path: &Path, id: &str, label: &str) -> Result<()> {
     })
 }
 
+pub(crate) fn move_before(path: &Path, id: &str, before: Option<&str>) -> Result<()> {
+    storage::edit(path, |library| library.move_before(id, before))
+}
+
 /// Keep the writer lock until the caller has published the updated document.
 pub(crate) fn edit_shortcuts(
     path: &Path,

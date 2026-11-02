@@ -216,6 +216,24 @@ impl AppController {
                             .set_status(&format!("Could not finish deleting preset: {error:#}"));
                     }
                 }
+                UiRequest::MovePreset { preset, before }
+                    if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
+                {
+                    match crate::preset::move_before(
+                        &self.paths.presets,
+                        &preset,
+                        before.as_deref(),
+                    ) {
+                        Ok(()) => self.ui.move_preset(&preset, before.as_deref()),
+                        Err(error) => {
+                            warn!(%preset, error = %format!("{error:#}"), "failed to reorder preset");
+                            self.ui.cancel_reorder();
+                            self.ui
+                                .set_status(&format!("Could not reorder preset: {error:#}"));
+                        }
+                    }
+                }
+                UiRequest::MovePreset { .. } => self.ui.cancel_reorder(),
             }
         }
         Ok(())

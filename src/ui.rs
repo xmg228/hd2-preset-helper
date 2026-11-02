@@ -66,8 +66,15 @@ pub enum UiRequest {
     InstallUpdate,
     AddPreset,
     DeletePreset(String),
+    MovePreset {
+        preset: String,
+        before: Option<String>,
+    },
     HidePanel,
 }
+
+// Only in-process preset drags carry this marker.
+struct PresetDrag;
 
 pub struct AppUi {
     window: PresetPanel,
@@ -142,6 +149,18 @@ impl AppUi {
         let delete_send = send.clone();
         window.on_request_delete(move |preset| {
             let _ = delete_send.send(UiRequest::DeletePreset(preset.to_string()));
+        });
+        let mut drag_data = slint::DataTransfer::default();
+        drag_data.set_user_data(Rc::new(PresetDrag));
+        window.set_preset_drag_data(drag_data);
+        window
+            .on_is_preset_drag(|data| data.user_data().is_some_and(|data| data.is::<PresetDrag>()));
+        let move_send = send.clone();
+        window.on_request_reorder(move |preset, before| {
+            let _ = move_send.send(UiRequest::MovePreset {
+                preset: preset.to_string(),
+                before: (!before.is_empty()).then(|| before.to_string()),
+            });
         });
         let weak = window.as_weak();
         let action_send = send.clone();
@@ -420,12 +439,14 @@ impl AppUi {
     }
     pub fn is_editing(&self) -> bool {
         self.window.get_editing_name()
+            || self.window.get_reordering_preset()
             || self.window.get_settings_open()
             || self.window.get_delete_open()
     }
 
     pub fn shortcuts_blocked(&self) -> bool {
         self.window.get_editing_name()
+            || self.window.get_reordering_preset()
             || self.window.get_recording_shortcut() >= 0
             || (self.window.get_settings_open() && self.window.get_viewing_licenses())
     }
@@ -546,6 +567,33 @@ impl AppUi {
         self.window.set_current_index(index);
         self.window.invoke_focus_list();
         self.set_status("");
+    }
+
+    pub fn move_preset(&mut self, preset: &str, before: Option<&str>) {
+        if before == Some(preset) {
+            self.cancel_reorder();
+            return;
+        }
+        let mut rows: Vec<_> = self.window.get_presets().iter().collect();
+        let Some(from) = rows.iter().position(|row| row.name == preset) else {
+            self.cancel_reorder();
+            return;
+        };
+        let row = rows.remove(from);
+        let to = before
+            .and_then(|before| rows.iter().position(|row| row.name == before))
+            .unwrap_or(rows.len());
+        rows.insert(to, row);
+        let info = self.preset_info.remove(from);
+        self.preset_info.insert(to, info);
+        self.window
+            .set_presets(Rc::new(VecModel::from(rows)).into());
+        self.window.set_current_index(to as i32);
+        self.window.invoke_focus_list();
+        self.set_status("");
+    }
+    pub fn cancel_reorder(&self) {
+        self.window.invoke_finish_reorder();
     }
     pub fn set_scope(&self, scope: PresetScope) {
         self.window.set_scope_stratagems(scope.stratagems);
