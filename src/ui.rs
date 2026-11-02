@@ -14,8 +14,8 @@ use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use crate::app_events::AppEvent;
 use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::item::EquipmentKind;
-use crate::preset::PresetScope;
 use crate::preset::preview::{PresetPreview, PreviewContent, PreviewRole as PreviewImageRole};
+use crate::preset::{PresetMetadata, PresetScope};
 
 mod settings;
 mod status;
@@ -40,13 +40,6 @@ fn prepare_window(window: &slint::Window, role: WindowRole) -> Result<bool> {
         })
         .transpose()
         .map(|native| native.is_some())
-}
-
-#[derive(Default)]
-pub struct PresetInfo {
-    pub name: String,
-    pub label: String,
-    pub shortcut: String,
 }
 
 pub enum UiRequest {
@@ -80,7 +73,7 @@ pub struct AppUi {
     window: PresetPanel,
     _tray: AppTray,
     requests: Receiver<UiRequest>,
-    preset_info: BTreeMap<String, PresetInfo>,
+    preset_info: Vec<PresetMetadata>,
     status: status::Status,
     monitor: String,
     language: UiLanguage,
@@ -91,7 +84,7 @@ pub struct AppUi {
 
 impl AppUi {
     pub fn new(
-        preset_info: Vec<PresetInfo>,
+        preset_info: Vec<PresetMetadata>,
         monitor: String,
         language: UiLanguage,
         presets: PathBuf,
@@ -217,10 +210,7 @@ impl AppUi {
             window,
             _tray: tray,
             requests,
-            preset_info: preset_info
-                .into_iter()
-                .map(|info| (info.name.clone(), info))
-                .collect(),
+            preset_info,
         };
         ui.set_language(language)?;
         ui.set_previews(BTreeMap::new());
@@ -373,7 +363,8 @@ impl AppUi {
             } => {
                 let label = self
                     .preset_info
-                    .get(preset)
+                    .iter()
+                    .find(|info| info.id == *preset)
                     .map_or("", |info| info.label.as_str());
                 self.window.set_failure_label(label.into());
                 self.window.set_failure_number(preset_number(preset).into());
@@ -448,15 +439,13 @@ impl AppUi {
                 .get(row.name.as_str())
                 .cloned()
                 .unwrap_or_default();
-            self.preset_info
-                .entry(row.name.to_string())
-                .or_insert_with(|| PresetInfo {
-                    name: row.name.to_string(),
-                    label: row.label.to_string(),
-                    ..Default::default()
-                })
-                .shortcut
-                .clone_from(&shortcut);
+            if let Some(info) = self
+                .preset_info
+                .iter_mut()
+                .find(|info| info.id == row.name.as_str())
+            {
+                info.shortcut.clone_from(&shortcut);
+            }
             row.shortcut = shortcut.into();
             rows.set_row_data(index, row);
         }
@@ -507,22 +496,6 @@ impl AppUi {
         }
     }
 
-    pub fn next_preset_name(&self) -> String {
-        let next = self
-            .window
-            .get_presets()
-            .iter()
-            .filter_map(|row| {
-                row.name
-                    .strip_prefix("preset_")
-                    .and_then(|n| n.parse::<usize>().ok())
-            })
-            .max()
-            .unwrap_or(0)
-            + 1;
-        format!("preset_{next}")
-    }
-
     pub fn add_preset(&mut self, name: String) {
         let mut rows: Vec<_> = self.window.get_presets().iter().collect();
         rows.push(PresetRow {
@@ -532,13 +505,10 @@ impl AppUi {
             equipment: section(PreviewContent::Missing),
             ..Default::default()
         });
-        self.preset_info.insert(
-            name.clone(),
-            PresetInfo {
-                name,
-                ..Default::default()
-            },
-        );
+        self.preset_info.push(PresetMetadata {
+            id: name,
+            ..Default::default()
+        });
         let index = rows.len() as i32 - 1;
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
@@ -547,14 +517,9 @@ impl AppUi {
     }
 
     pub fn set_label(&mut self, preset: &str, label: String) {
-        self.preset_info
-            .entry(preset.to_owned())
-            .or_insert_with(|| PresetInfo {
-                name: preset.to_owned(),
-                ..Default::default()
-            })
-            .label
-            .clone_from(&label);
+        if let Some(info) = self.preset_info.iter_mut().find(|info| info.id == preset) {
+            info.label.clone_from(&label);
+        }
         let rows = self.window.get_presets();
         if let Some((index, mut row)) = rows.iter().enumerate().find(|(_, row)| row.name == preset)
         {
@@ -565,7 +530,7 @@ impl AppUi {
     }
 
     pub fn remove_preset(&mut self, preset: &str) {
-        self.preset_info.remove(preset);
+        self.preset_info.retain(|info| info.id != preset);
         let rows: Vec<_> = self
             .window
             .get_presets()
@@ -621,10 +586,11 @@ impl AppUi {
 
     pub fn set_previews(&self, mut previews: BTreeMap<String, PresetPreview>) {
         self.window.set_loading(false);
-        let mut rows: Vec<_> = self
+        let rows: Vec<_> = self
             .preset_info
             .iter()
-            .map(|(name, info)| {
+            .map(|info| {
+                let name = &info.id;
                 let preview = previews.remove(name).unwrap_or(PresetPreview {
                     stratagems: PreviewContent::Missing,
                     equipment: PreviewContent::Missing,
@@ -643,20 +609,13 @@ impl AppUi {
                 }
             })
             .collect();
-        rows.sort_by(|a, b| {
-            let order = |name: &str| {
-                name.strip_prefix("preset_")
-                    .and_then(|n| n.parse::<u32>().ok())
-                    .unwrap_or(u32::MAX)
-            };
-            order(&a.name)
-                .cmp(&order(&b.name))
-                .then_with(|| a.name.as_str().cmp(b.name.as_str()))
-        });
-        let index = self
+        let selected = self
             .window
-            .get_current_index()
-            .min(rows.len().saturating_sub(1) as i32);
+            .get_presets()
+            .row_data(self.window.get_current_index() as usize);
+        let index = selected
+            .and_then(|selected| rows.iter().position(|row| row.name == selected.name))
+            .unwrap_or(0) as i32;
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
         self.window.set_current_index(index);

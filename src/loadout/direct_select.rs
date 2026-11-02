@@ -13,7 +13,7 @@ use tracing::{debug, debug_span, info, info_span, trace, warn};
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::preset::stratagems::{LocalTemplate, StratagemPreset, load_template_sample};
+use crate::preset::{LocalTemplate, StratagemPreset, stratagems::load_template_sample};
 use crate::vision::{
     ImageSample, ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind,
     TemplateClassifier,

@@ -13,7 +13,10 @@ use crate::loadout::{
     collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,
     wait_for_ui_state,
 };
-use crate::preset::stratagems::{self as storage, CapturedStratagemPreset, StratagemPreset};
+use crate::preset::{
+    StratagemPreset,
+    stratagems::{self as storage, CapturedStratagemPreset},
+};
 use crate::vision::{RecognizerRuntime, RecognizerSession};
 
 const READY_UP_HOLD_MS: u64 = 45;

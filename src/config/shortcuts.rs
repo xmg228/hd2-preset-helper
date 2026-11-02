@@ -1,4 +1,4 @@
-//! A shortcut-editing snapshot, derived from UI settings and preset slots.
+//! A shortcut-editing snapshot, derived from UI settings and the preset library.
 //! It is not a separate configuration section. System registration belongs to input.
 use std::collections::BTreeMap;
 
@@ -28,7 +28,7 @@ impl ShortcutBindings {
                 .map(|(name, value)| (name.as_str(), value)),
         ) {
             if name != "Open panel" {
-                super::validate_preset_label(name, "")?;
+                crate::preset::validate_id(name)?;
             }
             if let Some(shortcut) = Self::parse(value).with_context(|| name.to_string())? {
                 if let Some((_, previous)) = used.iter().find(|(key, _)| *key == shortcut) {

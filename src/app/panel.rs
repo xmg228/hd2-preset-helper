@@ -160,8 +160,8 @@ impl AppController {
                     }
                 }
                 UiRequest::Rename { preset, label } => {
-                    match crate::config::save_preset_label(&self.paths.config, &preset, &label) {
-                        Ok(()) => self.ui.set_label(&preset, label),
+                    match crate::preset::rename(&self.paths.presets, &preset, &label) {
+                        Ok(()) => self.ui.set_label(&preset, label.trim().into()),
                         Err(error) => {
                             warn!(%preset, error = %format!("{error:#}"), "failed to rename preset");
                             self.ui
@@ -185,27 +185,30 @@ impl AppController {
                 }
                 UiRequest::SaveSettings(draft) => match self.save_settings(draft) {
                     Ok(()) => {}
+                    Err(error) if error.is::<crate::persistence::RollbackFailed>() => {
+                        return Err(error.context(
+                            "settings could not be restored; restart after checking the saved files",
+                        ));
+                    }
                     Err(error) => {
                         warn!(error = %format!("{error:#}"), "settings were not saved");
                         self.ui.settings_failed(&format!("{error:#}"));
                     }
                 },
-                UiRequest::AddPreset => {
-                    let name = self.ui.next_preset_name();
-                    match crate::config::add_preset(&self.paths.config, &name) {
-                        Ok(()) => {
-                            self.shortcut_bindings
-                                .presets
-                                .insert(name.clone(), String::new());
-                            self.ui.add_preset(name);
-                        }
-                        Err(error) => {
-                            error!(preset = %name, error = %format!("{error:#}"), "failed to add preset");
-                            self.ui
-                                .set_status(&format!("Could not add preset: {error:#}"));
-                        }
+                UiRequest::AddPreset => match crate::preset::add(&self.paths.presets) {
+                    Ok(info) => {
+                        let name = info.id;
+                        self.shortcut_bindings
+                            .presets
+                            .insert(name.clone(), String::new());
+                        self.ui.add_preset(name);
                     }
-                }
+                    Err(error) => {
+                        error!(error = %format!("{error:#}"), "failed to add preset");
+                        self.ui
+                            .set_status(&format!("Could not add preset: {error:#}"));
+                    }
+                },
                 UiRequest::DeletePreset(preset) => {
                     if let Err(error) = self.delete_preset(&preset) {
                         warn!(%preset, error = %format!("{error:#}"), "failed to delete preset");
@@ -230,7 +233,6 @@ impl AppController {
         let hotkeys = input::Hotkeys::new(&specs)?;
 
         crate::preset::remove(&self.paths.presets, preset)?;
-        crate::config::remove_preset(&self.paths.config, preset)?;
         self.shortcut_bindings = shortcuts;
         self.bindings = bindings;
         self.hotkeys = hotkeys;

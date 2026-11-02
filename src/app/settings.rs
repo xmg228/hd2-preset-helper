@@ -1,4 +1,4 @@
-//! Commit settings only after shortcut registration and the single file write succeed.
+//! Commit settings only after shortcut registration and persistence both succeed.
 use anyhow::{Result, ensure};
 
 use super::{ActionState, AppController, panel_hotkey, preset_hotkeys};
@@ -65,7 +65,13 @@ impl AppController {
         );
         panel.set_enabled(false)?;
         hotkeys.set_enabled(false)?;
-        draft.save(&self.paths.config)?;
+        let config = draft.render(&self.paths.config)?;
+        crate::preset::edit_shortcuts(&self.paths.presets, &draft.shortcuts.presets, |presets| {
+            crate::persistence::write_pair(
+                (&self.paths.presets, presets),
+                (&self.paths.config, config.as_bytes()),
+            )
+        })?;
 
         self.bindings = bindings;
         self.hotkeys = hotkeys;

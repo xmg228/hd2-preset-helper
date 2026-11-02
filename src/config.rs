@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use crate::preset::PresetScope;
-use anyhow::{Context, Result, bail, ensure};
+use crate::preset::{PresetMetadata, PresetScope};
+use anyhow::{Context, Result};
 use tracing::info;
 
 mod migration;
@@ -37,66 +36,13 @@ impl Default for UpdatesConfig {
     }
 }
 
-impl AppConfig {
-    pub fn shortcut_bindings(&self) -> ShortcutBindings {
-        ShortcutBindings {
-            panel: self.ui.panel_shortcut.clone(),
-            presets: self
-                .presets
-                .slots
-                .iter()
-                .map(|(name, slot)| (name.clone(), slot.shortcut.clone()))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PresetsConfig {
-    pub slots: BTreeMap<String, PresetSlot>,
     pub apply_in_saved_order: bool,
     pub auto_ready_up: bool,
     pub save_fallback_when_taken: bool,
     pub scope: PresetScope,
-}
-
-impl Default for PresetsConfig {
-    fn default() -> Self {
-        Self {
-            slots: (1..=6)
-                .map(|n| {
-                    (
-                        format!("preset_{n}"),
-                        PresetSlot {
-                            label: String::new(),
-                            shortcut: format!("Ctrl + Shift + F{}", n + 6),
-                        },
-                    )
-                })
-                .collect(),
-            apply_in_saved_order: false,
-            auto_ready_up: false,
-            save_fallback_when_taken: false,
-            scope: PresetScope::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PresetSlot {
-    pub label: String,
-    pub shortcut: String,
-}
-
-impl PresetSlot {
-    fn to_item(&self) -> toml_edit::Item {
-        let mut table = toml_edit::Table::new();
-        table.insert("label", toml_edit::value(self.label.as_str()));
-        table.insert("shortcut", toml_edit::value(self.shortcut.as_str()));
-        toml_edit::Item::Table(table)
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
@@ -277,13 +223,6 @@ fn write_setting(
     Ok(())
 }
 
-pub fn save_preset_label(config_path: &Path, preset: &str, label: &str) -> Result<()> {
-    validate_preset_label(preset, label)?;
-    edit_config(config_path, |document| {
-        write_slot_field(document, preset, "label", label)
-    })
-}
-
 pub fn save_scope(config_path: &Path, scope: PresetScope) -> Result<()> {
     let value: toml_edit::InlineTable = [
         ("stratagems", scope.stratagems),
@@ -305,23 +244,9 @@ fn edit_config(
     let mut document = text
         .parse::<toml_edit::DocumentMut>()
         .with_context(|| format!("failed to parse {}", config_path.display()))?;
+    migration::prepare(&mut document)?;
     edit(&mut document)?;
-    fs::write(config_path, document.to_string())
-        .with_context(|| format!("failed to update {}", config_path.display()))
-}
-
-fn slots_table(document: &mut toml_edit::DocumentMut) -> Result<&mut dyn toml_edit::TableLike> {
-    // Omitted slots mean the defaults; an explicit empty table means no presets.
-    let presets = section_table(document, "presets")?;
-    if !presets.contains_key("slots") {
-        let defaults = DEFAULT_CONFIG_TOML.parse::<toml_edit::DocumentMut>()?;
-        presets.insert("slots", defaults["presets"]["slots"].clone());
-    }
-    presets
-        .get_mut("slots")
-        .expect("slots inserted above")
-        .as_table_like_mut()
-        .context("presets.slots must be a table")
+    crate::persistence::write(config_path, document.to_string().as_bytes())
 }
 
 fn section_table<'a>(
@@ -341,60 +266,29 @@ fn section_table<'a>(
         .with_context(|| format!("{section} configuration must be a table"))
 }
 
-fn slot_table<'a>(
-    document: &'a mut toml_edit::DocumentMut,
-    preset: &str,
-) -> Result<&'a mut dyn toml_edit::TableLike> {
-    slots_table(document)?
-        .entry(preset)
-        .or_insert_with(|| PresetSlot::default().to_item())
-        .as_table_like_mut()
-        .with_context(|| format!("presets.slots.{preset} must be a table"))
-}
-
-fn write_slot_field(
-    document: &mut toml_edit::DocumentMut,
-    preset: &str,
-    key: &str,
-    text: &str,
-) -> Result<()> {
-    let table = slot_table(document, preset)?;
-    let mut value = toml_edit::Value::from(text);
-    if let Some(previous) = table.get(key).and_then(toml_edit::Item::as_value) {
-        *value.decor_mut() = previous.decor().clone();
+pub(crate) fn cleanup_legacy(config_path: &Path) -> Result<()> {
+    let text = fs::read_to_string(config_path)?;
+    let mut document = text.parse::<toml_edit::DocumentMut>()?;
+    if migration::prepare(&mut document)? != migration::Format::Current {
+        crate::persistence::write(config_path, document.to_string().as_bytes())?;
     }
-    table.insert(key, toml_edit::Item::Value(value));
     Ok(())
 }
 
-pub fn add_preset(config_path: &Path, preset: &str) -> Result<()> {
-    validate_preset_label(preset, "")?;
-    edit_config(config_path, |document| {
-        let slots = slots_table(document)?;
-        ensure!(
-            !slots.contains_key(preset),
-            "preset already exists: {preset}"
-        );
-        slots.insert(preset, PresetSlot::default().to_item());
-        Ok(())
-    })
+pub(crate) struct LoadedConfig {
+    pub config: AppConfig,
+    legacy_document: toml::Value,
+    pub legacy_hotkeys: bool,
 }
 
-pub fn remove_preset(config_path: &Path, preset: &str) -> Result<()> {
-    edit_config(config_path, |document| {
-        slots_table(document)?.remove(preset);
-        // Keep the empty parent explicit so deserialization cannot restore defaults.
-        if let Some(table) = document["presets"]["slots"].as_table_mut()
-            && table.is_empty()
-        {
-            table.set_implicit(false);
-        }
-        Ok(())
-    })
+impl LoadedConfig {
+    pub fn legacy_preset_metadata(&self) -> Result<Option<Vec<PresetMetadata>>> {
+        migration::metadata(&self.legacy_document, self.legacy_hotkeys)
+    }
 }
 
-pub fn load_app_config(config_path: &Path) -> Result<(AppConfig, bool)> {
-    if !config_path.exists() {
+pub fn load_app_config(config_path: &Path) -> Result<LoadedConfig> {
+    if !config_path.try_exists()? {
         if let Some(parent) = config_path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -403,37 +297,20 @@ pub fn load_app_config(config_path: &Path) -> Result<(AppConfig, bool)> {
                 format!("failed to create config directory {}", parent.display())
             })?;
         }
-        fs::write(config_path, DEFAULT_CONFIG_TOML)
+        crate::persistence::write(config_path, DEFAULT_CONFIG_TOML.as_bytes())
             .with_context(|| format!("failed to create {}", config_path.display()))?;
         info!("default configuration created");
     }
     let text = fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
     let mut document = text.parse::<toml_edit::DocumentMut>()?;
-    let migrated = migration::migrate(&mut document)?;
+    let legacy_document = toml::from_str(&text)?;
+    let legacy_hotkeys = migration::prepare(&mut document)? == migration::Format::Hotkeys;
     let config: AppConfig = toml::from_str(&document.to_string())
         .with_context(|| format!("failed to parse {}", config_path.display()))?;
-    for (preset, slot) in &config.presets.slots {
-        validate_preset_label(preset, &slot.label)?;
-    }
-    config.shortcut_bindings().validate()?;
-    if migrated {
-        fs::write(config_path, document.to_string()).context("failed to migrate configuration")?;
-    }
-    Ok((config, migrated))
-}
-
-fn validate_preset_label(preset: &str, label: &str) -> Result<()> {
-    let valid_key = preset
-        .strip_prefix("preset_")
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|index| *index > 0)
-        .is_some_and(|index| preset == format!("preset_{index}"));
-    if !valid_key {
-        bail!("preset ID must be preset_N with a positive integer N, got {preset}");
-    }
-    if label.chars().any(char::is_control) {
-        bail!("presets.slots.{preset}.label must not contain control characters");
-    }
-    Ok(())
+    Ok(LoadedConfig {
+        config,
+        legacy_document,
+        legacy_hotkeys,
+    })
 }

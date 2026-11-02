@@ -1,12 +1,10 @@
 //! Captured equipment names and their persistence, independent of automation.
 use std::path::Path;
 
-use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
-
 use super::{
-    LOCAL_TEMPLATES_DIR, PresetFile, load_preset_file, load_template_image, save_template_image,
-    validate_preset_name, write_preset_file,
+    load_template_image,
+    model::{SavedEquipment, SavedItem},
+    storage,
 };
 use crate::{
     item::EquipmentKind,
@@ -15,6 +13,7 @@ use crate::{
         text::TextSample,
     },
 };
+use anyhow::{Context, Result, ensure};
 
 pub(crate) struct EquipmentItem {
     pub name: TextSample,
@@ -24,63 +23,35 @@ pub(crate) struct EquipmentItem {
 
 pub(crate) type EquipmentSet = [Option<EquipmentItem>; 6];
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(super) struct SavedEquipment {
-    pub(super) client_size: (u32, u32),
-    // Same order as the six entry cards: helmet, armor, cape, primary, secondary, throwable.
-    pub(super) items: [SavedItem; 6],
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(super) struct SavedItem {
-    pub(super) name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    category: Option<String>,
-    /// A repaired category can be captured at a different resolution from the names.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    category_client_size: Option<(u32, u32)>,
-}
-
 pub(crate) fn save(path: &Path, name: &str, items: &EquipmentSet) -> Result<()> {
-    validate_preset_name(name)?;
+    super::validate_id(name)?;
     ensure!(
         items.iter().all(Option::is_some),
         "all six equipment items must be sampled before saving"
     );
     let client_size = items[0].as_ref().unwrap().client_size;
-    let mut file = if path.exists() {
-        load_preset_file(path)?
-    } else {
-        PresetFile::default()
-    };
-    let saved = std::array::from_fn(|index| SavedItem {
-        name: format!(
-            "{LOCAL_TEMPLATES_DIR}/{name}/equipment/{}-name.png",
-            index + 1
-        ),
-        category: items[index].as_ref().unwrap().category.as_ref().map(|_| {
-            format!(
-                "{LOCAL_TEMPLATES_DIR}/{name}/equipment/{}-category.png",
-                index + 1
-            )
-        }),
-        category_client_size: None,
-    });
-    for (item, target) in items.iter().zip(&saved) {
-        let item = item.as_ref().unwrap();
-        save_template_image(path, &target.name, &item.name.image)?;
-        if let Some((category, relative)) = item.category.as_ref().zip(target.category.as_ref()) {
-            save_template_image(path, relative, &category.image)?;
+    storage::edit_images(path, name, "equipment", |record, images| {
+        let mut saved = Vec::with_capacity(6);
+        for (index, item) in items.iter().enumerate() {
+            let item = item.as_ref().unwrap();
+            saved.push(SavedItem {
+                name: images.save(&format!("{}-name", index + 1), &item.name.image)?,
+                category: item
+                    .category
+                    .as_ref()
+                    .map(|category| {
+                        images.save(&format!("{}-category", index + 1), &category.image)
+                    })
+                    .transpose()?,
+                category_client_size: None,
+            });
         }
-    }
-    file.equipment.insert(
-        name.to_owned(),
-        SavedEquipment {
+        record.equipment = Some(SavedEquipment {
             client_size,
-            items: saved,
-        },
-    );
-    write_preset_file(path, &file)
+            items: saved.try_into().expect("six captured items"),
+        });
+        Ok(())
+    })
 }
 
 /// Repair only the category hint of a successfully applied item; keep its name template.
@@ -91,36 +62,23 @@ pub(crate) fn update_category(
     category: &TextSample,
     client_size: (u32, u32),
 ) -> Result<()> {
-    validate_preset_name(name)?;
-    let mut file = load_preset_file(path)?;
-    let saved = file
-        .equipment
-        .get_mut(name)
-        .with_context(|| format!("equipment preset not found: {name}"))?;
-    let category_client_size = (client_size != saved.client_size).then_some(client_size);
-    let item = &mut saved.items[kind.index()];
-    let relative = item.category.clone().unwrap_or_else(|| {
-        format!(
-            "{LOCAL_TEMPLATES_DIR}/{name}/equipment/{}-category.png",
-            kind.index() + 1
-        )
-    });
-    save_template_image(path, &relative, &category.image)?;
-    if item.category.is_none() || item.category_client_size != category_client_size {
-        item.category = Some(relative);
+    storage::edit_images(path, name, "equipment", |record, images| {
+        let saved = record
+            .equipment
+            .as_mut()
+            .with_context(|| format!("equipment preset not found: {name}"))?;
+        let category_client_size = (client_size != saved.client_size).then_some(client_size);
+        let item = &mut saved.items[kind.index()];
+        item.category =
+            Some(images.save(&format!("{}-category", kind.index() + 1), &category.image)?);
         item.category_client_size = category_client_size;
-        write_preset_file(path, &file)?;
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 pub(crate) fn load(path: &Path, name: &str) -> Result<EquipmentSet> {
-    let file = if path.exists() {
-        load_preset_file(path)?
-    } else {
-        PresetFile::default()
-    };
-    let saved = file.equipment.get(name).with_context(|| {
+    let file = storage::load(path)?;
+    let saved = file.get(name)?.equipment.as_ref().with_context(|| {
         format!("equipment preset {name} has not been saved; use Save preset in the panel first")
     })?;
     let mut items = std::array::from_fn(|_| None);

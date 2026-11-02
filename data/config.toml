@@ -27,37 +27,3 @@ auto_ready_up = false
 
 # If a saved Booster is already in use, save a manually selected one as its fallback.
 save_fallback_when_taken = false
-
-# Each table below defines one preset slot. Use + New preset in the panel to add more.
-# To keep no slots, leave an empty [presets.slots] table; omitting it uses six defaults.
-# Keep preset_N IDs stable: they link to saved content, not the display name.
-# Empty labels use the default name; empty or omitted shortcuts mean unassigned.
-# Shortcuts apply the selected sections while Helldivers or the panel is in front.
-# Panel navigation keys and Ctrl+S take priority in the panel; actions pause shortcuts.
-# Single keys are supported: "1" is the top row, "Num1" is the numeric keypad.
-# Other examples: "Home", "Ctrl + PageUp", "Shift + Equal", "NumAdd", "F13".
-# Esc is reserved for cancel/close; modifier-only shortcuts are not supported.
-# Keep Num Lock on for numpad digits; avoid combining them with Shift.
-[presets.slots.preset_1]
-label = "" # e.g. "Terminids 1"
-shortcut = "Ctrl + Shift + F7"
-
-[presets.slots.preset_2]
-label = ""
-shortcut = "Ctrl + Shift + F8"
-
-[presets.slots.preset_3]
-label = ""
-shortcut = "Ctrl + Shift + F9"
-
-[presets.slots.preset_4]
-label = ""
-shortcut = "Ctrl + Shift + F10"
-
-[presets.slots.preset_5]
-label = ""
-shortcut = "Ctrl + Shift + F11"
-
-[presets.slots.preset_6]
-label = ""
-shortcut = "Ctrl + Shift + F12"

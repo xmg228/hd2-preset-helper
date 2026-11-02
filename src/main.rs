@@ -17,6 +17,7 @@ mod licenses;
 mod loadout;
 mod logging;
 mod permissions;
+mod persistence;
 mod platform;
 mod preset;
 mod preset_action;

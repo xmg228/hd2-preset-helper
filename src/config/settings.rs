@@ -1,4 +1,4 @@
-//! Editable settings are saved together, without rewriting preset names or scope.
+//! Prepare global settings without changing preset contents or shared scope.
 use std::path::Path;
 
 use anyhow::Result;
@@ -16,38 +16,36 @@ pub struct SettingsDraft {
 }
 
 impl SettingsDraft {
-    pub fn save(&self, path: &Path) -> Result<()> {
-        super::edit_config(path, |document| {
-            super::write_setting(
-                document,
-                "ui",
-                "panel_shortcut",
-                self.shortcuts.panel.as_str(),
-            )?;
-            super::write_setting(document, "ui", "monitor", self.monitor.as_str())?;
-            super::write_setting(
-                document,
-                "ui",
-                "language",
-                self.language.locale().unwrap_or("auto"),
-            )?;
-            for (key, value) in [
-                ("apply_in_saved_order", self.apply_in_saved_order),
-                ("auto_ready_up", self.auto_ready_up),
-                ("save_fallback_when_taken", self.save_fallback_when_taken),
-            ] {
-                super::write_setting(document, "presets", key, value)?;
-            }
-            for (name, binding) in &self.shortcuts.presets {
-                super::write_slot_field(document, name, "shortcut", binding)?;
-            }
-            super::write_setting(
-                document,
-                "updates",
-                "check_automatically",
-                self.check_updates_automatically,
-            )?;
-            Ok(())
-        })
+    pub fn render(&self, config_path: &Path) -> Result<String> {
+        let text = std::fs::read_to_string(config_path)?;
+        let mut document = text.parse::<toml_edit::DocumentMut>()?;
+        super::migration::prepare(&mut document)?;
+        super::write_setting(
+            &mut document,
+            "ui",
+            "panel_shortcut",
+            self.shortcuts.panel.as_str(),
+        )?;
+        super::write_setting(&mut document, "ui", "monitor", self.monitor.as_str())?;
+        super::write_setting(
+            &mut document,
+            "ui",
+            "language",
+            self.language.locale().unwrap_or("auto"),
+        )?;
+        for (key, value) in [
+            ("apply_in_saved_order", self.apply_in_saved_order),
+            ("auto_ready_up", self.auto_ready_up),
+            ("save_fallback_when_taken", self.save_fallback_when_taken),
+        ] {
+            super::write_setting(&mut document, "presets", key, value)?;
+        }
+        super::write_setting(
+            &mut document,
+            "updates",
+            "check_automatically",
+            self.check_updates_automatically,
+        )?;
+        Ok(document.to_string())
     }
 }

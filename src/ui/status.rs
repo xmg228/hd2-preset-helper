@@ -1,5 +1,4 @@
 //! Passive action feedback, driven by the same events as the automation.
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -8,8 +7,9 @@ use anyhow::Result;
 use slint::winit_030::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, VecModel};
 
-use super::{ActionStatus, PresetInfo, StatusItem, StatusTone, place_top_right};
+use super::{ActionStatus, StatusItem, StatusTone, place_top_right};
 use crate::app_events::{AppEvent, PresetCompletion};
+use crate::preset::PresetMetadata;
 
 pub(super) struct Status {
     window: ActionStatus,
@@ -36,7 +36,7 @@ impl Status {
         self.window.set_ui_font_family(family.into());
     }
 
-    pub fn update(&mut self, event: AppEvent, preset_info: &BTreeMap<String, PresetInfo>) {
+    pub fn update(&mut self, event: AppEvent, preset_info: &[PresetMetadata]) {
         use StatusTone::{Error, Success, Warning, Working};
         if let AppEvent::PresetStarted { preset }
         | AppEvent::HotkeyReleaseRequested { preset }
@@ -47,7 +47,8 @@ impl Status {
         {
             self.preset.clone_from(preset);
             let label = preset_info
-                .get(preset)
+                .iter()
+                .find(|info| info.id == *preset)
                 .map(|info| info.label.as_str())
                 .unwrap_or("");
             self.window.set_preset_label(label.into());

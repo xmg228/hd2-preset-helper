@@ -80,6 +80,8 @@ while the game or panel is in the foreground.
 
 Settings and presets are stored in `data/` beside the executable. Back up this
 folder to keep them.
+Global settings use `config.toml`; preset names, shortcuts, saved selections and
+display order use `presets.json`.
 
 ## Troubleshooting
 

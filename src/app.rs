@@ -5,7 +5,7 @@ mod update;
 mod worker;
 
 use std::ops::ControlFlow;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
@@ -14,7 +14,7 @@ use tracing::{Level, error, info, warn};
 
 use crate::app_paths::AppPaths;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
-use crate::preset::{PresetScope, archive_legacy_preset_file};
+use crate::preset::PresetScope;
 use crate::preset_action::{PresetActionOptions, PresetCommand};
 use crate::{game_window, input, platform, ui};
 use worker::{ActionWorker, Work, WorkerEvent};
@@ -73,22 +73,22 @@ pub fn run() -> Result<Option<PathBuf>> {
     );
     let config_path = &paths.config;
     let presets_path = &paths.presets;
-    let result = load_app_config(config_path).and_then(|(config, migrated)| {
-        let legacy_presets = archive_legacy_preset_file(presets_path)?;
-        if migrated {
+    let result = load_app_config(config_path).and_then(|loaded| {
+        let captures_need_resaving = crate::preset::initialize(presets_path, || loaded.legacy_preset_metadata())?;
+        // Valid v2 JSON is authoritative, even if this cleanup was interrupted earlier.
+        if let Err(error) = crate::config::cleanup_legacy(config_path) {
+            warn!(error = %format!("{error:#}"), "preset library is valid; obsolete configuration cleanup will be retried");
+        }
+        let config = loaded.config;
+        if loaded.legacy_hotkeys {
             platform::show_notice(
                 "HD2 Preset Helper - Configuration Updated",
                 &format!("Your preset shortcuts were preserved and now APPLY saved presets only.\r\n\r\nTo save, open the panel and use Save preset or Ctrl+S. Modifier keys alone no longer open the panel.\r\n\r\nPanel shortcut: {}\r\nYou can change or clear each shortcut in Settings > Shortcuts. Saved presets were not changed.",
                     if config.ui.panel_shortcut.is_empty() { "Unassigned (use the tray)" } else { &config.ui.panel_shortcut }),
             );
         }
-        if let Some(backup_path) = legacy_presets {
-            info!(
-                path = %presets_path.display(),
-                backup = %backup_path.display(),
-                "legacy preset data archived"
-            );
-            show_preset_format_updated(&backup_path);
+        if captures_need_resaving {
+            show_preset_format_updated();
         }
         run_with_config(config, &paths)
     });
@@ -99,7 +99,15 @@ pub fn run() -> Result<Option<PathBuf>> {
 }
 
 fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf>> {
-    let shortcut_bindings = config.shortcut_bindings();
+    let metadata = crate::preset::metadata(&paths.presets)?;
+    let shortcut_bindings = ShortcutBindings {
+        panel: config.ui.panel_shortcut.clone(),
+        presets: metadata
+            .iter()
+            .map(|info| (info.id.clone(), info.shortcut.clone()))
+            .collect(),
+    };
+    shortcut_bindings.validate()?;
     let bindings = preset_hotkeys(&shortcut_bindings)?;
     let specs: Vec<_> = bindings.iter().map(|binding| binding.hotkey).collect();
     let hotkeys = input::Hotkeys::new(&specs)?;
@@ -110,18 +118,8 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf
         save_fallback_when_taken: config.presets.save_fallback_when_taken,
     };
     let worker = ActionWorker::start(paths.clone())?;
-    let preset_info = config
-        .presets
-        .slots
-        .iter()
-        .map(|(name, slot)| ui::PresetInfo {
-            name: name.clone(),
-            label: slot.label.trim().into(),
-            shortcut: slot.shortcut.clone(),
-        })
-        .collect();
     let ui = ui::AppUi::new(
-        preset_info,
+        metadata,
         config.ui.monitor,
         config.ui.language,
         paths.presets.clone(),
@@ -388,10 +386,9 @@ pub fn show_fatal_error(error: &anyhow::Error) {
     platform::show_error("HD2 Preset Helper", &message);
 }
 
-fn show_preset_format_updated(backup_path: &Path) {
-    let message = format!(
-        "The preset format changed in this version.\r\n\r\nPresets created by an earlier version cannot be used and must be recreated in game.\r\n\r\nThe old preset file was backed up to:\r\n{}\r\n\r\nYour configuration was not changed.",
-        backup_path.display(),
+fn show_preset_format_updated() {
+    platform::show_notice(
+        "HD2 Preset Helper - Presets Updated",
+        "Captures from this older preset format must be saved again in game. Your preset names, shortcuts and other settings were preserved.",
     );
-    platform::show_notice("HD2 Preset Helper - Presets Updated", &message);
 }

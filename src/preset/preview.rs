@@ -1,12 +1,11 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use image::{Rgba, RgbaImage};
 
-use super::{PresetFile, load_preset_file, load_template_image, stratagems};
+use super::{load_template_image, storage, stratagems};
 use crate::{
     item::EquipmentKind,
     vision::{equipment::EquipmentText, text::TextSample},
@@ -46,20 +45,11 @@ pub(crate) struct LoadedPreview {
 }
 
 pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPreview)> + '_> {
-    let file = if path.exists() {
-        load_preset_file(path)?
-    } else {
-        PresetFile::default()
-    };
-    let names: BTreeSet<_> = file
-        .presets
-        .keys()
-        .chain(file.equipment.keys())
-        .cloned()
-        .collect();
-    Ok(names.into_iter().map(move |name| {
-        let stratagems = content(file.presets.get(&name).map(|preset| {
-            stratagems::validate(&name, preset)?;
+    let file = storage::load(path)?;
+    Ok(file.into_presets().map(move |record| {
+        let id = record.id;
+        let stratagems = content(record.stratagems.as_ref().map(|preset| {
+            stratagems::validate(&id, preset)?;
             preset
                 .stratagems
                 .iter()
@@ -85,7 +75,7 @@ pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPr
                 })
                 .collect()
         }));
-        let samples = file.equipment.get(&name).map(|equipment| {
+        let samples = record.equipment.as_ref().map(|equipment| {
             equipment
                 .items
                 .iter()
@@ -115,7 +105,7 @@ pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPr
             None => (PreviewContent::Missing, Vec::new()),
         };
         (
-            name,
+            id,
             LoadedPreview {
                 preview: PresetPreview {
                     stratagems,
@@ -129,10 +119,11 @@ pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPr
 }
 
 pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<RgbaImage> {
-    let file = load_preset_file(path)?;
+    let file = storage::load(path)?;
     let equipment = file
+        .get(preset)?
         .equipment
-        .get(preset)
+        .as_ref()
         .context("equipment preset not saved")?;
     load_name(
         path,
