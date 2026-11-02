@@ -204,6 +204,9 @@ msgstr "키를 누르세요…"
 msgid "Unassigned"
 msgstr "지정 안 됨"
 
+msgid "Set shortcut"
+msgstr "단축키 설정"
+
 msgid "Clear shortcut"
 msgstr "단축키 해제"
 

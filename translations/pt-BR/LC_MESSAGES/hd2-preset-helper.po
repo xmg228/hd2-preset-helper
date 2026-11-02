@@ -204,6 +204,9 @@ msgstr "Pressione as teclas…"
 msgid "Unassigned"
 msgstr "Não atribuído"
 
+msgid "Set shortcut"
+msgstr "Definir atalho"
+
 msgid "Clear shortcut"
 msgstr "Limpar atalho"
 

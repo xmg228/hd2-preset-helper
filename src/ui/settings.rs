@@ -9,7 +9,7 @@ use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
-use super::{MonitorChoice, MonitorRole, PresetPanel, ShortcutRow, UiRequest};
+use super::{MonitorChoice, MonitorRole, PresetPanel, SettingsTarget, ShortcutRow, UiRequest};
 use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::input::Shortcut;
 
@@ -41,7 +41,18 @@ pub(super) fn connect(
     });
     let open_send = send.clone();
     panel.on_edit_settings(move |show_about| {
-        let _ = open_send.send(UiRequest::OpenSettings { show_about });
+        let target = if show_about {
+            SettingsTarget::About
+        } else {
+            SettingsTarget::General
+        };
+        let _ = open_send.send(UiRequest::OpenSettings(target));
+    });
+    let open_send = send.clone();
+    panel.on_edit_shortcut(move |preset| {
+        let _ = open_send.send(UiRequest::OpenSettings(SettingsTarget::PresetShortcut(
+            preset.to_string(),
+        )));
     });
     let check_send = send.clone();
     panel.on_check_updates(move || {
@@ -68,6 +79,12 @@ pub(super) fn connect(
         if let Some(panel) = weak.upgrade() {
             set_binding(&panel, index, String::new());
             panel.set_recording_shortcut(-1);
+            if panel.get_settings_open()
+                && panel.get_shortcut_settings_index() > 0
+                && panel.get_settings_error().is_empty()
+            {
+                panel.invoke_save_settings();
+            }
         }
     });
     let weak = panel.as_weak();
@@ -104,18 +121,30 @@ pub(super) fn connect(
                 panel.set_recording_shortcut(-1);
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if captured == Some(event.physical_key) {
+                if let Some((key, cancelled)) = captured
+                    && key == event.physical_key
+                {
                     if event.state == ElementState::Released {
                         captured = None;
+                        let shortcut_only = panel.get_settings_open()
+                            && panel.get_shortcut_settings_index() > 0
+                            && panel.get_recording_shortcut() >= 0;
                         // Resume shortcuts only after the recorded key is released.
                         panel.set_recording_shortcut(-1);
+                        if shortcut_only {
+                            if cancelled {
+                                panel.invoke_close_dialogs();
+                            } else if panel.get_settings_error().is_empty() {
+                                panel.invoke_save_settings();
+                            }
+                        }
                     }
                     return EventResult::PreventDefault;
                 }
                 if panel.get_settings_open() && panel.get_recording_shortcut() >= 0 {
                     if event.state == ElementState::Pressed && !event.repeat {
                         if event.logical_key == Key::Named(NamedKey::Escape) {
-                            captured = Some(event.physical_key);
+                            captured = Some((event.physical_key, true));
                         } else if let Some(key) = key_name(event) {
                             let mut parts = Vec::new();
                             if modifiers.control_key() {
@@ -138,7 +167,7 @@ pub(super) fn connect(
                                         panel.get_recording_shortcut(),
                                         shortcut.to_string(),
                                     );
-                                    captured = Some(event.physical_key);
+                                    captured = Some((event.physical_key, false));
                                 }
                                 Err(error) => panel.set_settings_error(error.to_string().into()),
                             }
@@ -153,7 +182,7 @@ pub(super) fn connect(
     }
 }
 
-pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, show_about: bool) {
+pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, target: SettingsTarget) {
     let rows = std::iter::once(ShortcutRow {
         name: "".into(),
         binding: draft.shortcuts.panel.as_str().into(),
@@ -174,6 +203,16 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, show_about: bool) 
         }
     }))
     .collect::<Vec<_>>();
+    let (show_about, shortcut_index) = match target {
+        SettingsTarget::General => (false, -1),
+        SettingsTarget::About => (true, -1),
+        SettingsTarget::PresetShortcut(name) => {
+            let Some(index) = rows.iter().position(|row| row.name == name) else {
+                return;
+            };
+            (false, index as i32)
+        }
+    };
     let mut monitors = vec![MonitorChoice {
         id: AUTO_MONITOR.into(),
         role: MonitorRole::Automatic,
@@ -213,6 +252,7 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, show_about: bool) 
     panel.set_settings_error("".into());
     panel.set_settings_saving(false);
     panel.set_recording_shortcut(-1);
+    panel.set_shortcut_settings_index(shortcut_index);
     panel.invoke_focus_list();
     panel.set_settings_open(true);
     panel.invoke_focus_settings(show_about);

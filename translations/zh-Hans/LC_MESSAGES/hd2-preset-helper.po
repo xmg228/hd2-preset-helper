@@ -204,6 +204,9 @@ msgstr "请按下快捷键…"
 msgid "Unassigned"
 msgstr "未分配"
 
+msgid "Set shortcut"
+msgstr "设置快捷键"
+
 msgid "Clear shortcut"
 msgstr "清除快捷键"
 

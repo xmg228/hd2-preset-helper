@@ -1,11 +1,11 @@
 import { Theme } from "theme.slint";
 import { ScrollView, TextEdit } from "std-widgets.slint";
 import { IconButton, PanelButton, PanelComboBox, SettingToggle } from "controls.slint";
-import { ShortcutEditor } from "shortcuts.slint";
+import { BindingRow, ShortcutEditor } from "shortcuts.slint";
 import { ShortcutRow } from "models.slint";
 import { UpdateView, UpdatePhase } from "updates.slint";
 
-enum SettingsPage { general, shortcuts, about, licenses }
+enum SettingsPage { general, shortcuts, preset-shortcut, about, licenses }
 
 export component SettingsDialog inherits Rectangle {
     in property <bool> enabled;
@@ -29,7 +29,9 @@ export component SettingsDialog inherits Rectangle {
     in property <string> error;
     in property <string> shortcut-warning;
     in property <bool> saving;
+    in property <int> shortcut-index: -1;
     private property <SettingsPage> page: SettingsPage.general;
+    private property <bool> shortcut-only: page == SettingsPage.preset-shortcut;
     private property <string> notices;
     out property <bool> viewing-licenses: page == SettingsPage.licenses;
     callback clear(int);
@@ -43,7 +45,7 @@ export component SettingsDialog inherits Rectangle {
     callback license-text() -> string;
     forward-focus: keys;
     public function focus-dialog(show-about: bool) {
-        root.page = show-about ? SettingsPage.about
+        root.page = root.shortcut-index > 0 ? SettingsPage.preset-shortcut : show-about ? SettingsPage.about
             : root.shortcut-warning == "" ? SettingsPage.general : SettingsPage.shortcuts;
         root.notices = "";
         keys.focus();
@@ -67,8 +69,8 @@ export component SettingsDialog inherits Rectangle {
         VerticalLayout {
             padding: 22px;
             spacing: 12px;
-            Text { text: @tr("Settings"); color: Theme.text; font-size: 21px; height: 30px; }
-            HorizontalLayout {
+            Text { text: root.shortcut-only ? @tr("Set shortcut") : @tr("Settings"); color: Theme.text; font-size: 21px; height: 30px; }
+            if (!root.shortcut-only): HorizontalLayout {
                 height: 32px;
                 alignment: start;
                 spacing: 8px;
@@ -93,6 +95,17 @@ export component SettingsDialog inherits Rectangle {
                 }
             }
             Rectangle { height: 1px; background: Theme.border; }
+            if (root.shortcut-only): VerticalLayout {
+                spacing: 12px;
+                Text { text: @tr("Click a shortcut and press your keys. Esc cancels recording."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
+                BindingRow {
+                    item: root.rows[root.shortcut-index];
+                    recording: root.recording == root.shortcut-index;
+                    enabled: root.enabled && !root.saving;
+                    record => { root.recording = root.shortcut-index; }
+                    clear => { keys.focus(); root.clear(root.shortcut-index); }
+                }
+            }
             if (root.page == SettingsPage.general): ScrollView {
                 content-width: self.visible-width - 8px;
                 VerticalLayout {
@@ -251,7 +264,7 @@ export component SettingsDialog inherits Rectangle {
                 alignment: end;
                 spacing: 10px;
                 PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled && !root.saving; clicked => { root.cancel(); } }
-                PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { keys.focus(); root.save(); } }
+                if (!root.shortcut-only): PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { keys.focus(); root.save(); } }
             }
         }
     }

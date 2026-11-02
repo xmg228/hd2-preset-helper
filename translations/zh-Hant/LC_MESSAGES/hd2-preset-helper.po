@@ -204,6 +204,9 @@ msgstr "請按下快速鍵…"
 msgid "Unassigned"
 msgstr "尚未指派"
 
+msgid "Set shortcut"
+msgstr "設定快速鍵"
+
 msgid "Clear shortcut"
 msgstr "清除快速鍵"
 

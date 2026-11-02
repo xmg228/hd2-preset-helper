@@ -204,6 +204,9 @@ msgstr "Нажмите клавиши…"
 msgid "Unassigned"
 msgstr "Не назначено"
 
+msgid "Set shortcut"
+msgstr "Назначить сочетание клавиш"
+
 msgid "Clear shortcut"
 msgstr "Сбросить сочетание клавиш"
 

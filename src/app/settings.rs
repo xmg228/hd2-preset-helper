@@ -2,10 +2,12 @@
 use anyhow::{Result, ensure};
 
 use super::{ActionState, AppController, panel_hotkey, preset_hotkeys};
-use crate::{config::SettingsDraft, input::Hotkeys, preset_action::PresetActionOptions};
+use crate::{
+    config::SettingsDraft, input::Hotkeys, preset_action::PresetActionOptions, ui::SettingsTarget,
+};
 
 impl AppController {
-    pub(super) fn open_settings(&self, show_about: bool) {
+    pub(super) fn open_settings(&self, target: SettingsTarget) {
         if self.exiting
             || self.updates.installing()
             || !matches!(self.state, ActionState::Idle)
@@ -23,7 +25,7 @@ impl AppController {
                 save_fallback_when_taken: self.settings.save_fallback_when_taken,
                 check_updates_automatically: self.updates.automatic,
             },
-            show_about,
+            target,
         );
     }
 

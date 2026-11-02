@@ -204,6 +204,9 @@ msgstr "Premi i tasti…"
 msgid "Unassigned"
 msgstr "Non assegnata"
 
+msgid "Set shortcut"
+msgstr "Imposta scorciatoia"
+
 msgid "Clear shortcut"
 msgstr "Cancella scorciatoia"
 

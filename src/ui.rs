@@ -44,6 +44,12 @@ fn prepare_window(window: &slint::Window, role: WindowRole) -> Result<bool> {
         .map(|native| native.is_some())
 }
 
+pub enum SettingsTarget {
+    General,
+    About,
+    PresetShortcut(String),
+}
+
 pub enum UiRequest {
     OpenPanel,
     Exit,
@@ -58,9 +64,7 @@ pub enum UiRequest {
         preset: String,
         label: String,
     },
-    OpenSettings {
-        show_about: bool,
-    },
+    OpenSettings(SettingsTarget),
     SaveSettings(SettingsDraft),
     CheckUpdates,
     ViewUpdateNotes,
@@ -375,9 +379,9 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn open_settings(&self, draft: SettingsDraft, show_about: bool) {
+    pub fn open_settings(&self, draft: SettingsDraft, target: SettingsTarget) {
         self.window.invoke_finish_rename(true);
-        settings::open(&self.window, draft, show_about);
+        settings::open(&self.window, draft, target);
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {

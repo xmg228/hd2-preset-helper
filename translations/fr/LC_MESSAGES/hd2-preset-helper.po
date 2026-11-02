@@ -204,6 +204,9 @@ msgstr "Appuyez sur les touches…"
 msgid "Unassigned"
 msgstr "Non attribué"
 
+msgid "Set shortcut"
+msgstr "Définir le raccourci"
+
 msgid "Clear shortcut"
 msgstr "Effacer le raccourci"
 

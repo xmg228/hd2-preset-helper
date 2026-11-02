@@ -204,6 +204,9 @@ msgstr "Tasten drücken…"
 msgid "Unassigned"
 msgstr "Nicht zugewiesen"
 
+msgid "Set shortcut"
+msgstr "Tastenkürzel festlegen"
+
 msgid "Clear shortcut"
 msgstr "Tastenkürzel entfernen"
 

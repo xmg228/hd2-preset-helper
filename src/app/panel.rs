@@ -194,7 +194,7 @@ impl AppController {
                         }
                     }
                 }
-                UiRequest::OpenSettings { show_about } => self.open_settings(show_about),
+                UiRequest::OpenSettings(target) => self.open_settings(target),
                 UiRequest::CheckUpdates => self.check_updates(),
                 UiRequest::ViewUpdateNotes => self.view_update_notes(),
                 UiRequest::ViewProject => self.open_link(env!("CARGO_PKG_REPOSITORY")),

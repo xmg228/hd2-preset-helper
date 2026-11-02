@@ -347,6 +347,7 @@ export component PresetPanel inherits Window {
     in property <bool> update-install-allowed;
     out property <bool> update-installing: update-phase == UpdatePhase.installing || update-phase == UpdatePhase.restarting;
     in-out property <int> recording-shortcut: -1;
+    in property <int> shortcut-settings-index: -1;
     in property <string> settings-error;
     in property <bool> settings-saving;
     in-out property <int> current-index: 0;
@@ -392,6 +393,7 @@ export component PresetPanel inherits Window {
     pure callback is-preset-drag(data-transfer) -> bool;
     callback request-reorder(string, string);
     callback edit-settings(bool);
+    callback edit-shortcut(string);
     callback save-settings();
     callback check-updates();
     callback view-update-notes();
@@ -787,7 +789,7 @@ export component PresetPanel inherits Window {
                                     }
                                     name-title := Text {
                                         x: 0px;
-                                        width: min(self.preferred-width, parent.width - 72px);
+                                        width: min(self.preferred-width, shortcut-button.x - rename-button.width - 16px);
                                         height: parent.height;
                                         visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
                                         text: root.presets.length > 0 ? UiText.preset-title(root.preview.label, root.preview.number) : @tr("No presets");
@@ -843,7 +845,7 @@ export component PresetPanel inherits Window {
                                             }
                                         }
                                     }
-                                    IconButton {
+                                    rename-button := IconButton {
                                         x: name-title.width + 8px;
                                         y: (parent.height - self.height) / 2;
                                         visible: !root.editing-name && root.presets.length > 0;
@@ -852,8 +854,17 @@ export component PresetPanel inherits Window {
                                         path: "M 4 16 L 15 5 L 19 9 L 8 20 L 3 21 Z M 13 7 L 17 11";
                                         clicked => { root.begin-rename(); }
                                     }
-                                    IconButton {
-                                        x: name-title.width + 40px;
+                                    shortcut-button := IconButton {
+                                        x: delete-button.x - self.width - 4px;
+                                        y: (parent.height - self.height) / 2;
+                                        visible: !root.editing-name && root.presets.length > 0;
+                                        enabled: root.interactive;
+                                        label: @tr("Set shortcut");
+                                        path: "M 3 5 H 21 V 19 H 3 Z M 6 9 H 7 M 10 9 H 11 M 14 9 H 15 M 18 9 H 19 M 6 12 H 7 M 10 12 H 11 M 14 12 H 15 M 18 12 H 19 M 8 15 H 16";
+                                        clicked => { root.finish-rename(true); root.edit-shortcut(root.current.name); }
+                                    }
+                                    delete-button := IconButton {
+                                        x: parent.width - self.width;
                                         y: (parent.height - self.height) / 2;
                                         visible: !root.editing-name && root.presets.length > 0;
                                         enabled: root.interactive;
@@ -1065,8 +1076,9 @@ export component PresetPanel inherits Window {
             enabled: root.settings-open && !root.pending && !root.update-installing;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: min(560px, parent.width - 32px);
-            height: min(560px, parent.height - 32px);
+            width: min(root.shortcut-settings-index > 0 ? 440px : 560px, parent.width - 32px);
+            height: root.shortcut-settings-index > 0 ? self.preferred-height : min(560px, parent.height - 32px);
+            shortcut-index: root.shortcut-settings-index;
             rows: root.shortcut-rows;
             monitor-labels: root.monitor-labels;
             selected-monitor <=> root.selected-monitor;

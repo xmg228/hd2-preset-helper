@@ -204,6 +204,9 @@ msgstr "Presiona las teclas…"
 msgid "Unassigned"
 msgstr "Sin asignar"
 
+msgid "Set shortcut"
+msgstr "Configurar atajo"
+
 msgid "Clear shortcut"
 msgstr "Borrar atajo"
 

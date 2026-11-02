@@ -204,6 +204,9 @@ msgstr "キーを押してください…"
 msgid "Unassigned"
 msgstr "未割り当て"
 
+msgid "Set shortcut"
+msgstr "ショートカットを設定"
+
 msgid "Clear shortcut"
 msgstr "ショートカットを解除"
 

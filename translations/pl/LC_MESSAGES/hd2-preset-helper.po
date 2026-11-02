@@ -204,6 +204,9 @@ msgstr "Naciśnij klawisze…"
 msgid "Unassigned"
 msgstr "Nieprzypisany"
 
+msgid "Set shortcut"
+msgstr "Ustaw skrót"
+
 msgid "Clear shortcut"
 msgstr "Wyczyść skrót"
 

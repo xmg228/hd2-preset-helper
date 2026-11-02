@@ -4,7 +4,7 @@ import { PanelButton } from "controls.slint";
 import { ShortcutRow } from "models.slint";
 import { UiText } from "text.slint";
 
-component BindingRow inherits Rectangle {
+export component BindingRow inherits Rectangle {
     in property <ShortcutRow> item;
     in property <bool> recording;
     in property <bool> enabled: true;
