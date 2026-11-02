@@ -162,9 +162,9 @@ fn load_previews(
         .map(|(name, mut loaded)| {
             if !loaded.equipment_names.is_empty() {
                 loaded.preview.equipment_cache_matches = scale.map(|scale| {
-                    EquipmentKind::ALL
-                        .into_iter()
-                        .zip(&loaded.equipment_names)
+                    loaded
+                        .equipment_names
+                        .iter()
                         .filter(|(kind, sample)| {
                             cache.has_strong_match(*kind, scale, sample.signature())
                         })

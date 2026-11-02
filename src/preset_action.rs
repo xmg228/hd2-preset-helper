@@ -13,6 +13,7 @@ use crate::app_events::{AppEvent, AppEventSink};
 use crate::capture::CaptureSessionManager;
 use crate::game_settings::read_color_settings;
 use crate::game_window::wait_for_foreground_game_window;
+use crate::item::EquipmentSelection;
 use crate::loadout::pages::{Page, show_page};
 use crate::permissions;
 use crate::preset::PresetScope;
@@ -28,11 +29,11 @@ pub enum PresetActionOutcome {
 pub enum PresetCommand {
     ApplySaved(PresetScope),
     SaveStratagems,
-    SaveEquipment,
+    SaveEquipment(EquipmentSelection),
     ApplyStratagems,
-    ApplyEquipment,
-    SaveFull,
-    ApplyFull,
+    ApplyEquipment(EquipmentSelection),
+    SaveFull(EquipmentSelection),
+    ApplyFull(EquipmentSelection),
 }
 
 #[derive(Clone, Copy)]
@@ -65,11 +66,15 @@ pub fn execute_preset(
     });
 
     let command = if let PresetCommand::ApplySaved(scope) = command {
-        let (stratagems, equipment) = crate::preset::saved_sections(context.presets, preset_name)?;
-        match (scope.stratagems && stratagems, scope.equipment && equipment) {
-            (true, true) => PresetCommand::ApplyFull,
+        let (stratagems, equipment) =
+            crate::preset::saved_sections(context.presets, preset_name, scope.equipment_items)?;
+        match (
+            scope.stratagems && stratagems,
+            scope.includes_equipment() && equipment,
+        ) {
+            (true, true) => PresetCommand::ApplyFull(scope.equipment_items),
             (true, false) => PresetCommand::ApplyStratagems,
-            (false, true) => PresetCommand::ApplyEquipment,
+            (false, true) => PresetCommand::ApplyEquipment(scope.equipment_items),
             (false, false) => {
                 bail!("preset {preset_name} has no saved content in the selected sections")
             }
@@ -108,7 +113,7 @@ pub fn execute_preset(
         }),
     );
     let (outcome, completion) = match command {
-        PresetCommand::SaveFull | PresetCommand::ApplyFull => combined::execute(
+        PresetCommand::SaveFull(_) | PresetCommand::ApplyFull(_) => combined::execute(
             runtime,
             context,
             preset_name,
@@ -136,7 +141,7 @@ pub fn execute_preset(
                 game_color_settings,
             )?
         }
-        PresetCommand::SaveEquipment | PresetCommand::ApplyEquipment => {
+        PresetCommand::SaveEquipment(_) | PresetCommand::ApplyEquipment(_) => {
             show_page(
                 capture,
                 runtime,

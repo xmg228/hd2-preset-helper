@@ -9,8 +9,12 @@ use super::{
     HOTKEY_RELEASE_TIMEOUT, Work, preset_hotkeys,
 };
 use crate::{
-    app_events::AppEvent, game_window, input, preset::PresetScope, preset_action::PresetCommand,
-    ui::UiRequest, window::WindowTarget,
+    app_events::AppEvent,
+    game_window, input,
+    preset::{PresetScope, PresetSection},
+    preset_action::PresetCommand,
+    ui::UiRequest,
+    window::WindowTarget,
 };
 
 impl AppController {
@@ -59,7 +63,7 @@ impl AppController {
         {
             return Ok(());
         }
-        let command = match (saving, scope.stratagems, scope.equipment) {
+        let command = match (saving, scope.stratagems, scope.includes_equipment()) {
             (_, false, false) => {
                 debug!(%preset, saving, reason = "no sections selected", "preset action cancelled");
                 self.ui.event(AppEvent::PresetCancelled {
@@ -68,9 +72,9 @@ impl AppController {
                 })?;
                 return Ok(());
             }
-            (true, true, true) => PresetCommand::SaveFull,
+            (true, true, true) => PresetCommand::SaveFull(scope.equipment_items),
             (true, true, false) => PresetCommand::SaveStratagems,
-            (true, false, true) => PresetCommand::SaveEquipment,
+            (true, false, true) => PresetCommand::SaveEquipment(scope.equipment_items),
             (false, _, _) => PresetCommand::ApplySaved(scope),
         };
         // Include window lookup and activation, not just action-worker execution.
@@ -113,6 +117,20 @@ impl AppController {
         Ok(())
     }
 
+    fn save_scope(&mut self, scope: PresetScope) {
+        match crate::config::save_scope(&self.paths.config, scope) {
+            Ok(()) => {
+                self.scope = scope;
+                self.ui.set_scope(scope);
+            }
+            Err(error) => {
+                error!(error = %format!("{error:#}"), "failed to save preset scope");
+                self.ui
+                    .set_status(&format!("Could not save preset scope: {error:#}"));
+            }
+        }
+    }
+
     pub(super) fn poll_ui(&mut self) -> Result<()> {
         while let Some(request) = self.ui.take_request() {
             match request {
@@ -141,23 +159,30 @@ impl AppController {
                 UiRequest::Action {
                     preset,
                     saving,
-                    scope,
+                    section,
                 } if self.ui.is_panel_active() => {
-                    self.begin_action(preset, saving, scope.unwrap_or(self.scope), None)?;
+                    let mut scope = self.scope;
+                    if let Some(section) = section {
+                        (scope.stratagems, scope.equipment) = match section {
+                            PresetSection::Stratagems => (true, false),
+                            PresetSection::Equipment => (false, true),
+                        };
+                    }
+                    self.begin_action(preset, saving, scope, None)?;
                 }
                 UiRequest::Action { .. } => {}
-                UiRequest::SetScope(scope) => {
-                    match crate::config::save_scope(&self.paths.config, scope) {
-                        Ok(()) => {
-                            self.scope = scope;
-                            self.ui.set_scope(scope);
-                        }
-                        Err(error) => {
-                            error!(error = %format!("{error:#}"), "failed to save preset scope");
-                            self.ui
-                                .set_status(&format!("Could not save preset scope: {error:#}"));
-                        }
+                UiRequest::ToggleSection(section) => {
+                    let mut scope = self.scope;
+                    match section {
+                        PresetSection::Stratagems => scope.stratagems = !scope.stratagems,
+                        PresetSection::Equipment => scope.equipment = !scope.equipment,
                     }
+                    self.save_scope(scope);
+                }
+                UiRequest::ToggleEquipment(kind) => {
+                    let mut scope = self.scope;
+                    scope.equipment_items.toggle(kind);
+                    self.save_scope(scope);
                 }
                 UiRequest::Rename { preset, label } => {
                     match crate::preset::rename(&self.paths.presets, &preset, &label) {

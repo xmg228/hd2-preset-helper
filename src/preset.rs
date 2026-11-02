@@ -17,12 +17,19 @@ use model::{Entry, Preset, PresetLibrary};
 pub(crate) use model::{LocalTemplate, PresetMetadata, StratagemPreset};
 const LOCAL_TEMPLATES_DIR: &str = "local_templates";
 
+#[derive(Clone, Copy)]
+pub enum PresetSection {
+    Stratagems,
+    Equipment,
+}
+
 /// Sections to save or apply. Unchecked sections are left unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PresetScope {
     pub stratagems: bool,
     pub equipment: bool,
+    pub equipment_items: crate::item::EquipmentSelection,
 }
 
 impl Default for PresetScope {
@@ -30,7 +37,14 @@ impl Default for PresetScope {
         Self {
             stratagems: true,
             equipment: true,
+            equipment_items: Default::default(),
         }
+    }
+}
+
+impl PresetScope {
+    pub fn includes_equipment(self) -> bool {
+        self.equipment && !self.equipment_items.is_empty()
     }
 }
 
@@ -42,10 +56,21 @@ pub(crate) fn validate_id(id: &str) -> Result<()> {
     model::validate_id(id, "preset_")
 }
 
-pub fn saved_sections(path: &Path, id: &str) -> Result<(bool, bool)> {
+pub fn saved_sections(
+    path: &Path,
+    id: &str,
+    selection: crate::item::EquipmentSelection,
+) -> Result<(bool, bool)> {
     let library = storage::load(path)?;
     let preset = library.get(id)?;
-    Ok((preset.stratagems.is_some(), preset.equipment.is_some()))
+    Ok((
+        preset.stratagems.is_some(),
+        preset.equipment.as_ref().is_some_and(|equipment| {
+            selection
+                .iter()
+                .any(|kind| equipment.items[kind.index()].is_some())
+        }),
+    ))
 }
 
 pub(crate) fn add(path: &Path) -> Result<PresetMetadata> {

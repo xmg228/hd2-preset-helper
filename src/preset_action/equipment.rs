@@ -8,7 +8,7 @@ use crate::{
     automation::AutomationSession,
     capture::CaptureSource,
     game_settings::GameColorSettings,
-    item::EquipmentKind,
+    item::{EquipmentKind, EquipmentSelection},
     loadout::equipment::{ApplyProgress, EquipmentSet, Session},
     preset::equipment as storage,
     vision::equipment::EquipmentObserver,
@@ -23,14 +23,17 @@ pub(super) fn execute(
     preset: &str,
     command: PresetCommand,
 ) -> Result<(PresetActionOutcome, PresetCompletion)> {
-    if command == PresetCommand::SaveEquipment {
-        let items = sample(capture, target, colors, context)?;
+    if let PresetCommand::SaveEquipment(selection) = command {
+        let items = sample(capture, target, colors, context, selection)?;
         storage::save(context.presets, preset, &items)
             .context("failed to save equipment preset")?;
         Ok((PresetActionOutcome::Saved, PresetCompletion::Saved))
     } else {
-        let items =
-            storage::load(context.presets, preset).context("failed to load equipment preset")?;
+        let PresetCommand::ApplyEquipment(selection) = command else {
+            unreachable!("equipment command required")
+        };
+        let items = storage::load(context.presets, preset, selection)
+            .context("failed to load equipment preset")?;
         apply(capture, target, colors, context, preset, &items)?;
         Ok((
             PresetActionOutcome::Applied,
@@ -44,12 +47,13 @@ pub(super) fn sample(
     target: WindowTarget,
     colors: GameColorSettings,
     context: &mut PresetActionContext<'_>,
+    selection: EquipmentSelection,
 ) -> Result<EquipmentSet> {
     context
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: true });
     with_session(capture, target, colors, context.evidence, |session| {
-        session.sample_all()
+        session.sample(selection)
     })
 }
 
@@ -65,12 +69,16 @@ pub(super) fn apply(
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: false });
     let client_size = capture.output_size();
+    let total = items.iter().flatten().count();
+    let mut completed = 0;
     with_session(capture, target, colors, context.evidence, |session| {
-        session.apply_all(items, context.equipment_cache, |progress| {
+        session.apply(items, context.equipment_cache, |progress| {
             let event = match progress {
                 ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
                     kind,
                     confirmed: false,
+                    completed,
+                    total,
                 },
                 ApplyProgress::Caching {
                     category,
@@ -98,9 +106,12 @@ pub(super) fn apply(
                                 "equipment applied, but its corrected category could not be saved"),
                         }
                     }
+                    completed += 1;
                     AppEvent::EquipmentProgress {
                         kind,
                         confirmed: true,
+                        completed,
+                        total,
                     }
                 }
             };

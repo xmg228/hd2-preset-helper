@@ -14,8 +14,10 @@ use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use crate::app_events::AppEvent;
 use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::item::EquipmentKind;
-use crate::preset::preview::{PresetPreview, PreviewContent, PreviewRole as PreviewImageRole};
-use crate::preset::{PresetMetadata, PresetScope};
+use crate::preset::preview::{
+    PresetPreview, PreviewContent, PreviewImage, PreviewRole as PreviewImageRole,
+};
+use crate::preset::{PresetMetadata, PresetScope, PresetSection};
 
 mod settings;
 mod status;
@@ -48,9 +50,10 @@ pub enum UiRequest {
     Action {
         preset: String,
         saving: bool,
-        scope: Option<PresetScope>,
+        section: Option<PresetSection>,
     },
-    SetScope(PresetScope),
+    ToggleSection(PresetSection),
+    ToggleEquipment(EquipmentKind),
     Rename {
         preset: String,
         label: String,
@@ -174,26 +177,34 @@ impl AppUi {
                 let _ = action_send.send(UiRequest::Action {
                     preset: entry.name.to_string(),
                     saving,
-                    scope: match scope {
-                        ActionScope::Selected => None,
-                        ActionScope::Stratagems => Some(PresetScope {
-                            stratagems: true,
-                            equipment: false,
-                        }),
-                        ActionScope::Equipment => Some(PresetScope {
-                            stratagems: false,
-                            equipment: true,
-                        }),
-                    },
+                    section: preset_section(scope),
                 });
             }
         });
         let scope_send = send.clone();
-        window.on_request_scope(move |stratagems, equipment| {
-            let _ = scope_send.send(UiRequest::SetScope(PresetScope {
-                stratagems,
-                equipment,
-            }));
+        window.on_request_scope(move |scope| {
+            if let Some(section) = preset_section(scope) {
+                let _ = scope_send.send(UiRequest::ToggleSection(section));
+            }
+        });
+        let scope_send = send.clone();
+        window.on_request_equipment_item(move |index| {
+            if let Some(&kind) = EquipmentKind::ALL.get(index as usize) {
+                let _ = scope_send.send(UiRequest::ToggleEquipment(kind));
+            }
+        });
+        window.on_selected_equipment_state(|selected, items| {
+            let mut state = PreviewState::Missing;
+            for (selected, item) in selected.iter().zip(items.iter()) {
+                if selected {
+                    match item.state {
+                        PreviewState::Invalid => return PreviewState::Invalid,
+                        PreviewState::Ready => state = PreviewState::Ready,
+                        PreviewState::Missing => {}
+                    }
+                }
+            }
+            state
         });
         let rename_send = send.clone();
         let weak = window.as_weak();
@@ -522,8 +533,8 @@ impl AppUi {
         rows.push(PresetRow {
             number: preset_number(&name).into(),
             name: name.as_str().into(),
-            stratagems: section(PreviewContent::Missing),
-            equipment: section(PreviewContent::Missing),
+            stratagems: stratagem_section(PreviewContent::Missing),
+            equipment: equipment_section(Default::default()),
             ..Default::default()
         });
         self.preset_info.push(PresetMetadata {
@@ -598,6 +609,11 @@ impl AppUi {
     pub fn set_scope(&self, scope: PresetScope) {
         self.window.set_scope_stratagems(scope.stratagems);
         self.window.set_scope_equipment(scope.equipment);
+        self.window.set_scope_equipment_items(
+            Rc::new(VecModel::from(scope.equipment_items.flags().to_vec())).into(),
+        );
+        self.window
+            .set_equipment_items_selected(!scope.equipment_items.is_empty());
         self.set_status("");
     }
     pub fn set_panel_shortcut(&self, shortcut: &str) {
@@ -641,7 +657,7 @@ impl AppUi {
                 let name = &info.id;
                 let preview = previews.remove(name).unwrap_or(PresetPreview {
                     stratagems: PreviewContent::Missing,
-                    equipment: PreviewContent::Missing,
+                    equipment: Default::default(),
                     equipment_cache_matches: None,
                 });
                 PresetRow {
@@ -649,8 +665,8 @@ impl AppUi {
                     label: info.label.as_str().into(),
                     name: name.as_str().into(),
                     shortcut: info.shortcut.as_str().into(),
-                    stratagems: section(preview.stratagems),
-                    equipment: section(preview.equipment),
+                    stratagems: stratagem_section(preview.stratagems),
+                    equipment: equipment_section(preview.equipment),
                     equipment_cache_matches: preview
                         .equipment_cache_matches
                         .map_or(-1, |n| n as i32),
@@ -702,7 +718,7 @@ pub fn uses_shortcut(shortcut: &crate::input::HotkeySpec) -> bool {
         || (shortcut.key == Key::S && modifiers.iter().eq([HotkeyModifier::Ctrl]))
 }
 
-fn section(content: PreviewContent) -> PreviewSection {
+fn stratagem_section(content: PreviewContent<Vec<PreviewImage>>) -> PreviewSection {
     match content {
         PreviewContent::Missing => PreviewSection::default(),
         PreviewContent::Invalid(error) => PreviewSection {
@@ -710,42 +726,95 @@ fn section(content: PreviewContent) -> PreviewSection {
             error: error.into(),
             ..Default::default()
         },
-        PreviewContent::Ready(images) => PreviewSection {
-            ready: true,
-            saved: true,
-            error: Default::default(),
-            items: Rc::new(VecModel::from(
-                images
-                    .into_iter()
-                    .map(|item| {
-                        let (role, number) = match item.role {
-                            PreviewImageRole::Stratagem(number) => {
-                                (PreviewRole::Stratagem, number as i32)
-                            }
-                            PreviewImageRole::Booster => (PreviewRole::Booster, 0),
-                            PreviewImageRole::FallbackBooster => (PreviewRole::FallbackBooster, 0),
-                            PreviewImageRole::Equipment(kind) => (
-                                match kind {
-                                    EquipmentKind::Helmet => PreviewRole::Helmet,
-                                    EquipmentKind::Armor => PreviewRole::Armor,
-                                    EquipmentKind::Cape => PreviewRole::Cape,
-                                    EquipmentKind::Primary => PreviewRole::Primary,
-                                    EquipmentKind::Secondary => PreviewRole::Secondary,
-                                    EquipmentKind::Throwable => PreviewRole::Throwable,
-                                },
-                                0,
-                            ),
-                        };
-                        PreviewRow {
-                            role,
-                            number,
-                            picture: image(&item.image),
+        PreviewContent::Ready(images) => preview_section(
+            images
+                .into_iter()
+                .map(|item| {
+                    let (role, number) = match item.role {
+                        PreviewImageRole::Stratagem(number) => {
+                            (PreviewRole::Stratagem, number as i32)
                         }
-                    })
-                    .collect::<Vec<_>>(),
-            ))
-            .into(),
-        },
+                        PreviewImageRole::Booster => (PreviewRole::Booster, 0),
+                        PreviewImageRole::FallbackBooster => (PreviewRole::FallbackBooster, 0),
+                    };
+                    preview_item(role, number, PreviewContent::Ready(item.image))
+                })
+                .collect(),
+        ),
+    }
+}
+
+fn equipment_role(kind: EquipmentKind) -> PreviewRole {
+    match kind {
+        EquipmentKind::Helmet => PreviewRole::Helmet,
+        EquipmentKind::Armor => PreviewRole::Armor,
+        EquipmentKind::Cape => PreviewRole::Cape,
+        EquipmentKind::Primary => PreviewRole::Primary,
+        EquipmentKind::Secondary => PreviewRole::Secondary,
+        EquipmentKind::Throwable => PreviewRole::Throwable,
+    }
+}
+
+fn equipment_section(items: [PreviewContent<image::RgbaImage>; 6]) -> PreviewSection {
+    preview_section(
+        EquipmentKind::ALL
+            .into_iter()
+            .zip(items)
+            .map(|(kind, content)| preview_item(equipment_role(kind), 0, content))
+            .collect(),
+    )
+}
+
+fn preview_item(
+    role: PreviewRole,
+    number: i32,
+    content: PreviewContent<image::RgbaImage>,
+) -> PreviewRow {
+    let (state, picture, error) = match content {
+        PreviewContent::Missing => (
+            PreviewState::Missing,
+            Default::default(),
+            Default::default(),
+        ),
+        PreviewContent::Ready(source) => (PreviewState::Ready, image(&source), Default::default()),
+        PreviewContent::Invalid(error) => (PreviewState::Invalid, Default::default(), error.into()),
+    };
+    PreviewRow {
+        role,
+        number,
+        state,
+        picture,
+        error,
+    }
+}
+
+fn preview_section(items: Vec<PreviewRow>) -> PreviewSection {
+    let mut section = PreviewSection::default();
+    for item in &items {
+        if item.state != PreviewState::Missing {
+            section.saved = true;
+            section.count += 1;
+        }
+        match item.state {
+            PreviewState::Ready => {
+                if !section.ready || item.role == PreviewRole::Primary {
+                    section.summary = item.picture.clone();
+                }
+                section.ready = true;
+            }
+            PreviewState::Invalid if section.error.is_empty() => section.error = item.error.clone(),
+            _ => {}
+        }
+    }
+    section.items = Rc::new(VecModel::from(items)).into();
+    section
+}
+
+fn preset_section(scope: ActionScope) -> Option<PresetSection> {
+    match scope {
+        ActionScope::Selected => None,
+        ActionScope::Stratagems => Some(PresetSection::Stratagems),
+        ActionScope::Equipment => Some(PresetSection::Equipment),
     }
 }
 

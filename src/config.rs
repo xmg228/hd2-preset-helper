@@ -224,12 +224,18 @@ fn write_setting(
 }
 
 pub fn save_scope(config_path: &Path, scope: PresetScope) -> Result<()> {
-    let value: toml_edit::InlineTable = [
+    let mut value: toml_edit::InlineTable = [
         ("stratagems", scope.stratagems),
         ("equipment", scope.equipment),
     ]
     .into_iter()
     .collect();
+    let items: toml_edit::Array = scope
+        .equipment_items
+        .iter()
+        .map(crate::item::EquipmentKind::label)
+        .collect();
+    value.insert("equipment_items", items.into());
     edit_config(config_path, |document| {
         write_setting(document, "presets", "scope", value)
     })

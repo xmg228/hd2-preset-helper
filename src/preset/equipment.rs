@@ -7,7 +7,7 @@ use super::{
     storage,
 };
 use crate::{
-    item::EquipmentKind,
+    item::{EquipmentKind, EquipmentSelection},
     vision::{
         equipment::{EquipmentObserver, EquipmentText},
         text::TextSample,
@@ -25,17 +25,28 @@ pub(crate) type EquipmentSet = [Option<EquipmentItem>; 6];
 
 pub(crate) fn save(path: &Path, name: &str, items: &EquipmentSet) -> Result<()> {
     super::validate_id(name)?;
-    ensure!(
-        items.iter().all(Option::is_some),
-        "all six equipment items must be sampled before saving"
-    );
-    let client_size = items[0].as_ref().unwrap().client_size;
+    let client_size = items
+        .iter()
+        .flatten()
+        .next()
+        .context("no equipment items were sampled")?
+        .client_size;
     storage::edit_images(path, name, "equipment", |record, images| {
-        let mut saved = Vec::with_capacity(6);
+        let saved = record.equipment.get_or_insert_with(|| SavedEquipment {
+            client_size,
+            items: std::array::from_fn(|_| None),
+        });
+        if items.iter().all(Option::is_some) {
+            saved.client_size = client_size;
+        }
         for (index, item) in items.iter().enumerate() {
-            let item = item.as_ref().unwrap();
-            saved.push(SavedItem {
+            let Some(item) = item else {
+                continue;
+            };
+            saved.items[index] = Some(SavedItem {
                 name: images.save(&format!("{}-name", index + 1), &item.name.image)?,
+                name_client_size: (item.client_size != saved.client_size)
+                    .then_some(item.client_size),
                 category: item
                     .category
                     .as_ref()
@@ -46,10 +57,6 @@ pub(crate) fn save(path: &Path, name: &str, items: &EquipmentSet) -> Result<()> 
                 category_client_size: None,
             });
         }
-        record.equipment = Some(SavedEquipment {
-            client_size,
-            items: saved.try_into().expect("six captured items"),
-        });
         Ok(())
     })
 }
@@ -67,8 +74,12 @@ pub(crate) fn update_category(
             .equipment
             .as_mut()
             .with_context(|| format!("equipment preset not found: {name}"))?;
-        let category_client_size = (client_size != saved.client_size).then_some(client_size);
-        let item = &mut saved.items[kind.index()];
+        let item = saved.items[kind.index()]
+            .as_mut()
+            .context("equipment item has not been saved")?;
+        let category_client_size = (client_size
+            != item.name_client_size.unwrap_or(saved.client_size))
+        .then_some(client_size);
         item.category =
             Some(images.save(&format!("{}-category", kind.index() + 1), &category.image)?);
         item.category_client_size = category_client_size;
@@ -76,15 +87,19 @@ pub(crate) fn update_category(
     })
 }
 
-pub(crate) fn load(path: &Path, name: &str) -> Result<EquipmentSet> {
+pub(crate) fn load(path: &Path, name: &str, selection: EquipmentSelection) -> Result<EquipmentSet> {
     let file = storage::load(path)?;
     let saved = file.get(name)?.equipment.as_ref().with_context(|| {
         format!("equipment preset {name} has not been saved; use Save preset in the panel first")
     })?;
     let mut items = std::array::from_fn(|_| None);
-    for (item, source) in items.iter_mut().zip(&saved.items) {
-        *item = Some(EquipmentItem {
-            name: load_text(path, &source.name, saved.client_size, EquipmentText::Name)?,
+    for kind in selection.iter() {
+        let Some(source) = &saved.items[kind.index()] else {
+            continue;
+        };
+        let client_size = source.name_client_size.unwrap_or(saved.client_size);
+        items[kind.index()] = Some(EquipmentItem {
+            name: load_text(path, &source.name, client_size, EquipmentText::Name)?,
             category: source
                 .category
                 .as_deref()
@@ -92,12 +107,12 @@ pub(crate) fn load(path: &Path, name: &str) -> Result<EquipmentSet> {
                     load_text(
                         path,
                         relative,
-                        source.category_client_size.unwrap_or(saved.client_size),
+                        source.category_client_size.unwrap_or(client_size),
                         EquipmentText::Category,
                     )
                 })
                 .transpose()?,
-            client_size: saved.client_size,
+            client_size,
         });
     }
     Ok(items)

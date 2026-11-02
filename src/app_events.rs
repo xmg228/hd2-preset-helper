@@ -62,6 +62,8 @@ pub enum AppEvent {
     EquipmentProgress {
         kind: EquipmentKind,
         confirmed: bool,
+        completed: usize,
+        total: usize,
     },
     EquipmentCaching {
         category: image::RgbaImage,

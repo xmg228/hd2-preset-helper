@@ -26,7 +26,7 @@ pub(super) fn execute(
     target: WindowTarget,
     colors: GameColorSettings,
 ) -> Result<(PresetActionOutcome, PresetCompletion)> {
-    if command == PresetCommand::SaveFull {
+    if let PresetCommand::SaveFull(selection) = command {
         let started_on_equipment = show_page(
             capture,
             runtime,
@@ -55,7 +55,7 @@ pub(super) fn execute(
             Page::Equipment,
             context.evidence,
         )?;
-        let items = equipment::sample(capture, target.clone(), colors, context)?;
+        let items = equipment::sample(capture, target.clone(), colors, context, selection)?;
         if !started_on_equipment {
             show_page(
                 capture,
@@ -73,9 +73,12 @@ pub(super) fn execute(
             .context("equipment saved, but saving Stratagems failed")?;
         Ok((PresetActionOutcome::Saved, PresetCompletion::Saved))
     } else {
+        let PresetCommand::ApplyFull(selection) = command else {
+            unreachable!("combined command required")
+        };
         // Validate both saved parts before switching pages or changing any equipment.
         stratagems::load(context, preset)?;
-        let items = storage::load(context.presets, preset)?;
+        let items = storage::load(context.presets, preset, selection)?;
         show_page(
             capture,
             runtime,

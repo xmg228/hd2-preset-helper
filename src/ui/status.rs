@@ -106,7 +106,7 @@ impl Status {
                 self.window.set_booster(icon);
                 ("Applying Booster".into(), Working, None)
             }
-            AppEvent::EquipmentProgress { kind, confirmed } => {
+            AppEvent::EquipmentProgress { kind, confirmed, completed, total } => {
                 if !confirmed {
                     self.window.set_picture(match crate::preset::preview::equipment_name(
                         &self.presets, &self.preset, kind)
@@ -119,8 +119,7 @@ impl Status {
                         }
                     });
                 }
-                (format!("Applying equipment · {}/{}", kind.index() + usize::from(confirmed),
-                    crate::item::EquipmentKind::ALL.len()), Working, None)
+                (format!("Applying equipment · {completed}/{total}"), Working, None)
             }
             AppEvent::FallbackBoosterRequested { .. } => (
                 "Saved Booster is already in use. Select another to save as your fallback, or return to cancel.".into(),

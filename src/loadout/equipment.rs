@@ -13,7 +13,7 @@ use crate::{
     automation::AutomationSession,
     game_window,
     input::Key,
-    item::EquipmentKind,
+    item::{EquipmentKind, EquipmentSelection},
     vision::equipment::{EquipmentObservation, EquipmentObserver},
     vision::text::TextSample,
 };
@@ -148,11 +148,11 @@ impl<'a> Session<'a> {
         })
     }
 
-    /// The caller replaces its old set only after all six samples and returns succeed.
-    pub fn sample_all(&mut self) -> Result<EquipmentSet> {
+    /// Publish only after every requested sample and return succeeds.
+    pub fn sample(&mut self, selection: EquipmentSelection) -> Result<EquipmentSet> {
         let mut items = std::array::from_fn(|_| None);
 
-        for kind in EquipmentKind::ALL {
+        for (index, kind) in selection.iter().enumerate() {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
             let item = (|| -> Result<EquipmentItem> {
@@ -169,27 +169,28 @@ impl<'a> Session<'a> {
                 format!("failed to remember {kind:?}; previous equipment records retained")
             })?;
             items[kind.index()] = Some(item);
-            tracing::debug!(completed = kind.index() + 1, "equipped item sampled");
+            tracing::debug!(completed = index + 1, "equipped item sampled");
         }
         self.check_active()?;
 
         Ok(items)
     }
 
-    /// Check the complete set before opening or changing any equipment.
-    pub fn apply_all(
+    /// Missing slots are outside this operation's scope.
+    pub fn apply(
         &mut self,
         items: &EquipmentSet,
         cache: &mut EquipmentCache,
         mut progress: impl FnMut(ApplyProgress<'_>),
     ) -> Result<()> {
-        if let Some(kind) = EquipmentKind::ALL
-            .iter()
-            .find(|&&kind| items[kind.index()].is_none())
+        ensure!(
+            items.iter().any(Option::is_some),
+            "no saved equipment in the selected range"
+        );
+        for (kind, item) in EquipmentKind::ALL
+            .into_iter()
+            .filter_map(|kind| items[kind.index()].as_ref().map(|item| (kind, item)))
         {
-            bail!("no saved item for {kind:?}; remember it before applying");
-        }
-        for kind in EquipmentKind::ALL {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
             progress(ApplyProgress::Selecting(kind));
@@ -197,11 +198,7 @@ impl<'a> Session<'a> {
             self.open(kind)
                 .with_context(|| format!("failed to open {kind:?} for application"))?;
             let corrected_category = self
-                .apply_item(
-                    items[kind.index()].as_ref().unwrap(),
-                    cache.search(kind, self.page.scale),
-                    &mut progress,
-                )
+                .apply_item(item, cache.search(kind, self.page.scale), &mut progress)
                 .with_context(|| format!("failed to apply {kind:?}"))?;
             progress(ApplyProgress::Selected {
                 kind,

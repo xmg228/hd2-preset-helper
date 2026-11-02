@@ -4,9 +4,9 @@ import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice }
 import { SettingsDialog } from "settings.slint";
 import { UpdatePhase } from "updates.slint";
 export { UpdatePhase }
-import { ActionScope, PreviewRole, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
+import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
 import { UiText } from "text.slint";
-export { ActionScope, PreviewRole, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
+export { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
 export { ActionStatus, StatusItem, StatusTone } from "status.slint";
 
@@ -23,11 +23,21 @@ component SelectableSection inherits Rectangle {
     callback apply();
     vertical-stretch: 0;
     border-radius: 5px;
-    border-width: 1px;
-    border-color: keys.has-focus ? Theme.text-secondary : transparent;
-    background: hovered && enabled ? #222627 : transparent;
     forward-focus: keys;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 44px;
+        border-radius: 5px;
+        border-width: 1px;
+        border-color: keys.has-focus ? Theme.text-secondary : transparent;
+        background: root.hovered && root.enabled ? #222627 : transparent;
+    }
     touch := TouchArea {
+        x: 0px;
+        y: 0px;
+        height: 44px;
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { keys.focus(); root.toggled(); }
@@ -110,19 +120,76 @@ component SelectableSection inherits Rectangle {
     }
 }
 
-component NamePreview inherits Rectangle {
+component EquipmentTile inherits Rectangle {
     in property <PreviewRow> item;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
     min-width: 0px;
     preferred-width: 0px;
     horizontal-stretch: 1;
-    min-height: 38px;
+    min-height: 46px;
+    border-radius: 4px;
+    background: touch.has-hover && enabled ? Theme.control : transparent;
+    border-width: 1px;
+    border-color: keys.has-focus ? Theme.text-secondary : transparent;
+    forward-focus: keys;
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
     VerticalLayout {
         alignment: center;
+        padding: 4px;
         spacing: 2px;
-        Text { text: UiText.item-label(root.item); color: Theme.text-secondary; font-size: 11px; height: 15px; }
-        NameImage {
-            source: root.item.picture;
+        opacity: root.enabled ? (root.checked ? 1 : 0.5) : (root.checked ? 0.65 : 0.4);
+        HorizontalLayout {
+            height: 15px;
+            spacing: 4px;
+            Rectangle {
+                width: 10px;
+                if (root.checked): Path {
+                    width: parent.width;
+                    height: 10px;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 18;
+                    viewbox-height: 18;
+                    commands: "M 3 9 L 7 13 L 15 5";
+                    fill: transparent;
+                    stroke: root.enabled ? Theme.accent-soft : Theme.text-secondary;
+                    stroke-width: 2px;
+                }
+            }
+            Text { text: UiText.item-label(root.item); color: Theme.text-secondary; font-size: 11px; }
+        }
+        Rectangle {
             height: 21px;
+            if (root.item.state == PreviewState.ready): NameImage { source: root.item.picture; }
+            if (root.item.state != PreviewState.ready): Text {
+                text: root.item.state == PreviewState.invalid ? @tr("Preview unavailable") : @tr("Not saved");
+                color: Theme.text-secondary;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+    if (root.item.error != ""): Tooltip { text: @markdown("\{root.item.error}"); }
+    keys := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        accessible-role: checkbox;
+        accessible-label: UiText.item-label(root.item);
+        accessible-enabled: root.enabled;
+        accessible-checkable: true;
+        accessible-checked: root.checked;
+        accessible-action-default => { if (root.enabled) { root.toggled(); } }
+        key-pressed(event) => {
+            if (event.text == Key.Space) {
+                if (!event.repeat) { root.toggled(); }
+                return accept;
+            }
+            return reject;
         }
     }
 }
@@ -207,7 +274,7 @@ component PresetCard inherits Rectangle {
             opacity: root.scope-stratagems ? 1 : 0.65;
         }
         if (root.item.equipment.ready): NameImage {
-            source: root.item.equipment.items[3].picture;
+            source: root.item.equipment.summary;
             height: 14px;
             colorize: Theme.control-text;
             opacity: root.scope-equipment ? 1 : 0.65;
@@ -285,8 +352,11 @@ export component PresetPanel inherits Window {
     in-out property <int> current-index: 0;
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
+    in property <[bool]> scope-equipment-items;
+    in property <bool> equipment-items-selected: true;
+    private property <PreviewState> equipment-state: root.selected-equipment-state(root.scope-equipment-items, current.equipment.items);
     private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
-    private property <bool> include-equipment: scope-equipment && current.equipment.saved;
+    private property <bool> include-equipment: scope-equipment && equipment-state != PreviewState.missing;
     out property <bool> editing-name: editing-preset != "";
     out property <bool> reordering-preset: reorder-phase != PresetReorderPhase.idle;
     out property <bool> save-available: root.action-available(true, ActionScope.selected);
@@ -314,7 +384,9 @@ export component PresetPanel inherits Window {
         ? clamp(round((drag-card-y - preset-list.content-y) / row-pitch), 0, max(0, presets.length - 1)) : -1;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
     callback request-action(bool, ActionScope);
-    callback request-scope(bool, bool);
+    callback request-scope(ActionScope);
+    callback request-equipment-item(int);
+    pure callback selected-equipment-state([bool], [PreviewRow]) -> PreviewState;
     callback request-rename(string, string);
     callback request-delete(string);
     pure callback is-preset-drag(data-transfer) -> bool;
@@ -389,14 +461,15 @@ export component PresetPanel inherits Window {
     }
     public pure function action-available(saving: bool, scope: ActionScope) -> bool {
         let stratagems = scope == ActionScope.stratagems || (scope == ActionScope.selected && root.scope-stratagems);
-        let equipment = scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment);
+        let equipment = root.equipment-items-selected
+            && (scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment));
         if (!root.interactive || root.reordering-preset || root.presets.length == 0 || (!stratagems && !equipment)) { return false; }
         if (saving) { return true; }
         let include-stratagems = stratagems && root.current.stratagems.saved;
-        let include-equipment = equipment && root.current.equipment.saved;
+        let include-equipment = equipment && root.equipment-state != PreviewState.missing;
         return (include-stratagems || include-equipment)
             && (!include-stratagems || root.current.stratagems.ready)
-            && (!include-equipment || root.current.equipment.ready);
+            && (!include-equipment || root.equipment-state == PreviewState.ready);
     }
     function apply-current(scope: ActionScope) {
         if (root.action-available(false, scope)) {
@@ -556,7 +629,7 @@ export component PresetPanel inherits Window {
                                             hovered: touch.has-hover || handle.has-hover;
                                             handle-hovered: handle.has-hover;
                                             scope-stratagems: root.scope-stratagems;
-                                            scope-equipment: root.scope-equipment;
+                                            scope-equipment: root.scope-equipment && root.equipment-items-selected;
                                             opacity: root.reorder-preview-visible && index == root.drag-source-index ? 0 : 1;
                                             accessible-role: button;
                                             accessible-label: UiText.preset-title(preset.label, preset.number);
@@ -643,7 +716,7 @@ export component PresetPanel inherits Window {
                                     selected: true;
                                     handle-hovered: true;
                                     scope-stratagems: root.scope-stratagems;
-                                    scope-equipment: root.scope-equipment;
+                                    scope-equipment: root.scope-equipment && root.equipment-items-selected;
                                     drop-shadow-color: #00000080;
                                     drop-shadow-blur: 8px;
                                     drop-shadow-offset-y: 2px;
@@ -799,7 +872,7 @@ export component PresetPanel inherits Window {
                                 apply => { root.apply-current(ActionScope.stratagems); }
                                 toggled => {
                                     root.finish-rename(true);
-                                    root.request-scope(!root.scope-stratagems, root.scope-equipment);
+                                    root.request-scope(ActionScope.stratagems);
                                 }
                                 Rectangle {
                                     height: 48px;
@@ -821,7 +894,7 @@ export component PresetPanel inherits Window {
                             SelectableSection {
                                 text: @tr("Equipment");
                                 detail: !root.loading && root.preview.equipment.ready && root.preview.equipment-cache-matches >= 0
-                                    ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.items.length) : "";
+                                    ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.count) : "";
                                 detail-help: @tr("Based on complete category caches. Uncovered items may still apply without scanning.");
                                 checked: root.scope-equipment;
                                 enabled: root.interactive;
@@ -830,20 +903,23 @@ export component PresetPanel inherits Window {
                                 apply => { root.apply-current(ActionScope.equipment); }
                                 toggled => {
                                     root.finish-rename(true);
-                                    root.request-scope(root.scope-stratagems, !root.scope-equipment);
+                                    root.request-scope(ActionScope.equipment);
                                 }
                                 Rectangle {
-                                    // Two 38px name rows, with the same 20px gap when empty.
-                                    height: 96px;
-                                    if (root.preview.equipment.ready): VerticalLayout {
-                                        spacing: 20px;
-                                        opacity: root.scope-equipment ? 1 : 0.65;
+                                    height: 100px;
+                                    if (root.presets.length > 0): VerticalLayout {
+                                        spacing: 8px;
                                         for row in 2: HorizontalLayout {
                                             spacing: 14px;
-                                            for column in 3: NamePreview { item: root.preview.equipment.items[row * 3 + column]; }
+                                            for column in 3: EquipmentTile {
+                                                item: root.preview.equipment.items[row * 3 + column];
+                                                checked: root.scope-equipment-items[row * 3 + column];
+                                                enabled: root.interactive && root.scope-equipment;
+                                                toggled => { root.request-equipment-item(row * 3 + column); }
+                                            }
                                         }
                                     }
-                                    if (!root.preview.equipment.ready): Text {
+                                    if (root.presets.length == 0): Text {
                                         text: UiText.section-message(root.preview.equipment);
                                         color: Theme.text-secondary;
                                         wrap: word-wrap;
@@ -864,7 +940,7 @@ export component PresetPanel inherits Window {
                     }
                     if (root.loading || root.failure-details == "" || root.status != ""): Text {
                         text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
-                            : root.scope-stratagems || root.scope-equipment ? @tr("Start from either loadout page.")
+                            : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
                             : @tr("Select sections to save or apply.");
                         color: Theme.text-secondary;
                         wrap: word-wrap;
@@ -923,8 +999,8 @@ export component PresetPanel inherits Window {
                             spacing: 4px;
                             save-button := PanelButton {
                                 height: 32px;
-                                text: root.scope-stratagems ? (root.scope-equipment ? @tr("Save preset") : @tr("Save Stratagems"))
-                                    : root.scope-equipment ? @tr("Save equipment") : @tr("Select content");
+                                text: root.scope-stratagems ? (root.scope-equipment && root.equipment-items-selected ? @tr("Save preset") : @tr("Save Stratagems"))
+                                    : root.scope-equipment && root.equipment-items-selected ? @tr("Save equipment") : @tr("Select content");
                                 filled: true;
                                 enabled: root.save-available;
                                 property <string> hint: @tr("Fill all four Stratagem slots before saving.");

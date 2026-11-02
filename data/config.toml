@@ -17,7 +17,7 @@ check_automatically = true
 [presets]
 # Shared scope for saving and applying, remembered by the panel.
 # Unchecked sections stay unchanged. Applying skips unsaved sections.
-scope = { stratagems = true, equipment = true }
+scope = { stratagems = true, equipment = true, equipment_items = ["helmet", "armor", "cape", "primary", "secondary", "throwable"] }
 
 # Apply Stratagems in saved order when all four slots start empty.
 apply_in_saved_order = false

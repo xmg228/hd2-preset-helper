@@ -16,7 +16,6 @@ pub enum PreviewRole {
     Stratagem(usize),
     Booster,
     FallbackBooster,
-    Equipment(EquipmentKind),
 }
 
 pub struct PreviewImage {
@@ -24,15 +23,17 @@ pub struct PreviewImage {
     pub image: RgbaImage,
 }
 
-pub enum PreviewContent {
+#[derive(Default)]
+pub enum PreviewContent<T> {
+    #[default]
     Missing,
-    Ready(Vec<PreviewImage>),
+    Ready(T),
     Invalid(String),
 }
 
 pub struct PresetPreview {
-    pub stratagems: PreviewContent,
-    pub equipment: PreviewContent,
+    pub stratagems: PreviewContent<Vec<PreviewImage>>,
+    pub equipment: [PreviewContent<RgbaImage>; 6],
     /// Strong cached-name matches at the current UI scale, not live verification.
     pub equipment_cache_matches: Option<usize>,
 }
@@ -40,8 +41,8 @@ pub struct PresetPreview {
 /// Transient name samples, consumed by the worker before presentation crosses to the UI.
 pub(crate) struct LoadedPreview {
     pub preview: PresetPreview,
-    /// All six names for a valid equipment preview; empty when missing or invalid.
-    pub equipment_names: Vec<TextSample>,
+    /// Saved names retain their kinds even when the preset contains only some items.
+    pub equipment_names: Vec<(EquipmentKind, TextSample)>,
 }
 
 pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPreview)> + '_> {
@@ -75,35 +76,28 @@ pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPr
                 })
                 .collect()
         }));
-        let samples = record.equipment.as_ref().map(|equipment| {
-            equipment
-                .items
-                .iter()
-                .map(|item| {
-                    super::equipment::load_text(
-                        path,
-                        &item.name,
-                        equipment.client_size,
-                        EquipmentText::Name,
-                    )
-                })
-                .collect::<Result<Vec<_>>>()
-        });
-        let (equipment, equipment_names) = match samples {
-            Some(Ok(samples)) => {
-                let images = EquipmentKind::ALL
-                    .into_iter()
-                    .zip(&samples)
-                    .map(|(kind, sample)| PreviewImage {
-                        role: PreviewRole::Equipment(kind),
-                        image: name_preview(sample),
-                    })
-                    .collect();
-                (PreviewContent::Ready(images), samples)
+        let mut equipment_names = Vec::new();
+        let equipment = std::array::from_fn(|index| {
+            let Some(equipment) = record.equipment.as_ref() else {
+                return PreviewContent::Missing;
+            };
+            let Some(item) = equipment.items[index].as_ref() else {
+                return PreviewContent::Missing;
+            };
+            match super::equipment::load_text(
+                path,
+                &item.name,
+                item.name_client_size.unwrap_or(equipment.client_size),
+                EquipmentText::Name,
+            ) {
+                Ok(sample) => {
+                    let image = name_preview(&sample);
+                    equipment_names.push((EquipmentKind::ALL[index], sample));
+                    PreviewContent::Ready(image)
+                }
+                Err(error) => PreviewContent::Invalid(format!("{error:#}")),
             }
-            Some(Err(error)) => (PreviewContent::Invalid(format!("{error:#}")), Vec::new()),
-            None => (PreviewContent::Missing, Vec::new()),
-        };
+        });
         (
             id,
             LoadedPreview {
@@ -125,10 +119,13 @@ pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<
         .equipment
         .as_ref()
         .context("equipment preset not saved")?;
+    let item = equipment.items[kind.index()]
+        .as_ref()
+        .context("equipment item has not been saved")?;
     load_name(
         path,
-        &equipment.items[kind.index()].name,
-        equipment.client_size,
+        &item.name,
+        item.name_client_size.unwrap_or(equipment.client_size),
     )
 }
 
@@ -141,7 +138,7 @@ fn load_name(path: &Path, name: &str, client_size: (u32, u32)) -> Result<RgbaIma
     )?))
 }
 
-fn content(result: Option<Result<Vec<PreviewImage>>>) -> PreviewContent {
+fn content(result: Option<Result<Vec<PreviewImage>>>) -> PreviewContent<Vec<PreviewImage>> {
     match result {
         None => PreviewContent::Missing,
         Some(Ok(images)) => PreviewContent::Ready(images),

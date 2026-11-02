@@ -62,12 +62,15 @@ pub(crate) struct StratagemPreset {
 pub(super) struct SavedEquipment {
     pub(super) client_size: (u32, u32),
     // Same order as the six entry cards: helmet, armor, cape, primary, secondary, throwable.
-    pub(super) items: [SavedItem; 6],
+    pub(super) items: [Option<SavedItem>; 6],
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(super) struct SavedItem {
     pub(super) name: String,
+    /// Partial saves may replace a name at a different resolution from the other items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) name_client_size: Option<(u32, u32)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) category: Option<String>,
     /// A repaired category can be captured at a different resolution from the names.
@@ -99,6 +102,7 @@ impl Preset {
             .equipment
             .iter()
             .flat_map(|saved| &saved.items)
+            .flatten()
             .flat_map(|item| std::iter::once(item.name.as_str()).chain(item.category.as_deref()));
         stratagems.chain(equipment)
     }
