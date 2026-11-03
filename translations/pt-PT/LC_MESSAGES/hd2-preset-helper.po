@@ -82,6 +82,9 @@ msgstr "Nome da predefinição"
 msgid "Rename preset"
 msgstr "Mudar nome da predefinição"
 
+msgid "Duplicate preset"
+msgstr "Duplicar predefinição"
+
 msgid "Delete preset"
 msgstr "Eliminar predefinição"
 

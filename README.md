@@ -40,6 +40,7 @@ Preset shortcuts **only apply**; use the panel to save.
 `Ctrl+Shift+Space` shows or hides the panel. Esc also hides it.
 
 Hover to preview, click to select, and press Enter or double-click to apply.
+Drag the handle to reorder presets; use the duplicate icon beside the preset title to make a copy.
 
 Check **Stratagems & Booster**, **Equipment**, or both to choose what to save and
 apply, including through preset shortcuts. Saving overwrites only the checked

@@ -82,6 +82,9 @@ msgstr "プリセット名"
 msgid "Rename preset"
 msgstr "プリセット名を変更"
 
+msgid "Duplicate preset"
+msgstr "プリセットを複製"
+
 msgid "Delete preset"
 msgstr "プリセットを削除"
 

@@ -9,7 +9,11 @@ pub(crate) mod stratagems;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 pub(crate) use images::{load_template_image, resolve_template_path};
 pub(crate) use migration::initialize;
@@ -75,23 +79,7 @@ pub fn saved_sections(
 
 pub(crate) fn add(path: &Path) -> Result<PresetMetadata> {
     storage::edit(path, |library| {
-        let mut number = library
-            .presets()
-            .filter_map(|preset| model::ordinal(&preset.id, "preset_"))
-            .max()
-            .unwrap_or(0);
-        let id = loop {
-            number = number.checked_add(1).context("preset ID space exhausted")?;
-            let id = format!("preset_{number}");
-            let directory = resolve_template_path(path, &format!("{LOCAL_TEMPLATES_DIR}/{id}"))?;
-            match fs::symlink_metadata(directory) {
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break id,
-                Err(error) => {
-                    return Err(error).context("failed to check preset template directory");
-                }
-            }
-        };
+        let id = next_id(path, library)?;
         library.entries.push(Entry::Preset(Box::new(Preset {
             id: id.clone(),
             ..Default::default()
@@ -101,6 +89,98 @@ pub(crate) fn add(path: &Path) -> Result<PresetMetadata> {
             ..Default::default()
         })
     })
+}
+
+/// Insert an independent copy beside its source, publishing only after all images exist.
+pub(crate) fn duplicate(path: &Path, source_id: &str) -> Result<PresetMetadata> {
+    storage::locked(path, |library| {
+        let mut preset = library.get(source_id)?.clone();
+        preset.id = next_id(path, library)?;
+        preset.label = duplicate_label(&preset.label, library);
+        preset.shortcut.clear();
+        let mut created = Vec::new();
+        if let Some(stratagems) = &mut preset.stratagems {
+            let mut images = images::NewImages::new(path, &preset.id, "stratagems")?;
+            for item in stratagems
+                .stratagems
+                .iter_mut()
+                .chain(stratagems.booster.iter_mut())
+                .chain(stratagems.fallback_booster.iter_mut())
+            {
+                item.path = images.copy("stratagem", path, &item.path)?;
+            }
+            created.push(images);
+        }
+        if let Some(equipment) = &mut preset.equipment {
+            let mut images = images::NewImages::new(path, &preset.id, "equipment")?;
+            for item in equipment.items.iter_mut().flatten() {
+                item.name = images.copy("name", path, &item.name)?;
+                if let Some(category) = &mut item.category {
+                    *category = images.copy("category", path, category)?;
+                }
+            }
+            created.push(images);
+        }
+        let metadata = PresetMetadata {
+            id: preset.id.clone(),
+            label: preset.label.clone(),
+            shortcut: String::new(),
+        };
+        library.insert_after(source_id, preset)?;
+        storage::write(path, library)?;
+        for images in created {
+            images.commit();
+        }
+        Ok(metadata)
+    })
+}
+
+fn next_id(path: &Path, library: &PresetLibrary) -> Result<String> {
+    let mut number = library
+        .presets()
+        .filter_map(|preset| model::ordinal(&preset.id, "preset_"))
+        .max()
+        .unwrap_or(0);
+    loop {
+        number = number.checked_add(1).context("preset ID space exhausted")?;
+        let id = format!("preset_{number}");
+        let directory = resolve_template_path(path, &format!("{LOCAL_TEMPLATES_DIR}/{id}"))?;
+        match fs::symlink_metadata(directory) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(id),
+            Err(error) => return Err(error).context("failed to check preset template directory"),
+        }
+    }
+}
+
+fn duplicate_label(label: &str, library: &PresetLibrary) -> String {
+    let label = label.trim();
+    if label.is_empty() {
+        return String::new();
+    }
+    let labels: BTreeSet<_> = library
+        .presets()
+        .map(|preset| preset.label.trim())
+        .collect();
+    let base = label
+        .rsplit_once(" (")
+        .and_then(|(base, suffix)| {
+            let suffix = suffix.strip_suffix(')')?;
+            let number = suffix.parse::<usize>().ok()?;
+            (number >= 2
+                && suffix == number.to_string()
+                && !base.is_empty()
+                && labels.contains(base))
+            .then_some(base)
+        })
+        .unwrap_or(label);
+    for number in 2usize.. {
+        let candidate = format!("{base} ({number})");
+        if !labels.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+    unreachable!("a finite library cannot occupy every numeric suffix")
 }
 
 pub(crate) fn rename(path: &Path, id: &str, label: &str) -> Result<()> {

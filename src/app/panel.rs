@@ -220,20 +220,31 @@ impl AppController {
                         self.ui.settings_failed(&format!("{error:#}"));
                     }
                 },
-                UiRequest::AddPreset => match crate::preset::add(&self.paths.presets) {
-                    Ok(info) => {
-                        let name = info.id;
-                        self.shortcut_bindings
-                            .presets
-                            .insert(name.clone(), String::new());
-                        self.ui.add_preset(name);
+                UiRequest::CreatePreset { source }
+                    if !self.exiting
+                        && matches!(self.state, ActionState::Idle)
+                        && !self.updates.installing()
+                        && !self.ui.is_editing() =>
+                {
+                    let result = match source.as_deref() {
+                        Some(id) => crate::preset::duplicate(&self.paths.presets, id),
+                        None => crate::preset::add(&self.paths.presets),
+                    };
+                    match result {
+                        Ok(info) => {
+                            self.shortcut_bindings
+                                .presets
+                                .insert(info.id.clone(), String::new());
+                            self.ui.insert_preset(info, source.as_deref());
+                        }
+                        Err(error) => {
+                            warn!(source = source.as_deref(), error = %format!("{error:#}"), "failed to create preset");
+                            self.ui
+                                .set_status(&format!("Could not create preset: {error:#}"));
+                        }
                     }
-                    Err(error) => {
-                        error!(error = %format!("{error:#}"), "failed to add preset");
-                        self.ui
-                            .set_status(&format!("Could not add preset: {error:#}"));
-                    }
-                },
+                }
+                UiRequest::CreatePreset { .. } => {}
                 UiRequest::DeletePreset(preset) => {
                     if let Err(error) = self.delete_preset(&preset) {
                         warn!(%preset, error = %format!("{error:#}"), "failed to delete preset");

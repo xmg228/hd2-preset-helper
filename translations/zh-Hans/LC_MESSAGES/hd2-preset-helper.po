@@ -82,6 +82,9 @@ msgstr "预设名称"
 msgid "Rename preset"
 msgstr "重命名预设"
 
+msgid "Duplicate preset"
+msgstr "复制预设"
+
 msgid "Delete preset"
 msgstr "删除预设"
 

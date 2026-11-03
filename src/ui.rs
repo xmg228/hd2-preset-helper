@@ -71,7 +71,9 @@ pub enum UiRequest {
     ViewProject,
     DownloadUpdate,
     InstallUpdate,
-    AddPreset,
+    CreatePreset {
+        source: Option<String>,
+    },
     DeletePreset(String),
     MovePreset {
         preset: String,
@@ -151,7 +153,13 @@ impl AppUi {
         });
         let add_send = send.clone();
         window.on_add_preset(move || {
-            let _ = add_send.send(UiRequest::AddPreset);
+            let _ = add_send.send(UiRequest::CreatePreset { source: None });
+        });
+        let duplicate_send = send.clone();
+        window.on_duplicate_preset(move |preset| {
+            let _ = duplicate_send.send(UiRequest::CreatePreset {
+                source: Some(preset.to_string()),
+            });
         });
         let delete_send = send.clone();
         window.on_request_delete(move |preset| {
@@ -532,24 +540,29 @@ impl AppUi {
         }
     }
 
-    pub fn add_preset(&mut self, name: String) {
+    pub fn insert_preset(&mut self, info: PresetMetadata, source: Option<&str>) {
         let mut rows: Vec<_> = self.window.get_presets().iter().collect();
-        rows.push(PresetRow {
-            number: preset_number(&name).into(),
-            name: name.as_str().into(),
-            stratagems: stratagem_section(PreviewContent::Missing),
-            equipment: equipment_section(Default::default()),
-            ..Default::default()
-        });
-        self.preset_info.push(PresetMetadata {
-            id: name,
-            ..Default::default()
-        });
-        let index = rows.len() as i32 - 1;
+        let source_index = source.and_then(|id| rows.iter().position(|row| row.name == id));
+        let mut row = source_index.map_or_else(
+            || PresetRow {
+                stratagems: stratagem_section(PreviewContent::Missing),
+                equipment: equipment_section(Default::default()),
+                ..Default::default()
+            },
+            |index| rows[index].clone(),
+        );
+        row.name = info.id.as_str().into();
+        row.number = preset_number(&info.id).into();
+        row.label = info.label.as_str().into();
+        row.shortcut = info.shortcut.as_str().into();
+        let index = source_index.map_or(rows.len(), |index| index + 1);
+        rows.insert(index, row);
+        self.preset_info.insert(index, info);
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
-        self.window.set_current_index(index);
+        self.window.set_current_index(index as i32);
         self.window.invoke_focus_list();
+        self.set_status("");
     }
 
     pub fn set_label(&mut self, preset: &str, label: String) {
@@ -654,12 +667,20 @@ impl AppUi {
 
     pub fn set_previews(&self, mut previews: BTreeMap<String, PresetPreview>) {
         self.window.set_loading(false);
+        let current = self.window.get_presets();
         let rows: Vec<_> = self
             .preset_info
             .iter()
             .map(|info| {
                 let name = &info.id;
-                let preview = previews.remove(name).unwrap_or(PresetPreview {
+                let incoming = previews.remove(name);
+                // An in-flight snapshot can predate a newly inserted preset.
+                if incoming.is_none()
+                    && let Some(row) = current.iter().find(|row| row.name == name.as_str())
+                {
+                    return row;
+                }
+                let preview = incoming.unwrap_or(PresetPreview {
                     stratagems: PreviewContent::Missing,
                     equipment: Default::default(),
                     equipment_cache_matches: None,

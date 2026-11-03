@@ -403,6 +403,7 @@ export component PresetPanel inherits Window {
     callback license-text() -> string;
     callback clear-shortcut(int);
     callback add-preset();
+    callback duplicate-preset(string);
     callback dismiss();
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() {
@@ -855,13 +856,22 @@ export component PresetPanel inherits Window {
                                         clicked => { root.begin-rename(); }
                                     }
                                     shortcut-button := IconButton {
-                                        x: delete-button.x - self.width - 4px;
+                                        x: copy-button.x - self.width - 4px;
                                         y: (parent.height - self.height) / 2;
                                         visible: !root.editing-name && root.presets.length > 0;
                                         enabled: root.interactive;
                                         label: @tr("Set shortcut");
                                         path: "M 3 5 H 21 V 19 H 3 Z M 6 9 H 7 M 10 9 H 11 M 14 9 H 15 M 18 9 H 19 M 6 12 H 7 M 10 12 H 11 M 14 12 H 15 M 18 12 H 19 M 8 15 H 16";
                                         clicked => { root.finish-rename(true); root.edit-shortcut(root.current.name); }
+                                    }
+                                    copy-button := IconButton {
+                                        x: delete-button.x - self.width - 4px;
+                                        y: (parent.height - self.height) / 2;
+                                        visible: !root.editing-name && root.presets.length > 0;
+                                        enabled: root.interactive && !root.reordering-preset;
+                                        label: @tr("Duplicate preset");
+                                        path: "M 8 8 H 20 V 20 H 8 Z M 16 8 V 4 H 4 V 16 H 8";
+                                        clicked => { root.duplicate-preset(root.current.name); }
                                     }
                                     delete-button := IconButton {
                                         x: parent.width - self.width;

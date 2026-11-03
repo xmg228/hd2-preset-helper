@@ -82,6 +82,9 @@ msgstr "Nom du préréglage"
 msgid "Rename preset"
 msgstr "Renommer le préréglage"
 
+msgid "Duplicate preset"
+msgstr "Dupliquer le préréglage"
+
 msgid "Delete preset"
 msgstr "Supprimer le préréglage"
 

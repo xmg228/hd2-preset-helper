@@ -85,11 +85,32 @@ impl NewImages {
             image.width() > 0 && image.height() > 0,
             "cannot save an empty local template"
         );
+        self.stage(role, |file| {
+            image.write_to(file, ImageFormat::Png)?;
+            Ok(())
+        })
+    }
+
+    pub(super) fn copy(&mut self, role: &str, presets: &Path, relative: &str) -> Result<String> {
+        let mut source = fs::File::open(resolve_template_path(presets, relative)?)
+            .with_context(|| format!("failed to read local template {relative}"))?;
+        self.stage(role, |file| {
+            std::io::copy(&mut source, file)
+                .with_context(|| format!("failed to copy local template {relative}"))?;
+            Ok(())
+        })
+    }
+
+    fn stage(
+        &mut self,
+        role: &str,
+        write: impl FnOnce(&mut fs::File) -> Result<()>,
+    ) -> Result<String> {
         let mut file = tempfile::Builder::new()
             .prefix(&format!("{role}-"))
             .suffix(".png")
             .tempfile_in(&self.directory)?;
-        image.write_to(file.as_file_mut(), ImageFormat::Png)?;
+        write(file.as_file_mut())?;
         file.as_file().sync_all()?;
         let (handle, path) = file.keep().map_err(|error| error.error)?;
         drop(handle);

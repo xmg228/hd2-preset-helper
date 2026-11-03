@@ -82,6 +82,9 @@ msgstr "Nombre del preajuste"
 msgid "Rename preset"
 msgstr "Cambiar nombre del preajuste"
 
+msgid "Duplicate preset"
+msgstr "Duplicar preajuste"
+
 msgid "Delete preset"
 msgstr "Eliminar preajuste"
 

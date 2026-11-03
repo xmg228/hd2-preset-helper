@@ -15,7 +15,7 @@ pub(super) struct PresetLibrary {
     pub(super) entries: Vec<Entry>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Preset {
     pub id: String,
@@ -204,6 +204,13 @@ impl PresetLibrary {
 
     pub(super) fn remove(&mut self, id: &str) -> Result<()> {
         self.take_preset(id).map(|_| ())
+    }
+
+    pub(super) fn insert_after(&mut self, id: &str, preset: Preset) -> Result<()> {
+        let (entries, index) = Self::locate_preset(&mut self.entries, id)
+            .with_context(|| format!("preset not found: {id}"))?;
+        entries.insert(index + 1, Entry::Preset(Box::new(preset)));
+        Ok(())
     }
 
     pub(super) fn move_before(&mut self, id: &str, before: Option<&str>) -> Result<()> {

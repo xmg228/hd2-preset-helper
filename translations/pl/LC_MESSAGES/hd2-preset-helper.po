@@ -82,6 +82,9 @@ msgstr "Nazwa zestawu"
 msgid "Rename preset"
 msgstr "Zmień nazwę zestawu"
 
+msgid "Duplicate preset"
+msgstr "Duplikuj zestaw"
+
 msgid "Delete preset"
 msgstr "Usuń zestaw"
 
