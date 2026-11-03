@@ -61,6 +61,18 @@ msgstr "+ 新規プリセット"
 msgid "Compact list"
 msgstr "コンパクト表示"
 
+msgid "Search presets"
+msgstr "プリセットを検索"
+
+msgid "Clear search"
+msgstr "検索をクリア"
+
+msgid "No matching presets"
+msgstr "一致するプリセットがありません"
+
+msgid "Select a preset"
+msgstr "プリセットを選択"
+
 msgid "No presets"
 msgstr "プリセットがありません"
 

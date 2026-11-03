@@ -61,6 +61,18 @@ msgstr "+ Nuevo preajuste"
 msgid "Compact list"
 msgstr "Lista compacta"
 
+msgid "Search presets"
+msgstr "Buscar preajustes"
+
+msgid "Clear search"
+msgstr "Borrar búsqueda"
+
+msgid "No matching presets"
+msgstr "No hay preajustes coincidentes"
+
+msgid "Select a preset"
+msgstr "Selecciona un preajuste"
+
 msgid "No presets"
 msgstr "No hay preajustes"
 

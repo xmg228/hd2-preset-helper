@@ -61,6 +61,18 @@ msgstr "+ Nuovo preset"
 msgid "Compact list"
 msgstr "Elenco compatto"
 
+msgid "Search presets"
+msgstr "Cerca preset"
+
+msgid "Clear search"
+msgstr "Cancella ricerca"
+
+msgid "No matching presets"
+msgstr "Nessun preset corrispondente"
+
+msgid "Select a preset"
+msgstr "Seleziona un preset"
+
 msgid "No presets"
 msgstr "Nessun preset"
 

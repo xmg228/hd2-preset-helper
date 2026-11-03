@@ -61,6 +61,18 @@ msgstr "+ 新建预设"
 msgid "Compact list"
 msgstr "紧凑列表"
 
+msgid "Search presets"
+msgstr "搜索预设"
+
+msgid "Clear search"
+msgstr "清空搜索"
+
+msgid "No matching presets"
+msgstr "没有匹配的预设"
+
+msgid "Select a preset"
+msgstr "选择预设"
+
 msgid "No presets"
 msgstr "暂无预设"
 

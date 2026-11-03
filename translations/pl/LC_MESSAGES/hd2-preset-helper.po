@@ -61,6 +61,18 @@ msgstr "+ Nowy zestaw"
 msgid "Compact list"
 msgstr "Lista kompaktowa"
 
+msgid "Search presets"
+msgstr "Szukaj zestawów"
+
+msgid "Clear search"
+msgstr "Wyczyść wyszukiwanie"
+
+msgid "No matching presets"
+msgstr "Brak pasujących zestawów"
+
+msgid "Select a preset"
+msgstr "Wybierz zestaw"
+
 msgid "No presets"
 msgstr "Brak zestawów"
 

@@ -61,6 +61,18 @@ msgstr "+ 새 프리셋"
 msgid "Compact list"
 msgstr "간략한 목록"
 
+msgid "Search presets"
+msgstr "프리셋 검색"
+
+msgid "Clear search"
+msgstr "검색어 지우기"
+
+msgid "No matching presets"
+msgstr "일치하는 프리셋 없음"
+
+msgid "Select a preset"
+msgstr "프리셋 선택"
+
 msgid "No presets"
 msgstr "프리셋 없음"
 

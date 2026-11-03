@@ -223,6 +223,7 @@ enum PresetReorderPhase { idle, dragging, committing }
 component PresetCard inherits Rectangle {
     in property <PresetRow> item;
     in property <bool> compact;
+    in property <bool> reorderable: true;
     in property <bool> selected;
     in property <bool> hovered;
     in property <bool> handle-hovered;
@@ -235,6 +236,7 @@ component PresetCard inherits Rectangle {
     border-radius: 5px;
     @children
     for column in 2: Rectangle {
+        visible: root.reorderable;
         x: 6px + column * 4px;
         y: (parent.height - self.height) / 2;
         width: 2px;
@@ -353,6 +355,11 @@ export component PresetPanel inherits Window {
     in property <bool> settings-saving;
     in-out property <int> current-index: 0;
     in property <bool> compact-list;
+    in-out property <string> search-query;
+    out property <bool> editing-search: preset-search.has-focus;
+    private property <bool> search-active: search-query != "";
+    private property <[int]> visible-presets: root.filter-presets(root.presets, root.search-query, UiText.preset-title("", "{}"));
+    private property <int> current-visible-index: root.visible-preset-index(root.visible-presets, root.current-index);
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
     in property <[bool]> scope-equipment-items;
@@ -380,17 +387,25 @@ export component PresetPanel inherits Window {
     private property <length> drag-y;
     private property <length> drag-offset-y;
     private property <int> drag-source-index: -1;
-    private property <bool> reorder-preview-visible: reordering-preset && drag-source-index >= 0 && drag-source-index < presets.length;
+    private property <bool> reorder-preview-visible: !search-active && reordering-preset && drag-source-index >= 0 && drag-source-index < presets.length;
     private property <length> drag-card-y: clamp(drag-y - drag-offset-y, 0px, max(0px, list-viewport.height - row-height));
     // Use the unchanged row grid, not the animated card positions, to avoid feedback jitter.
     private property <int> drag-target-index: reorder-preview-visible
         ? clamp(round((drag-card-y - preset-list.content-y) / row-pitch), 0, max(0, presets.length - 1)) : -1;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
     changed compact-list => { root.hovered-index = -1; root.reveal-current(); }
+    changed visible-presets => {
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        root.reveal-current();
+    }
+    changed editing-search => { root.apply-key-down = false; root.hovered-index = -1; }
     callback request-action(bool, ActionScope);
     callback request-scope(ActionScope);
     callback request-equipment-item(int);
     pure callback selected-equipment-state([bool], [PreviewRow]) -> PreviewState;
+    pure callback filter-presets([PresetRow], string, string) -> [int];
+    pure callback visible-preset-index([int], int) -> int;
     callback request-rename(string, string);
     callback request-delete(string);
     pure callback is-preset-drag(data-transfer) -> bool;
@@ -413,6 +428,12 @@ export component PresetPanel inherits Window {
     public function focus-list() {
         root.finish-reorder();
         if (!root.settings-open && !root.delete-open) { keyboard.focus(); }
+    }
+    public function focus-search-results() {
+        if (root.current-visible-index < 0 && root.visible-presets.length > 0) {
+            root.current-index = root.visible-presets[0];
+        }
+        root.focus-list();
     }
     public function finish-reorder() {
         root.reorder-phase = PresetReorderPhase.idle;
@@ -459,18 +480,28 @@ export component PresetPanel inherits Window {
         if (save) { root.request-rename(preset, root.name-draft); }
     }
     function reveal-current() {
-        let top = root.current-index * root.row-pitch;
+        if (root.current-visible-index < 0) { preset-list.content-y = 0px; return; }
+        let top = root.current-visible-index * root.row-pitch;
         if (top + preset-list.content-y < 0px) {
             preset-list.content-y = -top;
         } else if (top + root.row-height + preset-list.content-y > preset-list.visible-height) {
             preset-list.content-y = preset-list.visible-height - top - root.row-height;
         }
     }
+    function move-selection(delta: int) {
+        if (root.visible-presets.length == 0) { return; }
+        let index = root.current-visible-index < 0
+            ? (delta > 0 ? 0 : root.visible-presets.length - 1)
+            : clamp(root.current-visible-index + delta, 0, root.visible-presets.length - 1);
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        root.current-index = root.visible-presets[index];
+    }
     public pure function action-available(saving: bool, scope: ActionScope) -> bool {
         let stratagems = scope == ActionScope.stratagems || (scope == ActionScope.selected && root.scope-stratagems);
         let equipment = root.equipment-items-selected
             && (scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment));
-        if (!root.interactive || root.reordering-preset || root.presets.length == 0 || (!stratagems && !equipment)) { return false; }
+        if (!root.interactive || root.reordering-preset || root.current-visible-index < 0 || (!stratagems && !equipment)) { return false; }
         if (saving) { return true; }
         let include-stratagems = stratagems && root.current.stratagems.saved;
         let include-equipment = equipment && root.equipment-state != PreviewState.missing;
@@ -502,8 +533,12 @@ export component PresetPanel inherits Window {
         keyboard := FocusScope {
             enabled: root.presented && !root.settings-open && !root.delete-open;
             key-pressed(event) => {
-                if (root.editing-name) { return reject; }
-                if (event.text == Key.Escape) { root.dismiss(); return accept; }
+                if (root.editing-name || root.editing-search) { return reject; }
+                if (event.text == Key.Escape) {
+                    if (root.search-active) { root.search-query = ""; }
+                    else { root.dismiss(); }
+                    return accept;
+                }
                 if (root.reordering-preset) { return accept; }
                 if (!root.interactive) { return reject; }
                 if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
@@ -515,11 +550,13 @@ export component PresetPanel inherits Window {
                 let up = event.text == Key.UpArrow || event.text == "w" || event.text == "W";
                 let down = event.text == Key.DownArrow || event.text == "s" || event.text == "S";
                 if (up || down) {
-                    root.hovered-index = -1;
-                    root.current-index = clamp(root.current-index + (down ? 1 : -1), 0, max(0, root.presets.length - 1));
+                    root.move-selection(down ? 1 : -1);
                     return accept;
                 }
-                if (event.text == Key.Return) { root.apply-key-down = true; return accept; }
+                if (event.text == Key.Return) {
+                    if (!event.repeat) { root.apply-key-down = true; }
+                    return accept;
+                }
                 return reject;
             }
             key-released(event) => {
@@ -527,7 +564,7 @@ export component PresetPanel inherits Window {
                     // Editing may end on key-down; its key-up must not apply a preset.
                     let apply = root.apply-key-down;
                     root.apply-key-down = false;
-                    if (apply && !root.editing-name && root.interactive) {
+                    if (apply && !root.editing-name && !root.editing-search && root.interactive) {
                         root.apply-current(ActionScope.selected);
                     }
                     return accept;
@@ -609,6 +646,86 @@ export component PresetPanel inherits Window {
                     VerticalLayout {
                         width: 210px;
                         spacing: 8px;
+                        Rectangle {
+                            height: 30px;
+                            background: Theme.control;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: preset-search.has-focus ? Theme.accent-soft : Theme.border;
+                            TouchArea {
+                                enabled: root.interactive && !root.reordering-preset;
+                                mouse-cursor: text;
+                                clicked => { preset-search.focus(); }
+                            }
+                            Text {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: parent.height;
+                                text: @tr("Search presets");
+                                color: Theme.text-disabled;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                visible: root.search-query == "" && preset-search.preedit-text == "";
+                            }
+                            Rectangle {
+                                x: 10px;
+                                width: parent.width - (root.search-active ? 42px : 20px);
+                                height: parent.height;
+                                clip: true;
+                                preset-search := TextInput {
+                                    property <length> scroll-offset;
+                                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                    width: max(parent.width, self.preferred-width);
+                                    height: parent.height;
+                                    enabled: root.interactive && !root.reordering-preset;
+                                    single-line: true;
+                                    text <=> root.search-query;
+                                    color: Theme.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    selection-background-color: #786c38;
+                                    selection-foreground-color: #fff8d4;
+                                    accessible-label: @tr("Search presets");
+                                    cursor-position-changed(position) => {
+                                        if (position.x + self.x < 0px) { self.scroll-offset = -position.x; }
+                                        else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                            self.scroll-offset = parent.width - self.text-cursor-width - position.x;
+                                        }
+                                    }
+                                    key-pressed(event) => {
+                                        if (self.preedit-text != "") { return reject; }
+                                        if (event.text == Key.Escape) {
+                                            if (root.search-active) { root.search-query = ""; keyboard.focus(); }
+                                            else { root.dismiss(); }
+                                            return accept;
+                                        }
+                                        if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
+                                        if (event.text == Key.Return) {
+                                            if (!event.repeat && root.visible-presets.length > 0) { root.focus-search-results(); }
+                                            return accept;
+                                        }
+                                        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+                                            if (root.visible-presets.length > 0) {
+                                                root.move-selection(event.text == Key.DownArrow ? 1 : -1);
+                                                keyboard.focus();
+                                            }
+                                            return accept;
+                                        }
+                                        return reject;
+                                    }
+                                }
+                            }
+                            IconButton {
+                                x: parent.width - self.width - 2px;
+                                y: (parent.height - self.height) / 2;
+                                label: @tr("Clear search");
+                                path: "M 6 6 L 18 18 M 18 6 L 6 18";
+                                visible: root.search-active;
+                                enabled: root.interactive && !root.reordering-preset;
+                                clicked => { root.search-query = ""; preset-search.focus(); }
+                            }
+                        }
                         list-viewport := Rectangle {
                             min-height: 0px;
                             width: 210px;
@@ -622,7 +739,7 @@ export component PresetPanel inherits Window {
                                 VerticalLayout {
                                     alignment: start;
                                     spacing: root.row-spacing;
-                                    for preset[index] in root.presets: Rectangle {
+                                    for source-index[index] in root.visible-presets: Rectangle {
                                         height: root.row-height;
                                         card := PresetCard {
                                             width: parent.width;
@@ -631,35 +748,36 @@ export component PresetPanel inherits Window {
                                                 : index >= root.drag-target-index && index < root.drag-source-index ? root.row-pitch
                                                 : index > root.drag-source-index && index <= root.drag-target-index ? -root.row-pitch : 0px;
                                             animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
-                                            item: preset;
+                                            item: root.presets[source-index];
                                             compact: root.compact-list;
-                                            selected: index == root.current-index;
+                                            reorderable: !root.search-active;
+                                            selected: source-index == root.current-index;
                                             hovered: touch.has-hover || handle.has-hover;
                                             handle-hovered: handle.has-hover;
                                             scope-stratagems: root.scope-stratagems;
                                             scope-equipment: root.scope-equipment && root.equipment-items-selected;
                                             opacity: root.reorder-preview-visible && index == root.drag-source-index ? 0 : 1;
                                             accessible-role: button;
-                                            accessible-label: UiText.preset-title(preset.label, preset.number);
-                                            accessible-description: UiText.section-message(preset.stratagems) + " " + UiText.section-message(preset.equipment);
+                                            accessible-label: UiText.preset-title(card.item.label, card.item.number);
+                                            accessible-description: UiText.section-message(card.item.stratagems) + " " + UiText.section-message(card.item.equipment);
                                             accessible-enabled: root.interactive && !root.reordering-preset;
-                                            accessible-action-default => { root.current-index = index; }
+                                            accessible-action-default => { root.current-index = source-index; }
                                             changed hovered => {
-                                                if (self.hovered) { root.hovered-index = index; }
-                                                else if (root.hovered-index == index) { root.hovered-index = -1; }
+                                                if (self.hovered) { root.hovered-index = source-index; }
+                                                else if (root.hovered-index == source-index) { root.hovered-index = -1; }
                                             }
                                             drag := DragArea {
                                                 x: 0px;
                                                 y: 0px;
                                                 width: card.handle-width;
                                                 height: parent.height;
-                                                enabled: root.interactive && !root.editing-name;
+                                                enabled: root.interactive && !root.editing-name && !root.search-active;
                                                 data: root.preset-drag-data;
                                                 allow-move: true;
                                                 changed dragging => {
                                                     if (self.dragging) {
                                                         root.reorder-phase = PresetReorderPhase.dragging;
-                                                        root.current-index = index;
+                                                        root.current-index = source-index;
                                                         root.hovered-index = -1;
                                                         root.apply-key-down = false;
                                                         keyboard.focus();
@@ -670,14 +788,14 @@ export component PresetPanel inherits Window {
                                                         && root.drag-target-index != index) {
                                                         let before = root.drag-target-index + (root.drag-target-index > index ? 1 : 0);
                                                         root.reorder-phase = PresetReorderPhase.committing;
-                                                        root.request-reorder(preset.name,
+                                                        root.request-reorder(card.item.name,
                                                             before < root.presets.length ? root.presets[before].name : "");
                                                     } else {
                                                         root.finish-reorder();
                                                     }
                                                 }
                                                 handle := TouchArea {
-                                                    enabled: root.interactive && !root.editing-name;
+                                                    enabled: root.interactive && !root.editing-name && !root.search-active;
                                                     mouse-cursor: self.pressed ? grabbing : grab;
                                                     pointer-event(event) => {
                                                         if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
@@ -687,25 +805,36 @@ export component PresetPanel inherits Window {
                                                         } else if (event.kind == PointerEventKind.up && root.reorder-phase == PresetReorderPhase.idle) {
                                                             root.drag-source-index = -1;
                                                         }
-                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = source-index; }
                                                     }
-                                                    clicked => { root.current-index = index; keyboard.focus(); }
+                                                    clicked => { root.current-index = source-index; keyboard.focus(); }
                                                 }
                                             }
                                             touch := TouchArea {
-                                                x: card.handle-width;
+                                                x: root.search-active ? 0px : card.handle-width;
                                                 width: parent.width - self.x;
                                                 enabled: root.interactive && !root.reordering-preset;
                                                 mouse-cursor: pointer;
                                                 pointer-event(event) => {
-                                                    if (event.kind == PointerEventKind.move) { root.hovered-index = index; }
+                                                    if (event.kind == PointerEventKind.move) { root.hovered-index = source-index; }
                                                 }
-                                                clicked => { root.current-index = index; keyboard.focus(); }
+                                                clicked => { root.current-index = source-index; keyboard.focus(); }
                                                 double-clicked => { root.apply-current(ActionScope.selected); }
                                             }
                                         }
                                     }
                                 }
+                            }
+                            if (root.search-active && root.visible-presets.length == 0): Text {
+                                x: 8px;
+                                width: parent.width - 16px;
+                                height: parent.height;
+                                text: @tr("No matching presets");
+                                color: Theme.text-secondary;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
                             }
                             Rectangle {
                                 x: 0px;
@@ -976,6 +1105,7 @@ export component PresetPanel inherits Window {
                     }
                     if (root.loading || root.failure-details == "" || root.status != ""): Text {
                         text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
+                            : root.search-active && root.current-visible-index < 0 ? @tr("Select a preset")
                             : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
                             : @tr("Select content to save or apply.");
                         color: Theme.text-secondary;
@@ -1082,7 +1212,7 @@ export component PresetPanel inherits Window {
             y: list-viewport.absolute-position.y - surface.absolute-position.y;
             width: parent.width;
             height: list-viewport.height;
-            enabled: root.interactive && !root.editing-name && root.drag-source-index >= 0;
+            enabled: root.interactive && !root.editing-name && !root.search-active && root.drag-source-index >= 0;
             can-drop(event) => {
                 if (!root.is-preset-drag(event.data)) { return DragAction.none; }
                 root.reorder-phase = PresetReorderPhase.dragging;

@@ -61,6 +61,18 @@ msgstr "+ Новый набор"
 msgid "Compact list"
 msgstr "Компактный список"
 
+msgid "Search presets"
+msgstr "Поиск наборов"
+
+msgid "Clear search"
+msgstr "Очистить поиск"
+
+msgid "No matching presets"
+msgstr "Нет подходящих наборов"
+
+msgid "Select a preset"
+msgstr "Выберите набор"
+
 msgid "No presets"
 msgstr "Нет наборов"
 

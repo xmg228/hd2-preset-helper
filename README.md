@@ -42,6 +42,7 @@ Preset shortcuts **only apply**; use the panel to save.
 
 Hover to preview, click to select, and press Enter or double-click to apply.
 Drag the handle to reorder presets; use the duplicate icon beside the preset title to make a copy.
+Search by preset name or number.
 
 Choose what to save or apply, including individual equipment items. Saving
 overwrites only selected content; applying skips unsaved items. Preset shortcuts

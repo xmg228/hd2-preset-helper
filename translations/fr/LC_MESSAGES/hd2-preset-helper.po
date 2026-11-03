@@ -61,6 +61,18 @@ msgstr "+ Nouveau préréglage"
 msgid "Compact list"
 msgstr "Liste compacte"
 
+msgid "Search presets"
+msgstr "Rechercher des préréglages"
+
+msgid "Clear search"
+msgstr "Effacer la recherche"
+
+msgid "No matching presets"
+msgstr "Aucun préréglage correspondant"
+
+msgid "Select a preset"
+msgstr "Choisir un préréglage"
+
 msgid "No presets"
 msgstr "Aucun préréglage"
 

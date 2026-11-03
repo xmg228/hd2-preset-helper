@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
-use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
+use slint::{ComponentHandle, Model, ModelExt, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
 use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
@@ -223,6 +223,32 @@ impl AppUi {
             }
             state
         });
+        window.on_filter_presets(|rows, query, default_title| {
+            rows.model_tracker().track_row_count_changes();
+            let query = query.trim().to_lowercase();
+            let indices = (0..rows.row_count())
+                .filter(|&index| {
+                    query.is_empty()
+                        || rows.row_data_tracked(index).is_some_and(|row| {
+                            let title = if row.label.is_empty() {
+                                default_title.replace("{}", row.number.as_str())
+                            } else {
+                                row.label.to_string()
+                            };
+                            title.to_lowercase().contains(query.as_str())
+                                || row.number.contains(query.as_str())
+                        })
+                })
+                .map(|index| index as i32)
+                .collect::<Vec<_>>();
+            Rc::new(VecModel::from(indices)).into()
+        });
+        window.on_visible_preset_index(|indices, current| {
+            indices.model_tracker().track_row_count_changes();
+            (0..indices.row_count())
+                .position(|index| indices.row_data_tracked(index) == Some(current))
+                .map_or(-1, |index| index as i32)
+        });
         let rename_send = send.clone();
         let weak = window.as_weak();
         window.on_request_rename(move |preset, label| {
@@ -275,6 +301,7 @@ impl AppUi {
         self.panel_hide_at = None;
         self.anchor = anchor;
         self.status.hide()?;
+        self.window.set_search_query("".into());
         self.window.invoke_focus_list();
         self.window.set_pending(false);
         self.window.set_loading(!installing);
@@ -467,6 +494,7 @@ impl AppUi {
     }
     pub fn is_editing(&self) -> bool {
         self.window.get_editing_name()
+            || self.window.get_editing_search()
             || self.window.get_reordering_preset()
             || self.window.get_settings_open()
             || self.window.get_delete_open()
@@ -474,6 +502,7 @@ impl AppUi {
 
     pub fn shortcuts_blocked(&self) -> bool {
         self.window.get_editing_name()
+            || self.window.get_editing_search()
             || self.window.get_reordering_preset()
             || self.window.get_recording_shortcut() >= 0
             || (self.window.get_settings_open() && self.window.get_viewing_licenses())
@@ -546,6 +575,7 @@ impl AppUi {
     }
 
     pub fn insert_preset(&mut self, info: PresetMetadata, source: Option<&str>) {
+        self.window.set_search_query("".into());
         let mut rows: Vec<_> = self.window.get_presets().iter().collect();
         let source_index = source.and_then(|id| rows.iter().position(|row| row.name == id));
         let mut row = source_index.map_or_else(
@@ -598,7 +628,7 @@ impl AppUi {
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
         self.window.set_current_index(index);
-        self.window.invoke_focus_list();
+        self.window.invoke_focus_search_results();
         self.set_status("");
     }
 

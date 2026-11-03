@@ -61,6 +61,18 @@ msgstr "+ Nova predefinição"
 msgid "Compact list"
 msgstr "Lista compacta"
 
+msgid "Search presets"
+msgstr "Pesquisar predefinições"
+
+msgid "Clear search"
+msgstr "Limpar pesquisa"
+
+msgid "No matching presets"
+msgstr "Nenhuma predefinição correspondente"
+
+msgid "Select a preset"
+msgstr "Selecione uma predefinição"
+
 msgid "No presets"
 msgstr "Nenhuma predefinição"
 
