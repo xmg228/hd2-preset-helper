@@ -58,8 +58,8 @@ msgstr "Carregando prévias…"
 msgid "+ New preset"
 msgstr "+ Nova predefinição"
 
-msgid "Select a preset"
-msgstr "Selecione uma predefinição"
+msgid "Compact list"
+msgstr "Lista compacta"
 
 msgid "No presets"
 msgstr "Nenhuma predefinição"

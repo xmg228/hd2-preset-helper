@@ -11,6 +11,9 @@ monitor = "auto"
 # "auto" follows the system language. Select a fixed language in Settings > General.
 language = "auto"
 
+# Show only preset titles and shortcuts in the list.
+compact_preset_list = false
+
 [updates]
 check_automatically = true
 

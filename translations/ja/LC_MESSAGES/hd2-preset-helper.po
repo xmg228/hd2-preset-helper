@@ -58,8 +58,8 @@ msgstr "プレビューを読み込み中…"
 msgid "+ New preset"
 msgstr "+ 新規プリセット"
 
-msgid "Select a preset"
-msgstr "プリセットを選択"
+msgid "Compact list"
+msgstr "コンパクト表示"
 
 msgid "No presets"
 msgstr "プリセットがありません"

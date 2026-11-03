@@ -58,8 +58,8 @@ msgstr "Загрузка предпросмотра…"
 msgid "+ New preset"
 msgstr "+ Новый набор"
 
-msgid "Select a preset"
-msgstr "Выберите набор"
+msgid "Compact list"
+msgstr "Компактный список"
 
 msgid "No presets"
 msgstr "Нет наборов"

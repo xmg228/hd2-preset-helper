@@ -184,6 +184,22 @@ impl AppController {
                     scope.equipment_items.toggle(kind);
                     self.save_scope(scope);
                 }
+                UiRequest::SetCompactList(compact)
+                    if !self.exiting
+                        && matches!(self.state, ActionState::Idle)
+                        && !self.updates.installing()
+                        && !self.ui.is_editing() =>
+                {
+                    match crate::config::save_compact_preset_list(&self.paths.config, compact) {
+                        Ok(()) => self.ui.set_compact_list(compact),
+                        Err(error) => {
+                            warn!(error = %format!("{error:#}"), "failed to save compact list preference");
+                            self.ui
+                                .set_status(&format!("Could not save list view: {error:#}"));
+                        }
+                    }
+                }
+                UiRequest::SetCompactList(_) => {}
                 UiRequest::Rename { preset, label } => {
                     match crate::preset::rename(&self.paths.presets, &preset, &label) {
                         Ok(()) => self.ui.set_label(&preset, label.trim().into()),

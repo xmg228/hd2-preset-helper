@@ -58,8 +58,8 @@ msgstr "Chargement des aperçus…"
 msgid "+ New preset"
 msgstr "+ Nouveau préréglage"
 
-msgid "Select a preset"
-msgstr "Choisir un préréglage"
+msgid "Compact list"
+msgstr "Liste compacte"
 
 msgid "No presets"
 msgstr "Aucun préréglage"

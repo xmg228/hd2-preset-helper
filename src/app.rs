@@ -125,6 +125,7 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf
         paths.presets.clone(),
     )?;
     ui.set_scope(config.presets.scope);
+    ui.set_compact_list(config.ui.compact_preset_list);
     ui.set_panel_shortcut(&shortcut_bindings.panel);
     let mut app = AppController {
         paths: paths.clone(),

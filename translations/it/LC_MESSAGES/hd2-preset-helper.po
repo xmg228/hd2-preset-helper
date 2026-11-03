@@ -58,8 +58,8 @@ msgstr "Caricamento anteprime…"
 msgid "+ New preset"
 msgstr "+ Nuovo preset"
 
-msgid "Select a preset"
-msgstr "Seleziona un preset"
+msgid "Compact list"
+msgstr "Elenco compatto"
 
 msgid "No presets"
 msgstr "Nessun preset"

@@ -185,6 +185,7 @@ pub struct UiSettings {
     pub panel_shortcut: String,
     pub monitor: String,
     pub language: UiLanguage,
+    pub compact_preset_list: bool,
 }
 
 impl Default for UiSettings {
@@ -193,6 +194,7 @@ impl Default for UiSettings {
             panel_shortcut: "Ctrl + Shift + Space".into(),
             monitor: AUTO_MONITOR.to_string(),
             language: UiLanguage::default(),
+            compact_preset_list: false,
         }
     }
 }
@@ -238,6 +240,12 @@ pub fn save_scope(config_path: &Path, scope: PresetScope) -> Result<()> {
     value.insert("equipment_items", items.into());
     edit_config(config_path, |document| {
         write_setting(document, "presets", "scope", value)
+    })
+}
+
+pub fn save_compact_preset_list(config_path: &Path, compact: bool) -> Result<()> {
+    edit_config(config_path, |document| {
+        write_setting(document, "ui", "compact_preset_list", compact)
     })
 }
 

@@ -58,8 +58,8 @@ msgstr "正在加载预览…"
 msgid "+ New preset"
 msgstr "+ 新建预设"
 
-msgid "Select a preset"
-msgstr "选择预设"
+msgid "Compact list"
+msgstr "紧凑列表"
 
 msgid "No presets"
 msgstr "暂无预设"

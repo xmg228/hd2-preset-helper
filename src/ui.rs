@@ -60,6 +60,7 @@ pub enum UiRequest {
     },
     ToggleSection(PresetSection),
     ToggleEquipment(EquipmentKind),
+    SetCompactList(bool),
     Rename {
         preset: String,
         label: String,
@@ -154,6 +155,10 @@ impl AppUi {
         let add_send = send.clone();
         window.on_add_preset(move || {
             let _ = add_send.send(UiRequest::CreatePreset { source: None });
+        });
+        let compact_send = send.clone();
+        window.on_request_compact_list(move |compact| {
+            let _ = compact_send.send(UiRequest::SetCompactList(compact));
         });
         let duplicate_send = send.clone();
         window.on_duplicate_preset(move |preset| {
@@ -631,6 +636,10 @@ impl AppUi {
         );
         self.window
             .set_equipment_items_selected(!scope.equipment_items.is_empty());
+        self.set_status("");
+    }
+    pub fn set_compact_list(&self, compact: bool) {
+        self.window.set_compact_list(compact);
         self.set_status("");
     }
     pub fn set_panel_shortcut(&self, shortcut: &str) {

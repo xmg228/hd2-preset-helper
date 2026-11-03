@@ -58,8 +58,8 @@ msgstr "Cargando vistas previas…"
 msgid "+ New preset"
 msgstr "+ Nuevo preajuste"
 
-msgid "Select a preset"
-msgstr "Selecciona un preajuste"
+msgid "Compact list"
+msgstr "Lista compacta"
 
 msgid "No presets"
 msgstr "No hay preajustes"

@@ -58,8 +58,8 @@ msgstr "Vorschauen werden geladen…"
 msgid "+ New preset"
 msgstr "+ Neues Preset"
 
-msgid "Select a preset"
-msgstr "Preset auswählen"
+msgid "Compact list"
+msgstr "Kompakte Liste"
 
 msgid "No presets"
 msgstr "Keine Presets"

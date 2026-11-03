@@ -200,6 +200,8 @@ export component IconButton inherits Rectangle {
     in property <string> label;
     in property <string> path;
     in property <bool> outlined;
+    in property <bool> checkable;
+    in property <bool> checked;
     in property <bool> enabled: true;
     out property <bool> hovered: touch.has-hover;
     callback clicked();
@@ -209,10 +211,12 @@ export component IconButton inherits Rectangle {
     border-width: outlined || keys.has-focus ? 1px : 0px;
     border-color: keys.has-focus ? Theme.accent-soft
         : touch.has-hover && enabled ? Theme.border-strong : Theme.border;
-    background: touch.has-hover && enabled ? Theme.hover : transparent;
+    background: touch.has-hover && enabled ? Theme.hover : checkable && checked ? Theme.control : transparent;
     accessible-role: button;
     accessible-label: label;
     accessible-enabled: enabled;
+    accessible-checkable: checkable;
+    accessible-checked: checkable && checked;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
     forward-focus: keys;
     Path {
@@ -225,7 +229,8 @@ export component IconButton inherits Rectangle {
         commands: root.path;
         fill: transparent;
         stroke: !root.enabled ? Theme.inactive
-            : touch.has-hover || keys.has-focus ? Theme.accent : Theme.text-secondary;
+            : touch.has-hover || keys.has-focus || (root.checkable && root.checked)
+                ? (root.checkable ? Theme.text : Theme.accent) : Theme.text-secondary;
         stroke-width: 1.5px;
     }
     keys := FocusScope {

@@ -58,8 +58,8 @@ msgstr "Wczytywanie podglądów…"
 msgid "+ New preset"
 msgstr "+ Nowy zestaw"
 
-msgid "Select a preset"
-msgstr "Wybierz zestaw"
+msgid "Compact list"
+msgstr "Lista kompaktowa"
 
 msgid "No presets"
 msgstr "Brak zestawów"

@@ -222,6 +222,7 @@ enum PresetReorderPhase { idle, dragging, committing }
 
 component PresetCard inherits Rectangle {
     in property <PresetRow> item;
+    in property <bool> compact;
     in property <bool> selected;
     in property <bool> hovered;
     in property <bool> handle-hovered;
@@ -251,7 +252,7 @@ component PresetCard inherits Rectangle {
         padding: 5px;
         padding-left: root.handle-width + 4px;
         spacing: 2px;
-        alignment: start;
+        alignment: root.compact ? center : start;
         HorizontalLayout {
             height: 18px;
             spacing: 8px;
@@ -266,20 +267,20 @@ component PresetCard inherits Rectangle {
                 Tooltip { text: @markdown("\{root.item.shortcut}"); }
             }
         }
-        if (root.item.stratagems.ready): StratagemPreview {
+        if (!root.compact && root.item.stratagems.ready): StratagemPreview {
             height: 18px;
             icon-size: 18px;
             compact: true;
             items: root.item.stratagems.items;
             opacity: root.scope-stratagems ? 1 : 0.65;
         }
-        if (root.item.equipment.ready): NameImage {
+        if (!root.compact && root.item.equipment.ready): NameImage {
             source: root.item.equipment.summary;
             height: 14px;
             colorize: Theme.control-text;
             opacity: root.scope-equipment ? 1 : 0.65;
         }
-        if (!root.item.stratagems.ready && !root.item.equipment.ready): Text {
+        if (!root.compact && !root.item.stratagems.ready && !root.item.equipment.ready): Text {
             text: root.item.stratagems.saved || root.item.equipment.saved ? @tr("Preview unavailable") : @tr("Not saved");
             color: Theme.text-secondary;
             font-size: 11px;
@@ -351,6 +352,7 @@ export component PresetPanel inherits Window {
     in property <string> settings-error;
     in property <bool> settings-saving;
     in-out property <int> current-index: 0;
+    in property <bool> compact-list;
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
     in property <[bool]> scope-equipment-items;
@@ -371,7 +373,7 @@ export component PresetPanel inherits Window {
     private property <string> name-draft;
     private property <bool> apply-key-down;
     private property <bool> skip-delete-confirmation;
-    private property <length> row-height: 68px;
+    private property <length> row-height: compact-list ? 36px : 68px;
     private property <length> row-spacing: 4px;
     private property <length> row-pitch: row-height + row-spacing;
     private property <PresetReorderPhase> reorder-phase;
@@ -384,6 +386,7 @@ export component PresetPanel inherits Window {
     private property <int> drag-target-index: reorder-preview-visible
         ? clamp(round((drag-card-y - preset-list.content-y) / row-pitch), 0, max(0, presets.length - 1)) : -1;
     changed current-index => { root.finish-rename(true); root.reveal-current(); }
+    changed compact-list => { root.hovered-index = -1; root.reveal-current(); }
     callback request-action(bool, ActionScope);
     callback request-scope(ActionScope);
     callback request-equipment-item(int);
@@ -392,6 +395,7 @@ export component PresetPanel inherits Window {
     callback request-delete(string);
     pure callback is-preset-drag(data-transfer) -> bool;
     callback request-reorder(string, string);
+    callback request-compact-list(bool);
     callback edit-settings(bool);
     callback edit-shortcut(string);
     callback save-settings();
@@ -628,6 +632,7 @@ export component PresetPanel inherits Window {
                                                 : index > root.drag-source-index && index <= root.drag-target-index ? -root.row-pitch : 0px;
                                             animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
                                             item: preset;
+                                            compact: root.compact-list;
                                             selected: index == root.current-index;
                                             hovered: touch.has-hover || handle.has-hover;
                                             handle-hovered: handle.has-hover;
@@ -716,6 +721,7 @@ export component PresetPanel inherits Window {
                                     width: parent.width;
                                     height: root.row-height;
                                     item: root.presets[max(0, root.drag-source-index)];
+                                    compact: root.compact-list;
                                     selected: true;
                                     handle-hovered: true;
                                     scope-stratagems: root.scope-stratagems;
@@ -746,13 +752,17 @@ export component PresetPanel inherits Window {
                                 enabled: root.interactive;
                                 clicked => { root.finish-rename(true); root.add-preset(); }
                             }
-                            Text {
-                                text: "↑↓ / W S";
-                                color: Theme.text-secondary;
-                                font-size: 10px;
-                                vertical-alignment: center;
-                                property <string> hint: @tr("Select a preset");
-                                Tooltip { text: @markdown("\{parent.hint}"); }
+                            IconButton {
+                                label: @tr("Compact list");
+                                path: "M 4 5 H 6 V 7 H 4 Z M 10 6 H 20 M 4 11 H 6 V 13 H 4 Z M 10 12 H 20 M 4 17 H 6 V 19 H 4 Z M 10 18 H 20";
+                                checkable: true;
+                                checked: root.compact-list;
+                                enabled: root.interactive && !root.reordering-preset;
+                                clicked => {
+                                    root.finish-rename(true);
+                                    keyboard.focus();
+                                    root.request-compact-list(!root.compact-list);
+                                }
                             }
                         }
                     }
