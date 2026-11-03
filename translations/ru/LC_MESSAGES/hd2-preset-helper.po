@@ -106,11 +106,11 @@ msgstr "Учитываются полностью кэшированные ка�
 msgid "Start from either loadout page."
 msgstr "Начните на любой из двух страниц выбора снаряжения."
 
-msgid "Select sections to save or apply."
-msgstr "Выберите разделы для сохранения или применения."
+msgid "Select content to save or apply."
+msgstr "Выберите, что сохранить или применить."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Некоторые сочетания клавиш недоступны. Измените их в разделе «Настройки > Сочетания клавиш»."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Некоторые сочетания клавиш недоступны. См. «Настройки → Сочетания клавиш»."
 
 msgid "Show / hide panel"
 msgstr "Показать / скрыть панель"
@@ -133,8 +133,8 @@ msgstr "Выбрать содержимое"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Перед сохранением заполните все четыре ячейки стратагем."
 
-msgid "Apply all"
-msgstr "Применить всё"
+msgid "Apply preset"
+msgstr "Применить набор"
 
 msgid "Apply Stratagems"
 msgstr "Применить стратагемы"
@@ -161,11 +161,11 @@ msgstr "Автоматическая подготовка"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Нажимать кнопку «Подготовка» после успешного применения усилителя."
 
-msgid "Save fallback Booster when taken"
-msgstr "Сохранять запасной усилитель, если выбранный занят"
+msgid "Remember a fallback Booster"
+msgstr "Запоминать запасной усилитель"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Дождаться вашего выбора и сохранить его как запасной усилитель."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Запоминает выбранную вами замену, если все сохранённые усилители заняты."
 
 msgid "Display"
 msgstr "Монитор"
@@ -213,8 +213,8 @@ msgstr "Назначить сочетание клавиш"
 msgid "Clear shortcut"
 msgstr "Сбросить сочетание клавиш"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Нажмите на сочетание клавиш и введите новое. Esc отменяет запись."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Нажмите на сочетание клавиш для записи. Esc — отмена."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "Сочетание клавиш панели работает везде; сочетания наборов — только в игре или на панели."

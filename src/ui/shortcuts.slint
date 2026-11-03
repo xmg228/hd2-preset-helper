@@ -45,7 +45,7 @@ export component ShortcutEditor inherits VerticalLayout {
     in-out property <int> recording: -1;
     callback clear(int);
     spacing: 10px;
-    Text { text: @tr("Click a shortcut and press your keys. Esc cancels recording."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
+    Text { text: @tr("Click a shortcut to record. Esc cancels."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
     BindingRow {
         item: root.rows[0];
         recording: root.recording == 0;

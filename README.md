@@ -2,7 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-HD2 Preset Helper is a Windows utility for saving and applying loadout presets in Helldivers 2. Presets can include Stratagems, a Booster, and equipment, with a preset panel and configurable hotkeys.
+A Windows utility for saving and applying Helldivers 2 loadout presets:
+Stratagems, a Booster, and equipment.
 
 The program recognizes the game interface through screen capture and completes selections using standard mouse and keyboard input. It does not modify game files, inject code into the game process, read game memory, or alter network traffic.
 
@@ -29,7 +30,7 @@ To uninstall, exit the app and delete its folder, including any saved presets.
 1. Equip the loadout you want to save.
 2. Press `Ctrl+Shift+Space` to open the panel, select a preset and click **Save preset**.
 3. To apply it later, open the panel from either loadout page and choose
-   **Apply all**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
+   **Apply preset**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
    for presets 1–6 by default).
 
 Release all keys and mouse buttons after triggering a save or apply action.
@@ -42,9 +43,9 @@ Preset shortcuts **only apply**; use the panel to save.
 Hover to preview, click to select, and press Enter or double-click to apply.
 Drag the handle to reorder presets; use the duplicate icon beside the preset title to make a copy.
 
-Check **Stratagems & Booster**, **Equipment**, or both to choose what to save and
-apply, including through preset shortcuts. Saving overwrites only the checked
-sections; applying skips unsaved sections.
+Choose what to save or apply, including individual equipment items. Saving
+overwrites only selected content; applying skips unsaved items. Preset shortcuts
+use the same selection.
 
 ### Usage notes
 

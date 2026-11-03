@@ -106,11 +106,11 @@ msgstr "Basé sur les catégories entièrement mises en cache. Les éléments no
 msgid "Start from either loadout page."
 msgstr "Vous pouvez commencer depuis l'une des deux pages d'équipement."
 
-msgid "Select sections to save or apply."
-msgstr "Choisissez les sections à enregistrer ou à appliquer."
+msgid "Select content to save or apply."
+msgstr "Choisissez le contenu à enregistrer ou à appliquer."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Certains raccourcis sont indisponibles. Modifiez-les dans Paramètres > Raccourcis."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Certains raccourcis sont indisponibles. Voir Paramètres → Raccourcis."
 
 msgid "Show / hide panel"
 msgstr "Afficher / masquer le panneau"
@@ -133,8 +133,8 @@ msgstr "Choisir le contenu"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Remplissez les quatre emplacements de stratagèmes avant d'enregistrer."
 
-msgid "Apply all"
-msgstr "Tout appliquer"
+msgid "Apply preset"
+msgstr "Appliquer le préréglage"
 
 msgid "Apply Stratagems"
 msgstr "Appliquer les stratagèmes"
@@ -161,11 +161,11 @@ msgstr "Prêt automatiquement"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Se déclarer prêt après l'application réussie d'un bonus."
 
-msgid "Save fallback Booster when taken"
-msgstr "Enregistrer un bonus de secours si un allié l'utilise"
+msgid "Remember a fallback Booster"
+msgstr "Mémoriser un bonus de secours"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Attend votre sélection, puis l'enregistre comme bonus de secours."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Mémorise votre choix de remplacement si les bonus enregistrés sont déjà pris."
 
 msgid "Display"
 msgstr "Écran"
@@ -213,8 +213,8 @@ msgstr "Définir le raccourci"
 msgid "Clear shortcut"
 msgstr "Effacer le raccourci"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Cliquez sur un raccourci et appuyez sur les touches souhaitées. Esc annule la saisie."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Cliquez sur un raccourci pour le saisir. Esc annule."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "Le raccourci du panneau fonctionne partout ; ceux des préréglages fonctionnent dans le jeu ou le panneau."

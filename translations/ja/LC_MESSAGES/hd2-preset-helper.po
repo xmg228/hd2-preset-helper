@@ -106,11 +106,11 @@ msgstr "完全なカテゴリキャッシュに基づきます。未カバーの
 msgid "Start from either loadout page."
 msgstr "どちらの装備選択ページからでも開始できます。"
 
-msgid "Select sections to save or apply."
+msgid "Select content to save or apply."
 msgstr "保存または適用する項目を選択してください。"
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "一部のショートカットは使用できません。「設定 > ショートカット」で変更してください。"
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "一部のショートカットは使用できません。「設定 → ショートカット」を確認してください。"
 
 msgid "Show / hide panel"
 msgstr "パネルを表示 / 非表示"
@@ -133,8 +133,8 @@ msgstr "内容を選択"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "保存する前に、戦略支援の4つのスロットをすべて埋めてください。"
 
-msgid "Apply all"
-msgstr "すべて適用"
+msgid "Apply preset"
+msgstr "プリセットを適用"
 
 msgid "Apply Stratagems"
 msgstr "戦略支援を適用"
@@ -161,11 +161,11 @@ msgstr "自動で準備完了"
 msgid "Ready up after successfully applying a Booster."
 msgstr "ブースターの適用に成功したら準備完了にします。"
 
-msgid "Save fallback Booster when taken"
-msgstr "他の隊員が使用中なら予備のブースターを保存"
+msgid "Remember a fallback Booster"
+msgstr "予備のブースターを記憶"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "選択を待ち、予備のブースターとして保存します。"
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "保存済みのブースターがすべて使用中の場合、選び直したものを記憶します。"
 
 msgid "Display"
 msgstr "ディスプレイ"
@@ -213,8 +213,8 @@ msgstr "ショートカットを設定"
 msgid "Clear shortcut"
 msgstr "ショートカットを解除"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "ショートカットをクリックしてキーを押してください。Esc で記録をキャンセルします。"
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "ショートカットをクリックして入力します。Esc でキャンセル。"
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "パネルのショートカットはどこでも使えます。プリセットのショートカットはゲーム内かパネル内で使えます。"

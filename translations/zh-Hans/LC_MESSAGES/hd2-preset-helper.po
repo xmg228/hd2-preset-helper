@@ -106,11 +106,11 @@ msgstr "按完整分类缓存统计；未覆盖的装备也可能无需扫描即
 msgid "Start from either loadout page."
 msgstr "可从任一配装页面开始。"
 
-msgid "Select sections to save or apply."
+msgid "Select content to save or apply."
 msgstr "选择要保存或应用的内容。"
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "部分快捷键不可用。请在“设置 > 快捷键”中修改。"
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "部分快捷键不可用，请查看设置 → 快捷键。"
 
 msgid "Show / hide panel"
 msgstr "显示 / 隐藏面板"
@@ -133,8 +133,8 @@ msgstr "选择内容"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "保存战略配备前，请填满四个槽位。"
 
-msgid "Apply all"
-msgstr "应用全部"
+msgid "Apply preset"
+msgstr "应用预设"
 
 msgid "Apply Stratagems"
 msgstr "应用战略配备"
@@ -161,11 +161,11 @@ msgstr "自动准备就绪"
 msgid "Ready up after successfully applying a Booster."
 msgstr "成功应用强化资源后自动准备就绪。"
 
-msgid "Save fallback Booster when taken"
-msgstr "强化资源被占用时保存备选"
+msgid "Remember a fallback Booster"
+msgstr "记住备选强化资源"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "等待你手动选择强化资源，并保存为备选。"
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "已保存的强化资源被占用时，记住你的替代选择。"
 
 msgid "Display"
 msgstr "显示器"
@@ -213,8 +213,8 @@ msgstr "设置快捷键"
 msgid "Clear shortcut"
 msgstr "清除快捷键"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "点击快捷键后按下所需按键。按 Esc 取消录制。"
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "点击快捷键录入，Esc 取消。"
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "面板快捷键全局有效；预设快捷键仅在游戏或面板中有效。"

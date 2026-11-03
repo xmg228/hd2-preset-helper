@@ -106,11 +106,11 @@ msgstr "依完整分類快取統計；未涵蓋的裝備也可能無需掃描即
 msgid "Start from either loadout page."
 msgstr "可從任一配裝頁面開始。"
 
-msgid "Select sections to save or apply."
+msgid "Select content to save or apply."
 msgstr "選擇要儲存或套用的內容。"
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "部分快速鍵無法使用。請至「設定 > 快速鍵」修改。"
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "部分快速鍵無法使用，請查看設定 → 快速鍵。"
 
 msgid "Show / hide panel"
 msgstr "顯示 / 隱藏面板"
@@ -133,8 +133,8 @@ msgstr "選擇內容"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "儲存前，請填滿四個戰略配備欄位。"
 
-msgid "Apply all"
-msgstr "套用全部"
+msgid "Apply preset"
+msgstr "套用預設"
 
 msgid "Apply Stratagems"
 msgstr "套用戰略配備"
@@ -161,11 +161,11 @@ msgstr "自動準備就緒"
 msgid "Ready up after successfully applying a Booster."
 msgstr "成功套用強化套件後，自動準備就緒。"
 
-msgid "Save fallback Booster when taken"
-msgstr "強化套件被佔用時儲存備用套件"
+msgid "Remember a fallback Booster"
+msgstr "記住備用強化套件"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "等待你選擇強化套件，再儲存為備用。"
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "已儲存的強化套件被佔用時，記住你的替代選擇。"
 
 msgid "Display"
 msgstr "螢幕"
@@ -213,8 +213,8 @@ msgstr "設定快速鍵"
 msgid "Clear shortcut"
 msgstr "清除快速鍵"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "按一下快速鍵，再按下所需按鍵。按 Esc 取消錄製。"
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "按一下快速鍵輸入，Esc 取消。"
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "面板快速鍵全域有效；預設快速鍵僅在遊戲或面板中有效。"

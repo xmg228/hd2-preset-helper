@@ -962,13 +962,13 @@ export component PresetPanel inherits Window {
                     if (root.loading || root.failure-details == "" || root.status != ""): Text {
                         text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
                             : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
-                            : @tr("Select sections to save or apply.");
+                            : @tr("Select content to save or apply.");
                         color: Theme.text-secondary;
                         wrap: word-wrap;
                         font-size: 12px;
                     }
                     if (root.shortcut-warning != ""): Text {
-                        text: @tr("Some shortcuts are unavailable. Change them in Settings > Shortcuts.");
+                        text: @tr("Some shortcuts are unavailable. See Settings → Shortcuts.");
                         color: Theme.warning;
                         font-size: 12px;
                         wrap: word-wrap;
@@ -1043,7 +1043,7 @@ export component PresetPanel inherits Window {
                             spacing: 4px;
                             apply-button := PanelButton {
                                 height: 32px;
-                                text: root.include-stratagems ? (root.include-equipment ? @tr("Apply all") : @tr("Apply Stratagems"))
+                                text: root.include-stratagems ? (root.include-equipment ? @tr("Apply preset") : @tr("Apply Stratagems"))
                                     : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
                                 accent: true;
                                 enabled: root.available;

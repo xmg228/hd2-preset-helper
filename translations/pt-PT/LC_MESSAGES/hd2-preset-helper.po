@@ -106,11 +106,11 @@ msgstr "Baseia-se em categorias completas na cache. Os itens não abrangidos pod
 msgid "Start from either loadout page."
 msgstr "Começa em qualquer um dos dois ecrãs de equipamento."
 
-msgid "Select sections to save or apply."
-msgstr "Seleciona as secções que queres guardar ou aplicar."
+msgid "Select content to save or apply."
+msgstr "Seleciona o conteúdo que queres guardar ou aplicar."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Alguns atalhos estão indisponíveis. Altera-os em Definições > Atalhos."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Alguns atalhos estão indisponíveis. Consulta Definições → Atalhos."
 
 msgid "Show / hide panel"
 msgstr "Mostrar / ocultar painel"
@@ -133,8 +133,8 @@ msgstr "Selecionar conteúdo"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Preenche os quatro espaços de estratagemas antes de guardar."
 
-msgid "Apply all"
-msgstr "Aplicar tudo"
+msgid "Apply preset"
+msgstr "Aplicar predefinição"
 
 msgid "Apply Stratagems"
 msgstr "Aplicar estratagemas"
@@ -161,11 +161,11 @@ msgstr "Pronto automaticamente"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Marca-te como pronto após aplicar um impulsionador com êxito."
 
-msgid "Save fallback Booster when taken"
-msgstr "Guardar alternativa se outro usar o impulsionador"
+msgid "Remember a fallback Booster"
+msgstr "Memorizar um impulsionador alternativo"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Aguarda a tua seleção e guarda-a como alternativa."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Memoriza a tua alternativa quando os impulsionadores guardados estão em uso."
 
 msgid "Display"
 msgstr "Ecrã"
@@ -213,8 +213,8 @@ msgstr "Definir atalho"
 msgid "Clear shortcut"
 msgstr "Limpar atalho"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Clica num atalho e prime as teclas. Esc cancela a gravação."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Clica num atalho para o definir. Esc cancela."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "O atalho do painel funciona globalmente; os das predefinições funcionam no jogo ou no painel."

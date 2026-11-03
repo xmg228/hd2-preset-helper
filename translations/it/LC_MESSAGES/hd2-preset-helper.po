@@ -106,11 +106,11 @@ msgstr "Si basa sulle categorie interamente memorizzate nella cache. Gli element
 msgid "Start from either loadout page."
 msgstr "Puoi iniziare da una delle due pagine dell'equipaggiamento."
 
-msgid "Select sections to save or apply."
-msgstr "Seleziona le sezioni da salvare o applicare."
+msgid "Select content to save or apply."
+msgstr "Seleziona il contenuto da salvare o applicare."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Alcune scorciatoie non sono disponibili. Modificale in Impostazioni > Scorciatoie."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Alcune scorciatoie non sono disponibili. Vedi Impostazioni → Scorciatoie."
 
 msgid "Show / hide panel"
 msgstr "Mostra / nascondi pannello"
@@ -133,8 +133,8 @@ msgstr "Seleziona contenuto"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Riempi tutti e quattro gli slot degli stratagemmi prima di salvare."
 
-msgid "Apply all"
-msgstr "Applica tutto"
+msgid "Apply preset"
+msgstr "Applica preset"
 
 msgid "Apply Stratagems"
 msgstr "Applica stratagemmi"
@@ -161,11 +161,11 @@ msgstr "Pronto in automatico"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Imposta automaticamente lo stato pronto dopo aver applicato un potenziamento."
 
-msgid "Save fallback Booster when taken"
-msgstr "Salva un potenziamento di riserva se lo usa un compagno"
+msgid "Remember a fallback Booster"
+msgstr "Ricorda un potenziamento di riserva"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Attende la tua selezione, poi la salva come riserva."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Ricorda la tua scelta alternativa se i potenziamenti salvati sono già in uso."
 
 msgid "Display"
 msgstr "Schermo"
@@ -213,8 +213,8 @@ msgstr "Imposta scorciatoia"
 msgid "Clear shortcut"
 msgstr "Cancella scorciatoia"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Fai clic su una scorciatoia e premi i tasti desiderati. Esc annulla la registrazione."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Fai clic su una scorciatoia per registrarla. Esc annulla."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "La scorciatoia del pannello è globale; quelle dei preset funzionano nel gioco o nel pannello."

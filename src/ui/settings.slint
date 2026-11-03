@@ -97,7 +97,7 @@ export component SettingsDialog inherits Rectangle {
             Rectangle { height: 1px; background: Theme.border; }
             if (root.shortcut-only): VerticalLayout {
                 spacing: 12px;
-                Text { text: @tr("Click a shortcut and press your keys. Esc cancels recording."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
+                Text { text: @tr("Click a shortcut to record. Esc cancels."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
                 BindingRow {
                     item: root.rows[root.shortcut-index];
                     recording: root.recording == root.shortcut-index;
@@ -124,8 +124,8 @@ export component SettingsDialog inherits Rectangle {
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
-                        text: @tr("Save fallback Booster when taken");
-                        description: @tr("Wait for your selection, then save it as a fallback.");
+                        text: @tr("Remember a fallback Booster");
+                        description: @tr("Remembers your replacement when saved Boosters are taken.");
                         checked <=> root.save-fallback-when-taken;
                         enabled: root.enabled && !root.saving;
                     }

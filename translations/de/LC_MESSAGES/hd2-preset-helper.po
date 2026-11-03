@@ -106,11 +106,11 @@ msgstr "Basiert auf vollständig erfassten Kategorien. Nicht abgedeckte Gegenst�
 msgid "Start from either loadout page."
 msgstr "Du kannst auf einer der beiden Ausrüstungsseiten beginnen."
 
-msgid "Select sections to save or apply."
-msgstr "Wähle die Bereiche zum Speichern oder Anwenden."
+msgid "Select content to save or apply."
+msgstr "Wähle die Inhalte zum Speichern oder Anwenden."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Einige Tastenkürzel sind nicht verfügbar. Ändere sie unter Einstellungen > Tastenkürzel."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Einige Tastenkürzel sind nicht verfügbar. Siehe Einstellungen → Tastenkürzel."
 
 msgid "Show / hide panel"
 msgstr "Panel ein- / ausblenden"
@@ -133,8 +133,8 @@ msgstr "Inhalte auswählen"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Belege vor dem Speichern alle vier Taktikausrüstungsplätze."
 
-msgid "Apply all"
-msgstr "Alles anwenden"
+msgid "Apply preset"
+msgstr "Preset anwenden"
 
 msgid "Apply Stratagems"
 msgstr "Taktikausrüstungen anwenden"
@@ -161,11 +161,11 @@ msgstr "Automatisch bereitmachen"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Wählt nach erfolgreichem Anwenden eines Boosters automatisch „Bereitmachen“."
 
-msgid "Save fallback Booster when taken"
-msgstr "Bei belegtem Booster Ersatz-Booster speichern"
+msgid "Remember a fallback Booster"
+msgstr "Ersatz-Booster merken"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Wartet auf deine Auswahl und speichert sie als Ersatz."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Merkt sich deine Ersatzauswahl, wenn die gespeicherten Booster belegt sind."
 
 msgid "Display"
 msgstr "Monitor"
@@ -213,8 +213,8 @@ msgstr "Tastenkürzel festlegen"
 msgid "Clear shortcut"
 msgstr "Tastenkürzel entfernen"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Klicke auf ein Tastenkürzel und drücke die gewünschten Tasten. Esc bricht die Aufnahme ab."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Klicke zum Aufzeichnen auf ein Tastenkürzel. Esc bricht ab."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "Das Panel-Tastenkürzel funktioniert global; Preset-Tastenkürzel nur im Spiel oder Panel."

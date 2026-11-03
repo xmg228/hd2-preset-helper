@@ -106,11 +106,11 @@ msgstr "Dotyczy kategorii w całości zapisanych w pamięci podręcznej. Nieobj�
 msgid "Start from either loadout page."
 msgstr "Możesz zacząć na dowolnej z dwóch stron wyposażenia."
 
-msgid "Select sections to save or apply."
-msgstr "Wybierz sekcje do zapisania lub zastosowania."
+msgid "Select content to save or apply."
+msgstr "Wybierz elementy do zapisania lub zastosowania."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "Niektóre skróty są niedostępne. Zmień je w Ustawienia > Skróty klawiszowe."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "Niektóre skróty są niedostępne. Zobacz Ustawienia → Skróty klawiszowe."
 
 msgid "Show / hide panel"
 msgstr "Pokaż / ukryj panel"
@@ -133,8 +133,8 @@ msgstr "Wybierz zawartość"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Przed zapisem wypełnij wszystkie cztery miejsca na manewry."
 
-msgid "Apply all"
-msgstr "Zastosuj wszystko"
+msgid "Apply preset"
+msgstr "Zastosuj zestaw"
 
 msgid "Apply Stratagems"
 msgstr "Zastosuj manewry"
@@ -161,11 +161,11 @@ msgstr "Automatyczna gotowość"
 msgid "Ready up after successfully applying a Booster."
 msgstr "Zgłoś gotowość po pomyślnym zastosowaniu premii."
 
-msgid "Save fallback Booster when taken"
-msgstr "Zapisz premię zapasową, gdy wybrana jest zajęta"
+msgid "Remember a fallback Booster"
+msgstr "Zapamiętaj premię zapasową"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "Czeka na twój wybór, a następnie zapisuje go jako zapasowy."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "Zapamiętuje twój wybór zastępczy, gdy wszystkie zapisane premie są zajęte."
 
 msgid "Display"
 msgstr "Monitor"
@@ -213,8 +213,8 @@ msgstr "Ustaw skrót"
 msgid "Clear shortcut"
 msgstr "Wyczyść skrót"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "Kliknij skrót i naciśnij wybrane klawisze. Esc anuluje rejestrowanie."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "Kliknij skrót, aby go ustawić. Esc anuluje."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "Skrót panelu działa globalnie; skróty zestawów działają w grze lub panelu."

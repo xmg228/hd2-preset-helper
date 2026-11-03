@@ -106,11 +106,11 @@ msgstr "완전한 분류 캐시를 기준으로 합니다. 포함되지 않은 �
 msgid "Start from either loadout page."
 msgstr "두 장비 구성 페이지 중 어디서든 시작할 수 있습니다."
 
-msgid "Select sections to save or apply."
+msgid "Select content to save or apply."
 msgstr "저장하거나 적용할 항목을 선택하세요."
 
-msgid "Some shortcuts are unavailable. Change them in Settings > Shortcuts."
-msgstr "일부 단축키를 사용할 수 없습니다. 설정 > 단축키에서 변경하세요."
+msgid "Some shortcuts are unavailable. See Settings → Shortcuts."
+msgstr "일부 단축키를 사용할 수 없습니다. 설정 → 단축키를 확인하세요."
 
 msgid "Show / hide panel"
 msgstr "패널 표시 / 숨기기"
@@ -133,8 +133,8 @@ msgstr "내용 선택"
 msgid "Fill all four Stratagem slots before saving."
 msgstr "저장하기 전에 스트라타젬 슬롯 네 개를 모두 채우세요."
 
-msgid "Apply all"
-msgstr "모두 적용"
+msgid "Apply preset"
+msgstr "프리셋 적용"
 
 msgid "Apply Stratagems"
 msgstr "스트라타젬 적용"
@@ -161,11 +161,11 @@ msgstr "자동 준비 완료"
 msgid "Ready up after successfully applying a Booster."
 msgstr "부스터 적용에 성공하면 준비를 완료합니다."
 
-msgid "Save fallback Booster when taken"
-msgstr "팀원이 사용 중이면 대체 부스터 저장"
+msgid "Remember a fallback Booster"
+msgstr "대체 부스터 기억"
 
-msgid "Wait for your selection, then save it as a fallback."
-msgstr "직접 선택할 때까지 기다린 뒤 대체 부스터로 저장합니다."
+msgid "Remembers your replacement when saved Boosters are taken."
+msgstr "저장된 부스터가 모두 사용 중이면 직접 선택한 부스터를 기억합니다."
 
 msgid "Display"
 msgstr "디스플레이"
@@ -213,8 +213,8 @@ msgstr "단축키 설정"
 msgid "Clear shortcut"
 msgstr "단축키 해제"
 
-msgid "Click a shortcut and press your keys. Esc cancels recording."
-msgstr "단축키를 클릭한 뒤 원하는 키를 누르세요. Esc를 누르면 입력 기록이 취소됩니다."
+msgid "Click a shortcut to record. Esc cancels."
+msgstr "단축키를 클릭해 입력하세요. Esc로 취소합니다."
 
 msgid "The panel shortcut works globally; preset shortcuts work in the game or panel."
 msgstr "패널 단축키는 어디서든 작동하고, 프리셋 단축키는 게임이나 패널에서 작동합니다."
