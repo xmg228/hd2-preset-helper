@@ -15,6 +15,8 @@ export component SettingsDialog inherits Rectangle {
     in-out property <int> selected-monitor;
     in-out property <int> selected-language;
     in property <[string]> language-fonts;
+    in property <bool> startup-available;
+    in-out property <bool> start-with-windows;
     in-out property <bool> apply-in-saved-order;
     in-out property <bool> auto-ready-up;
     in-out property <bool> save-fallback-when-taken;
@@ -144,6 +146,7 @@ export component SettingsDialog inherits Rectangle {
                             font-families: root.language-fonts;
                             enabled: root.enabled && !root.saving;
                         }
+                        Text { text: @tr("Display language for the interface."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
                     }
                     VerticalLayout {
                         padding: 8px;
@@ -154,7 +157,13 @@ export component SettingsDialog inherits Rectangle {
                             current-index <=> root.selected-monitor;
                             enabled: root.enabled && !root.saving;
                         }
-                        Text { text: @tr("Used for the panel and action status."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+                        Text { text: @tr("Screen for the interface."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+                    }
+                    SettingToggle {
+                        text: @tr("Start with Windows");
+                        description: @tr("Starts in the background after sign-in.");
+                        checked <=> root.start-with-windows;
+                        enabled: root.enabled && !root.saving && root.startup-available;
                     }
                 }
             }

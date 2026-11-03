@@ -50,11 +50,16 @@ fn panel_hotkey(config: &ShortcutBindings) -> Result<input::Hotkeys> {
 }
 
 pub fn run() -> Result<Option<PathBuf>> {
+    let background = std::env::args_os()
+        .skip(1)
+        .any(|arg| arg == platform::startup::BACKGROUND_ARGUMENT);
     let Some(_instance) = platform::SingleInstance::try_acquire()? else {
-        platform::show_notice(
-            "HD2 Preset Helper",
-            "HD2 Preset Helper is already running. Check the system tray.",
-        );
+        if !background {
+            platform::show_notice(
+                "HD2 Preset Helper",
+                "HD2 Preset Helper is already running. Check the system tray.",
+            );
+        }
         return Ok(None);
     };
     let paths = AppPaths::resolve()?;
@@ -90,7 +95,7 @@ pub fn run() -> Result<Option<PathBuf>> {
         if captures_need_resaving {
             show_preset_format_updated();
         }
-        run_with_config(config, &paths)
+        run_with_config(config, &paths, background)
     });
     if let Err(error) = &result {
         error!(error = %format!("{error:#}"), "application terminated");
@@ -98,7 +103,11 @@ pub fn run() -> Result<Option<PathBuf>> {
     result
 }
 
-fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf>> {
+fn run_with_config(
+    config: AppConfig,
+    paths: &AppPaths,
+    background: bool,
+) -> Result<Option<PathBuf>> {
     let library = crate::preset::library_metadata(&paths.presets)?;
     let shortcut_bindings = ShortcutBindings {
         panel: config.ui.panel_shortcut.clone(),
@@ -160,7 +169,9 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf
                 return Ok(ControlFlow::Continue(()));
             }
             opening = false;
-            app.open_panel()?;
+            if !background {
+                app.open_panel()?;
+            }
             app.initialize_updates();
             return Ok(ControlFlow::Continue(()));
         }

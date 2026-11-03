@@ -95,15 +95,20 @@ pub(super) fn connect(
             .row_data(panel.get_selected_monitor() as usize)
             .expect("settings always include a selected display");
         panel.set_settings_saving(true);
-        let _ = send.send(UiRequest::SaveSettings(SettingsDraft {
-            shortcuts: bindings(&panel),
-            monitor: monitor.id.to_string(),
-            language: UiLanguage::ALL[panel.get_selected_language() as usize],
-            apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
-            auto_ready_up: panel.get_draft_auto_ready_up(),
-            save_fallback_when_taken: panel.get_draft_save_fallback_when_taken(),
-            check_updates_automatically: panel.get_draft_check_updates_automatically(),
-        }));
+        let _ = send.send(UiRequest::SaveSettings {
+            draft: SettingsDraft {
+                shortcuts: bindings(&panel),
+                monitor: monitor.id.to_string(),
+                language: UiLanguage::ALL[panel.get_selected_language() as usize],
+                apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
+                auto_ready_up: panel.get_draft_auto_ready_up(),
+                save_fallback_when_taken: panel.get_draft_save_fallback_when_taken(),
+                check_updates_automatically: panel.get_draft_check_updates_automatically(),
+            },
+            startup_change: (panel.get_startup_available()
+                && panel.get_draft_start_with_windows() != panel.get_initial_start_with_windows())
+            .then_some(panel.get_draft_start_with_windows()),
+        });
     });
 
     let weak = panel.as_weak();
@@ -182,7 +187,12 @@ pub(super) fn connect(
     }
 }
 
-pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, target: SettingsTarget) {
+pub(super) fn open(
+    panel: &PresetPanel,
+    draft: SettingsDraft,
+    startup_state: Option<bool>,
+    target: SettingsTarget,
+) {
     let rows = std::iter::once(ShortcutRow {
         name: "".into(),
         binding: draft.shortcuts.panel.as_str().into(),
@@ -244,6 +254,9 @@ pub(super) fn open(panel: &PresetPanel, draft: SettingsDraft, target: SettingsTa
             .position(|&language| language == draft.language)
             .unwrap_or_default() as i32,
     );
+    panel.set_startup_available(startup_state.is_some());
+    panel.set_initial_start_with_windows(startup_state.unwrap_or_default());
+    panel.set_draft_start_with_windows(panel.get_initial_start_with_windows());
     panel.set_draft_apply_in_saved_order(draft.apply_in_saved_order);
     panel.set_draft_auto_ready_up(draft.auto_ready_up);
     panel.set_draft_save_fallback_when_taken(draft.save_fallback_when_taken);

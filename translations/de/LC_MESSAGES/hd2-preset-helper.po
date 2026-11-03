@@ -176,6 +176,12 @@ msgstr "Allgemein"
 msgid "Shortcuts"
 msgstr "Tastenkürzel"
 
+msgid "Start with Windows"
+msgstr "Mit Windows starten"
+
+msgid "Starts in the background after sign-in."
+msgstr "Startet nach der Anmeldung im Hintergrund."
+
 msgid "Apply Stratagems in saved order"
 msgstr "Taktikausrüstungen in gespeicherter Reihenfolge anwenden"
 
@@ -206,11 +212,14 @@ msgstr "Gespeicherter Monitor (nicht verfügbar)"
 msgid "Primary display"
 msgstr "Hauptmonitor"
 
-msgid "Used for the panel and action status."
-msgstr "Für das Panel und den Aktionsstatus."
+msgid "Screen for the interface."
+msgstr "Bildschirm für die Oberfläche."
 
 msgid "Language"
 msgstr "Sprache"
+
+msgid "Display language for the interface."
+msgstr "Anzeigesprache der Oberfläche."
 
 msgid "Follow system"
 msgstr "Systemsprache verwenden"

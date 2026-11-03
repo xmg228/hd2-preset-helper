@@ -67,7 +67,10 @@ pub enum UiRequest {
         label: String,
     },
     OpenSettings(SettingsTarget),
-    SaveSettings(SettingsDraft),
+    SaveSettings {
+        draft: SettingsDraft,
+        startup_change: Option<bool>,
+    },
     CheckUpdates,
     ViewUpdateNotes,
     ViewProject,
@@ -403,9 +406,14 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn open_settings(&self, draft: SettingsDraft, target: SettingsTarget) {
+    pub fn open_settings(
+        &self,
+        draft: SettingsDraft,
+        startup_state: Option<bool>,
+        target: SettingsTarget,
+    ) {
         self.window.invoke_commit_names();
-        settings::open(&self.window, draft, target);
+        settings::open(&self.window, draft, startup_state, target);
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {

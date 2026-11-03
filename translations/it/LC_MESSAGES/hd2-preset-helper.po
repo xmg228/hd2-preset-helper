@@ -176,6 +176,12 @@ msgstr "Generale"
 msgid "Shortcuts"
 msgstr "Scorciatoie"
 
+msgid "Start with Windows"
+msgstr "Avvia con Windows"
+
+msgid "Starts in the background after sign-in."
+msgstr "Si avvia in background dopo l'accesso."
+
 msgid "Apply Stratagems in saved order"
 msgstr "Applica gli stratagemmi nell'ordine salvato"
 
@@ -206,11 +212,14 @@ msgstr "Schermo salvato (non disponibile)"
 msgid "Primary display"
 msgstr "Schermo principale"
 
-msgid "Used for the panel and action status."
-msgstr "Usato per il pannello e lo stato delle azioni."
+msgid "Screen for the interface."
+msgstr "Schermo per l'interfaccia."
 
 msgid "Language"
 msgstr "Lingua"
+
+msgid "Display language for the interface."
+msgstr "Lingua di visualizzazione dell'interfaccia."
 
 msgid "Follow system"
 msgstr "Lingua del sistema"

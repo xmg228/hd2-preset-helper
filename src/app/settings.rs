@@ -15,6 +15,7 @@ impl AppController {
         {
             return;
         }
+        let startup = crate::platform::startup::is_enabled();
         self.ui.open_settings(
             SettingsDraft {
                 shortcuts: self.shortcut_bindings.clone(),
@@ -25,8 +26,13 @@ impl AppController {
                 save_fallback_when_taken: self.settings.save_fallback_when_taken,
                 check_updates_automatically: self.updates.automatic,
             },
+            startup.as_ref().ok().copied(),
             target,
         );
+        if let Err(error) = startup {
+            tracing::warn!(error = %format!("{error:#}"), "could not read Windows startup setting");
+            self.ui.settings_failed(&format!("{error:#}"));
+        }
     }
 
     pub(super) fn open_link(&self, url: &str) {
@@ -40,7 +46,11 @@ impl AppController {
         }
     }
 
-    pub(super) fn save_settings(&mut self, draft: SettingsDraft) -> Result<()> {
+    pub(super) fn save_settings(
+        &mut self,
+        draft: SettingsDraft,
+        startup_change: Option<bool>,
+    ) -> Result<()> {
         ensure!(
             !self.updates.installing(),
             "settings cannot be saved while installing an update"
@@ -99,6 +109,14 @@ impl AppController {
             tracing::warn!(error = %format!("{error:#}"), "settings saved but window placement failed");
             self.ui.set_status(&format!(
                 "Settings saved, but window placement failed: {error:#}"
+            ));
+        }
+        if let Some(enabled) = startup_change
+            && let Err(error) = crate::platform::startup::set_enabled(enabled)
+        {
+            tracing::warn!(error = %format!("{error:#}"), "settings saved but Windows startup change failed");
+            self.ui.set_status(&format!(
+                "Settings saved, but Windows startup could not be changed: {error:#}"
             ));
         }
         tracing::info!("settings saved");

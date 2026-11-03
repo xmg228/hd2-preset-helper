@@ -176,6 +176,12 @@ msgstr "Общие"
 msgid "Shortcuts"
 msgstr "Сочетания клавиш"
 
+msgid "Start with Windows"
+msgstr "Запускать вместе с Windows"
+
+msgid "Starts in the background after sign-in."
+msgstr "Запускается в фоновом режиме после входа в систему."
+
 msgid "Apply Stratagems in saved order"
 msgstr "Применять стратагемы в сохранённом порядке"
 
@@ -206,11 +212,14 @@ msgstr "Сохранённый монитор (недоступен)"
 msgid "Primary display"
 msgstr "Основной монитор"
 
-msgid "Used for the panel and action status."
-msgstr "Для отображения панели и состояния действий."
+msgid "Screen for the interface."
+msgstr "Экран для интерфейса."
 
 msgid "Language"
 msgstr "Язык"
+
+msgid "Display language for the interface."
+msgstr "Язык интерфейса."
 
 msgid "Follow system"
 msgstr "Как в системе"

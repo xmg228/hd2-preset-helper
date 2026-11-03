@@ -176,6 +176,12 @@ msgstr "一般"
 msgid "Shortcuts"
 msgstr "快速鍵"
 
+msgid "Start with Windows"
+msgstr "隨 Windows 啟動"
+
+msgid "Starts in the background after sign-in."
+msgstr "登入後在背景啟動。"
+
 msgid "Apply Stratagems in saved order"
 msgstr "依儲存順序套用戰略配備"
 
@@ -206,11 +212,14 @@ msgstr "已儲存的螢幕（無法使用）"
 msgid "Primary display"
 msgstr "主要螢幕"
 
-msgid "Used for the panel and action status."
-msgstr "用於顯示面板與操作狀態。"
+msgid "Screen for the interface."
+msgstr "介面所在的螢幕。"
 
 msgid "Language"
 msgstr "語言"
+
+msgid "Display language for the interface."
+msgstr "介面的顯示語言。"
 
 msgid "Follow system"
 msgstr "跟隨系統"

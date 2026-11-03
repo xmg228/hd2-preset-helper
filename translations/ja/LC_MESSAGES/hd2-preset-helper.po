@@ -176,6 +176,12 @@ msgstr "一般"
 msgid "Shortcuts"
 msgstr "ショートカット"
 
+msgid "Start with Windows"
+msgstr "Windows と同時に起動"
+
+msgid "Starts in the background after sign-in."
+msgstr "サインイン後にバックグラウンドで起動します。"
+
 msgid "Apply Stratagems in saved order"
 msgstr "保存した順序で戦略支援を適用"
 
@@ -206,11 +212,14 @@ msgstr "保存済みのディスプレイ（使用不可）"
 msgid "Primary display"
 msgstr "メインディスプレイ"
 
-msgid "Used for the panel and action status."
-msgstr "パネルと操作状況の表示に使用します。"
+msgid "Screen for the interface."
+msgstr "インターフェースを表示する画面。"
 
 msgid "Language"
 msgstr "言語"
+
+msgid "Display language for the interface."
+msgstr "インターフェースの表示言語。"
 
 msgid "Follow system"
 msgstr "システムに合わせる"

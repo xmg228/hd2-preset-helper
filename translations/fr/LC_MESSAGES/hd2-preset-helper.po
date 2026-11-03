@@ -176,6 +176,12 @@ msgstr "Général"
 msgid "Shortcuts"
 msgstr "Raccourcis"
 
+msgid "Start with Windows"
+msgstr "Démarrer avec Windows"
+
+msgid "Starts in the background after sign-in."
+msgstr "Démarre en arrière-plan après la connexion."
+
 msgid "Apply Stratagems in saved order"
 msgstr "Appliquer les stratagèmes dans l'ordre enregistré"
 
@@ -206,11 +212,14 @@ msgstr "Écran enregistré (indisponible)"
 msgid "Primary display"
 msgstr "Écran principal"
 
-msgid "Used for the panel and action status."
-msgstr "Utilisé pour le panneau et l'état des actions."
+msgid "Screen for the interface."
+msgstr "Écran de l'interface."
 
 msgid "Language"
 msgstr "Langue"
+
+msgid "Display language for the interface."
+msgstr "Langue d'affichage de l'interface."
 
 msgid "Follow system"
 msgstr "Langue du système"

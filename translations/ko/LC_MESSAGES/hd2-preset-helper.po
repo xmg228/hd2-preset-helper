@@ -176,6 +176,12 @@ msgstr "일반"
 msgid "Shortcuts"
 msgstr "단축키"
 
+msgid "Start with Windows"
+msgstr "Windows 시작 시 실행"
+
+msgid "Starts in the background after sign-in."
+msgstr "로그인 후 백그라운드에서 시작합니다."
+
 msgid "Apply Stratagems in saved order"
 msgstr "저장된 순서로 스트라타젬 적용"
 
@@ -206,11 +212,14 @@ msgstr "저장된 디스플레이 (사용 불가)"
 msgid "Primary display"
 msgstr "기본 디스플레이"
 
-msgid "Used for the panel and action status."
-msgstr "패널과 작업 상태를 표시하는 데 사용합니다."
+msgid "Screen for the interface."
+msgstr "인터페이스를 표시할 화면입니다."
 
 msgid "Language"
 msgstr "언어"
+
+msgid "Display language for the interface."
+msgstr "인터페이스의 표시 언어입니다."
 
 msgid "Follow system"
 msgstr "시스템 설정 사용"

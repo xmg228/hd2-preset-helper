@@ -224,7 +224,10 @@ impl AppController {
                         self.update_failed(&error);
                     }
                 }
-                UiRequest::SaveSettings(draft) => match self.save_settings(draft) {
+                UiRequest::SaveSettings {
+                    draft,
+                    startup_change,
+                } => match self.save_settings(draft, startup_change) {
                     Ok(()) => {}
                     Err(error) if error.is::<crate::persistence::RollbackFailed>() => {
                         return Err(error.context(
