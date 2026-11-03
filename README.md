@@ -23,7 +23,8 @@ For manual updates, exit the app and replace `HD2PresetHelper.exe`, keeping `dat
 The app stays in the system tray when the panel is hidden. Left-click the tray
 icon to reopen it, or right-click and select **Exit** to quit.
 
-To uninstall, exit the app and delete its folder, including any saved presets.
+To uninstall, turn off **Start with Windows** in Settings if enabled and save,
+then exit the app and delete its folder, including any saved presets.
 
 ## Quick start
 
