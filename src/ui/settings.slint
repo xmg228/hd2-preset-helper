@@ -1,4 +1,5 @@
 import { Theme } from "theme.slint";
+import { Icons } from "icons.slint";
 import { ScrollView, TextEdit } from "std-widgets.slint";
 import { IconButton, PanelButton, PanelComboBox, SettingToggle } from "controls.slint";
 import { BindingRow, ShortcutEditor } from "shortcuts.slint";
@@ -222,7 +223,7 @@ export component SettingsDialog inherits Rectangle {
                     spacing: 8px;
                     IconButton {
                         label: @tr("Back");
-                        path: "M 19 12 H 5 M 12 5 L 5 12 L 12 19";
+                        icon: Icons.back;
                         enabled: root.enabled;
                         clicked => { root.page = SettingsPage.about; keys.focus(); }
                     }

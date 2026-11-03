@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
-import { PanelButton } from "controls.slint";
+import { PanelButton, IconButton } from "controls.slint";
+import { Icons } from "icons.slint";
 import { ShortcutRow } from "models.slint";
 import { UiText } from "text.slint";
 
@@ -29,10 +30,10 @@ export component BindingRow inherits Rectangle {
                 clicked => { root.record(); }
             }
         }
-        PanelButton {
-            width: 28px;
-            text: "×";
-            accessible-label: @tr("Clear shortcut");
+        IconButton {
+            height: 40px;
+            label: @tr("Clear shortcut");
+            icon: Icons.close;
             enabled: root.enabled && root.item.binding != "";
             clicked => { root.clear(); }
         }

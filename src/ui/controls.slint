@@ -1,5 +1,6 @@
 import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
+import { Icon, Icons } from "icons.slint";
 
 export component PanelComboBox inherits Rectangle {
     in property <[string]> model;
@@ -71,16 +72,11 @@ export component PanelComboBox inherits Rectangle {
             overflow: elide;
             horizontal-stretch: 1;
         }
-        Path {
-            width: 12px;
-            height: 12px;
+        Icon {
+            size: 12px;
             cross-axis-self-alignment: center;
-            viewbox-width: 12;
-            viewbox-height: 12;
-            commands: "M 2 4 L 6 8 L 10 4";
-            fill: transparent;
+            icon: Icons.chevron-down;
             stroke: root.enabled ? Theme.control-text : Theme.text-disabled;
-            stroke-width: 1.5px;
         }
     }
     keys := FocusScope {
@@ -198,7 +194,7 @@ export component PanelButton inherits Rectangle {
 
 export component IconButton inherits Rectangle {
     in property <string> label;
-    in property <string> path;
+    in property <string> icon;
     in property <bool> outlined;
     in property <bool> checkable;
     in property <bool> checked;
@@ -219,19 +215,13 @@ export component IconButton inherits Rectangle {
     accessible-checked: checkable && checked;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
     forward-focus: keys;
-    Path {
+    Icon {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: root.path;
-        fill: transparent;
+        icon: root.icon;
         stroke: !root.enabled ? Theme.inactive
             : touch.has-hover || keys.has-focus || (root.checkable && root.checked)
                 ? (root.checkable ? Theme.text : Theme.accent) : Theme.text-secondary;
-        stroke-width: 1.5px;
     }
     keys := FocusScope {
         enabled: root.enabled;
@@ -299,15 +289,11 @@ export component SettingToggle inherits Rectangle {
                 border-width: 1px;
                 border-color: root.checked ? Theme.accent-soft : Theme.inactive;
                 background: root.checked ? Theme.accent-soft : transparent;
-                if root.checked: Path {
-                    width: parent.width;
-                    height: parent.height;
-                    viewbox-width: 18;
-                    viewbox-height: 18;
-                    commands: "M 4 9 L 7.5 12.5 L 14 5.5";
-                    fill: transparent;
+                if root.checked: Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.check;
                     stroke: Theme.background;
-                    stroke-width: 2px;
                 }
             }
         }
@@ -433,8 +419,7 @@ export component FailureNotice inherits HorizontalLayout {
             spacing: 4px;
             IconButton {
                 label: root.copied ? @tr("Copied") : @tr("Copy details");
-                path: root.copied ? "M 5 12 L 10 17 L 20 6"
-                    : "M 9 9 H 21 V 21 H 9 Z M 5 15 H 3 V 3 H 15 V 5";
+                icon: root.copied ? Icons.check : Icons.copy;
                 clicked => {
                     details-text.select-all();
                     details-text.copy();
@@ -445,7 +430,7 @@ export component FailureNotice inherits HorizontalLayout {
             }
             IconButton {
                 label: @tr("Dismiss last failure");
-                path: "M 6 6 L 18 18 M 18 6 L 6 18";
+                icon: Icons.close;
                 clicked => { root.dismissed(); }
             }
         }

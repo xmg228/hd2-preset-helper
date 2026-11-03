@@ -1,4 +1,5 @@
 import { Theme } from "theme.slint";
+import { Icon, Icons } from "icons.slint";
 import { NameImage } from "controls.slint";
 import { UiText } from "text.slint";
 
@@ -23,14 +24,12 @@ component ItemIcon inherits Rectangle {
         height: 13px;
         border-radius: 6px;
         background: Theme.background;
-        Path {
-            x: 3px; y: 3px;
-            width: 8px; height: 7px;
-            viewbox-width: 12; viewbox-height: 10;
-            commands: "M 1 5 L 4 8 L 11 1";
-            fill: transparent;
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            size: 10px;
+            icon: Icons.check;
             stroke: #b8cbb7;
-            stroke-width: 1.5px;
         }
     }
 }
