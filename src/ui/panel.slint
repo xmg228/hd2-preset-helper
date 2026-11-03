@@ -808,6 +808,11 @@ export component PresetPanel inherits Window {
                                         font-size: 21px;
                                         overflow: elide;
                                         vertical-alignment: center;
+                                        TouchArea {
+                                            enabled: root.interactive && !root.editing-name
+                                                && !root.reordering-preset && root.presets.length > 0;
+                                            double-clicked => { root.begin-rename(); }
+                                        }
                                     }
                                     Rectangle {
                                         x: 0px;
