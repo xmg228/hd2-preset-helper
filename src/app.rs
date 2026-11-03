@@ -99,10 +99,11 @@ pub fn run() -> Result<Option<PathBuf>> {
 }
 
 fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf>> {
-    let metadata = crate::preset::metadata(&paths.presets)?;
+    let library = crate::preset::library_metadata(&paths.presets)?;
     let shortcut_bindings = ShortcutBindings {
         panel: config.ui.panel_shortcut.clone(),
-        presets: metadata
+        presets: library
+            .presets
             .iter()
             .map(|info| (info.id.clone(), info.shortcut.clone()))
             .collect(),
@@ -119,7 +120,7 @@ fn run_with_config(config: AppConfig, paths: &AppPaths) -> Result<Option<PathBuf
     };
     let worker = ActionWorker::start(paths.clone())?;
     let ui = ui::AppUi::new(
-        metadata,
+        library,
         config.ui.monitor,
         config.ui.language,
         paths.presets.clone(),

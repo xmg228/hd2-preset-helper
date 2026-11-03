@@ -58,6 +58,21 @@ msgstr "Wczytywanie podglądów…"
 msgid "+ New preset"
 msgstr "+ Nowy zestaw"
 
+msgid "New folder"
+msgstr "Nowy folder"
+
+msgid "Folder {}"
+msgstr "Folder {}"
+
+msgid "Rename folder"
+msgstr "Zmień nazwę folderu"
+
+msgid "Ungroup"
+msgstr "Rozgrupuj"
+
+msgid "Folder name"
+msgstr "Nazwa folderu"
+
 msgid "Compact list"
 msgstr "Lista kompaktowa"
 

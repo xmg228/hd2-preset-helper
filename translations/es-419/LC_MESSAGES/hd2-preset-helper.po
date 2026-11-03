@@ -58,6 +58,21 @@ msgstr "Cargando vistas previas…"
 msgid "+ New preset"
 msgstr "+ Nuevo preajuste"
 
+msgid "New folder"
+msgstr "Nueva carpeta"
+
+msgid "Folder {}"
+msgstr "Carpeta {}"
+
+msgid "Rename folder"
+msgstr "Cambiar nombre de la carpeta"
+
+msgid "Ungroup"
+msgstr "Desagrupar"
+
+msgid "Folder name"
+msgstr "Nombre de la carpeta"
+
 msgid "Compact list"
 msgstr "Lista compacta"
 

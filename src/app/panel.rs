@@ -247,11 +247,11 @@ impl AppController {
                         None => crate::preset::add(&self.paths.presets),
                     };
                     match result {
-                        Ok(info) => {
+                        Ok((id, library)) => {
                             self.shortcut_bindings
                                 .presets
-                                .insert(info.id.clone(), String::new());
-                            self.ui.insert_preset(info, source.as_deref());
+                                .insert(id.clone(), String::new());
+                            self.ui.insert_preset(library, &id, source.as_deref());
                         }
                         Err(error) => {
                             warn!(source = source.as_deref(), error = %format!("{error:#}"), "failed to create preset");
@@ -261,6 +261,34 @@ impl AppController {
                     }
                 }
                 UiRequest::CreatePreset { .. } => {}
+                UiRequest::CreateFolder
+                    if !self.exiting
+                        && matches!(self.state, ActionState::Idle)
+                        && !self.updates.installing()
+                        && !self.ui.is_editing() =>
+                {
+                    match crate::preset::add_folder(&self.paths.presets) {
+                        Ok((folder, library)) => {
+                            self.ui.insert_folder(library, &folder);
+                        }
+                        Err(error) => self.organization_updated(Err(error), "create folder"),
+                    }
+                }
+                UiRequest::CreateFolder => {}
+                UiRequest::RenameFolder { folder, label }
+                    if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
+                {
+                    let result = crate::preset::rename_folder(&self.paths.presets, &folder, &label);
+                    self.organization_updated(result, "rename folder");
+                }
+                UiRequest::RenameFolder { .. } => {}
+                UiRequest::UngroupFolder(folder)
+                    if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
+                {
+                    let result = crate::preset::ungroup_folder(&self.paths.presets, &folder);
+                    self.organization_updated(result, "ungroup folder");
+                }
+                UiRequest::UngroupFolder(_) => {}
                 UiRequest::DeletePreset(preset) => {
                     if let Err(error) = self.delete_preset(&preset) {
                         warn!(%preset, error = %format!("{error:#}"), "failed to delete preset");
@@ -268,27 +296,45 @@ impl AppController {
                             .set_status(&format!("Could not finish deleting preset: {error:#}"));
                     }
                 }
-                UiRequest::MovePreset { preset, before }
-                    if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
-                {
-                    match crate::preset::move_before(
+                UiRequest::MoveEntry {
+                    entry,
+                    parent,
+                    before,
+                } if matches!(self.state, ActionState::Idle) && !self.updates.installing() => {
+                    let result = crate::preset::move_entry(
                         &self.paths.presets,
-                        &preset,
+                        &entry,
+                        parent.as_deref(),
                         before.as_deref(),
-                    ) {
-                        Ok(()) => self.ui.move_preset(&preset, before.as_deref()),
-                        Err(error) => {
-                            warn!(%preset, error = %format!("{error:#}"), "failed to reorder preset");
-                            self.ui.cancel_reorder();
-                            self.ui
-                                .set_status(&format!("Could not reorder preset: {error:#}"));
+                    );
+                    match result {
+                        Ok(library) => {
+                            self.ui.set_library(library, None);
+                            self.ui.reveal_entry(&entry);
                         }
+                        Err(error) => self.organization_updated(Err(error), "move entry"),
                     }
                 }
-                UiRequest::MovePreset { .. } => self.ui.cancel_reorder(),
+                UiRequest::MoveEntry { .. } => self.ui.cancel_reorder(),
             }
         }
         Ok(())
+    }
+
+    fn organization_updated(
+        &mut self,
+        result: Result<crate::preset::LibraryMetadata>,
+        operation: &str,
+    ) {
+        match result {
+            Ok(library) => self.ui.set_library(library, None),
+            Err(error) => {
+                warn!(operation, error = %format!("{error:#}"), "could not update preset organization");
+                self.ui.cancel_reorder();
+                self.ui
+                    .set_status(&format!("Could not {operation}: {error:#}"));
+            }
+        }
     }
 
     fn delete_preset(&mut self, preset: &str) -> Result<()> {
@@ -302,11 +348,11 @@ impl AppController {
         let specs: Vec<_> = bindings.iter().map(|binding| binding.hotkey).collect();
         let hotkeys = input::Hotkeys::new(&specs)?;
 
-        crate::preset::remove(&self.paths.presets, preset)?;
+        let library = crate::preset::remove(&self.paths.presets, preset)?;
         self.shortcut_bindings = shortcuts;
         self.bindings = bindings;
         self.hotkeys = hotkeys;
-        self.ui.remove_preset(preset);
+        self.ui.remove_preset(library);
         Ok(())
     }
 

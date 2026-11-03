@@ -4,6 +4,9 @@ export global Icons {
     out property <string> close: "M 4.5 4.5 L 11.5 11.5 M 11.5 4.5 L 4.5 11.5";
     out property <string> check: "M 3.5 8.25 L 6.5 11.25 L 12.5 4.75";
     out property <string> chevron-down: "M 4 6.25 L 8 10.25 L 12 6.25";
+    out property <string> chevron-right: "M 6.25 4 L 10.25 8 L 6.25 12";
+    out property <string> folder: "M 2.5 4 Q 2.5 3 3.5 3 H 6.25 L 8.25 5 H 12.5 Q 13.5 5 13.5 6 V 12 Q 13.5 13 12.5 13 H 3.5 Q 2.5 13 2.5 12 Z";
+    out property <string> folder-plus: "M 13.5 7 V 6 Q 13.5 5 12.5 5 H 8.25 L 6.25 3 H 3.5 Q 2.5 3 2.5 4 V 12 Q 2.5 13 3.5 13 H 7 M 11.5 9 V 14 M 9 11.5 H 14";
     out property <string> back: "M 12.75 8 H 3.25 M 7.75 3.5 L 3.25 8 L 7.75 12.5";
     out property <string> apply: "M 5 3.5 L 12 8 L 5 12.5 Z";
     out property <string> update: "M 12.5 5.25 A 5.25 5.25 0 1 0 13.25 9 M 9 5.25 H 12.5 V 1.75";
@@ -16,6 +19,24 @@ export global Icons {
     out property <string> minimize: "M 3.5 8 H 12.5";
 }
 
+export component DragHandle inherits Rectangle {
+    in property <color> stroke;
+    width: 18px;
+    height: 16px;
+    for column in 2: Rectangle {
+        x: 6px + column * 4px;
+        width: 2px;
+        height: 16px;
+        for row in 3: Rectangle {
+            y: 3px + row * 4px;
+            width: 2px;
+            height: 2px;
+            border-radius: 1px;
+            background: root.stroke;
+        }
+    }
+}
+
 export component Icon inherits Rectangle {
     in property <string> icon;
     in property <color> stroke;
@@ -23,6 +44,8 @@ export component Icon inherits Rectangle {
     width: size;
     height: size;
     Path {
+        x: 0px;
+        y: 0px;
         width: 16px;
         height: 16px;
         fit: preserve;

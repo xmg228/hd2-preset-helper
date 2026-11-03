@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
-use slint::{ComponentHandle, Model, ModelExt, Rgba8Pixel, SharedPixelBuffer, VecModel};
+use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
 use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
@@ -17,8 +17,9 @@ use crate::item::EquipmentKind;
 use crate::preset::preview::{
     PresetPreview, PreviewContent, PreviewImage, PreviewRole as PreviewImageRole,
 };
-use crate::preset::{PresetMetadata, PresetScope, PresetSection};
+use crate::preset::{LibraryMetadata, PresetMetadata, PresetScope, PresetSection};
 
+mod library;
 mod settings;
 mod status;
 #[cfg(target_os = "windows")]
@@ -76,15 +77,22 @@ pub enum UiRequest {
         source: Option<String>,
     },
     DeletePreset(String),
-    MovePreset {
-        preset: String,
+    CreateFolder,
+    RenameFolder {
+        folder: String,
+        label: String,
+    },
+    UngroupFolder(String),
+    MoveEntry {
+        entry: String,
+        parent: Option<String>,
         before: Option<String>,
     },
     HidePanel,
 }
 
-// Only in-process preset drags carry this marker.
-struct PresetDrag;
+// Only in-process library entries carry this drag marker.
+struct EntryDrag;
 
 pub struct AppUi {
     window: PresetPanel,
@@ -101,7 +109,7 @@ pub struct AppUi {
 
 impl AppUi {
     pub fn new(
-        preset_info: Vec<PresetMetadata>,
+        library: LibraryMetadata,
         monitor: String,
         language: UiLanguage,
         presets: PathBuf,
@@ -146,6 +154,7 @@ impl AppUi {
         let placement_dirty = Rc::new(Cell::new(false));
         let dirty = placement_dirty.clone();
         let mut handle_keys = settings::connect(&window, send.clone());
+        library::connect(&window, send.clone());
         window.window().on_winit_window_event(move |_, event| {
             if matches!(event, WindowEvent::ScaleFactorChanged { .. }) {
                 dirty.set(true);
@@ -171,14 +180,14 @@ impl AppUi {
             let _ = delete_send.send(UiRequest::DeletePreset(preset.to_string()));
         });
         let mut drag_data = slint::DataTransfer::default();
-        drag_data.set_user_data(Rc::new(PresetDrag));
-        window.set_preset_drag_data(drag_data);
-        window
-            .on_is_preset_drag(|data| data.user_data().is_some_and(|data| data.is::<PresetDrag>()));
+        drag_data.set_user_data(Rc::new(EntryDrag));
+        window.set_entry_drag_data(drag_data);
+        window.on_is_entry_drag(|data| data.user_data().is_some_and(|data| data.is::<EntryDrag>()));
         let move_send = send.clone();
-        window.on_request_reorder(move |preset, before| {
-            let _ = move_send.send(UiRequest::MovePreset {
-                preset: preset.to_string(),
+        window.on_request_reorder(move |entry, parent, before| {
+            let _ = move_send.send(UiRequest::MoveEntry {
+                entry: entry.to_string(),
+                parent: (!parent.is_empty()).then(|| parent.to_string()),
                 before: (!before.is_empty()).then(|| before.to_string()),
             });
         });
@@ -223,32 +232,6 @@ impl AppUi {
             }
             state
         });
-        window.on_filter_presets(|rows, query, default_title| {
-            rows.model_tracker().track_row_count_changes();
-            let query = query.trim().to_lowercase();
-            let indices = (0..rows.row_count())
-                .filter(|&index| {
-                    query.is_empty()
-                        || rows.row_data_tracked(index).is_some_and(|row| {
-                            let title = if row.label.is_empty() {
-                                default_title.replace("{}", row.number.as_str())
-                            } else {
-                                row.label.to_string()
-                            };
-                            title.to_lowercase().contains(query.as_str())
-                                || row.number.contains(query.as_str())
-                        })
-                })
-                .map(|index| index as i32)
-                .collect::<Vec<_>>();
-            Rc::new(VecModel::from(indices)).into()
-        });
-        window.on_visible_preset_index(|indices, current| {
-            indices.model_tracker().track_row_count_changes();
-            (0..indices.row_count())
-                .position(|index| indices.row_data_tracked(index) == Some(current))
-                .map_or(-1, |index| index as i32)
-        });
         let rename_send = send.clone();
         let weak = window.as_weak();
         window.on_request_rename(move |preset, label| {
@@ -283,9 +266,10 @@ impl AppUi {
             window,
             _tray: tray,
             requests,
-            preset_info,
+            preset_info: Vec::new(),
         };
         ui.set_language(language)?;
+        ui.set_library(library, None);
         ui.set_previews(BTreeMap::new());
         Ok(ui)
     }
@@ -334,7 +318,7 @@ impl AppUi {
         if !self.is_panel_open() {
             return Ok(());
         }
-        self.window.invoke_finish_rename(true);
+        self.window.invoke_commit_names();
         self.window.invoke_close_dialogs();
         self.window
             .window()
@@ -349,7 +333,7 @@ impl AppUi {
     /// Automation and shutdown must not wait for a visual transition.
     pub fn hide_panel(&mut self) -> Result<()> {
         self.panel_hide_at = None;
-        self.window.invoke_finish_rename(true);
+        self.window.invoke_commit_names();
         self.window.invoke_close_dialogs();
         self.window.set_presented(false);
         self.window.hide()?;
@@ -420,7 +404,7 @@ impl AppUi {
     }
 
     pub fn open_settings(&self, draft: SettingsDraft, target: SettingsTarget) {
-        self.window.invoke_finish_rename(true);
+        self.window.invoke_commit_names();
         settings::open(&self.window, draft, target);
     }
 
@@ -495,7 +479,8 @@ impl AppUi {
     pub fn is_editing(&self) -> bool {
         self.window.get_editing_name()
             || self.window.get_editing_search()
-            || self.window.get_reordering_preset()
+            || self.window.get_editing_folder_name()
+            || self.window.get_reordering_entry()
             || self.window.get_settings_open()
             || self.window.get_delete_open()
     }
@@ -503,7 +488,8 @@ impl AppUi {
     pub fn shortcuts_blocked(&self) -> bool {
         self.window.get_editing_name()
             || self.window.get_editing_search()
-            || self.window.get_reordering_preset()
+            || self.window.get_editing_folder_name()
+            || self.window.get_reordering_entry()
             || self.window.get_recording_shortcut() >= 0
             || (self.window.get_settings_open() && self.window.get_viewing_licenses())
     }
@@ -574,30 +560,110 @@ impl AppUi {
         }
     }
 
-    pub fn insert_preset(&mut self, info: PresetMetadata, source: Option<&str>) {
-        self.window.set_search_query("".into());
-        let mut rows: Vec<_> = self.window.get_presets().iter().collect();
-        let source_index = source.and_then(|id| rows.iter().position(|row| row.name == id));
-        let mut row = source_index.map_or_else(
-            || PresetRow {
-                stratagems: stratagem_section(PreviewContent::Missing),
-                equipment: equipment_section(Default::default()),
-                ..Default::default()
-            },
-            |index| rows[index].clone(),
-        );
-        row.name = info.id.as_str().into();
-        row.number = preset_number(&info.id).into();
-        row.label = info.label.as_str().into();
-        row.shortcut = info.shortcut.as_str().into();
-        let index = source_index.map_or(rows.len(), |index| index + 1);
-        rows.insert(index, row);
-        self.preset_info.insert(index, info);
+    pub fn set_library(&mut self, library: LibraryMetadata, selected: Option<&str>) {
+        let previous_index = self.window.get_current_index().max(0) as usize;
+        let mut previous: BTreeMap<_, _> = self
+            .window
+            .get_presets()
+            .iter()
+            .map(|row| (row.name.to_string(), row))
+            .collect();
+        let selected = selected.map(str::to_owned).or_else(|| {
+            self.window
+                .get_presets()
+                .row_data(previous_index)
+                .map(|row| row.name.to_string())
+        });
+        let rows: Vec<_> = library
+            .presets
+            .iter()
+            .map(|info| {
+                let mut row = previous.remove(&info.id).unwrap_or_else(|| PresetRow {
+                    stratagems: stratagem_section(PreviewContent::Missing),
+                    equipment: equipment_section(Default::default()),
+                    ..Default::default()
+                });
+                row.name = info.id.as_str().into();
+                row.number = preset_number(&info.id).into();
+                row.label = info.label.as_str().into();
+                row.shortcut = info.shortcut.as_str().into();
+                row
+            })
+            .collect();
+        let index = selected
+            .as_deref()
+            .and_then(|id| rows.iter().position(|row| row.name == id))
+            .unwrap_or_else(|| previous_index.min(rows.len().saturating_sub(1)));
+        self.window.invoke_finish_reorder();
+        self.preset_info = library.presets;
+        let entries = library::rows(library.entries, &self.window.get_entries());
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
+        self.window.set_entries(entries);
         self.window.set_current_index(index as i32);
-        self.window.invoke_focus_list();
+        if !self.is_editing() {
+            self.window.invoke_focus_list();
+        }
         self.set_status("");
+    }
+
+    pub fn insert_preset(&mut self, library: LibraryMetadata, id: &str, source: Option<&str>) {
+        self.window.set_search_query("".into());
+        let mut rows: Vec<_> = self.window.get_presets().iter().collect();
+        if let Some(mut row) = source
+            .and_then(|id| rows.iter().find(|row| row.name == id))
+            .cloned()
+        {
+            row.name = id.into();
+            rows.push(row);
+            self.window
+                .set_presets(Rc::new(VecModel::from(rows)).into());
+        }
+        self.set_library(library, Some(id));
+        let entries = self.window.get_entries();
+        let parent = entries
+            .iter()
+            .find(|row| row.name == id)
+            .map(|row| row.parent);
+        if let Some((index, mut folder)) = entries
+            .iter()
+            .enumerate()
+            .find(|(_, row)| row.is_folder && Some(&row.name) == parent.as_ref())
+        {
+            folder.expanded = true;
+            entries.set_row_data(index, folder);
+        }
+        self.reveal_entry(id);
+    }
+
+    pub fn insert_folder(&mut self, library: LibraryMetadata, id: &str) {
+        self.window.set_search_query("".into());
+        self.set_library(library, None);
+        self.reveal_entry(id);
+    }
+
+    pub fn reveal_entry(&self, id: &str) {
+        let entries: Vec<_> = self.window.get_entries().iter().collect();
+        let Some(mut target) = entries.iter().find(|entry| entry.name == id) else {
+            return;
+        };
+        if self.window.get_search_query().trim().is_empty() {
+            let mut parent = target.parent.as_str();
+            while let Some(folder) = entries.iter().find(|entry| entry.name == parent) {
+                if !folder.expanded {
+                    target = folder;
+                }
+                parent = folder.parent.as_str();
+            }
+        }
+        // Reveal after the queued search and model change handlers have settled.
+        let weak = self.window.as_weak();
+        let name = target.name.clone();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(window) = weak.upgrade() {
+                window.invoke_reveal_entry(name);
+            }
+        });
     }
 
     pub fn set_label(&mut self, preset: &str, label: String) {
@@ -613,47 +679,9 @@ impl AppUi {
         self.set_status("");
     }
 
-    pub fn remove_preset(&mut self, preset: &str) {
-        self.preset_info.retain(|info| info.id != preset);
-        let rows: Vec<_> = self
-            .window
-            .get_presets()
-            .iter()
-            .filter(|row| row.name != preset)
-            .collect();
-        let index = self
-            .window
-            .get_current_index()
-            .min(rows.len().saturating_sub(1) as i32);
-        self.window
-            .set_presets(Rc::new(VecModel::from(rows)).into());
-        self.window.set_current_index(index);
+    pub fn remove_preset(&mut self, library: LibraryMetadata) {
+        self.set_library(library, None);
         self.window.invoke_focus_search_results();
-        self.set_status("");
-    }
-
-    pub fn move_preset(&mut self, preset: &str, before: Option<&str>) {
-        if before == Some(preset) {
-            self.cancel_reorder();
-            return;
-        }
-        let mut rows: Vec<_> = self.window.get_presets().iter().collect();
-        let Some(from) = rows.iter().position(|row| row.name == preset) else {
-            self.cancel_reorder();
-            return;
-        };
-        let row = rows.remove(from);
-        let to = before
-            .and_then(|before| rows.iter().position(|row| row.name == before))
-            .unwrap_or(rows.len());
-        rows.insert(to, row);
-        let info = self.preset_info.remove(from);
-        self.preset_info.insert(to, info);
-        self.window
-            .set_presets(Rc::new(VecModel::from(rows)).into());
-        self.window.set_current_index(to as i32);
-        self.window.invoke_focus_list();
-        self.set_status("");
     }
     pub fn cancel_reorder(&self) {
         self.window.invoke_finish_reorder();

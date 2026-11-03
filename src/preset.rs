@@ -18,7 +18,9 @@ use std::{
 pub(crate) use images::{load_template_image, resolve_template_path};
 pub(crate) use migration::initialize;
 use model::{Entry, Preset, PresetLibrary};
-pub(crate) use model::{LocalTemplate, PresetMetadata, StratagemPreset};
+pub(crate) use model::{
+    EntryMetadata, LibraryMetadata, LocalTemplate, PresetMetadata, StratagemPreset,
+};
 const LOCAL_TEMPLATES_DIR: &str = "local_templates";
 
 #[derive(Clone, Copy)]
@@ -52,8 +54,41 @@ impl PresetScope {
     }
 }
 
-pub(crate) fn metadata(path: &Path) -> Result<Vec<PresetMetadata>> {
-    Ok(storage::load(path)?.metadata())
+pub(crate) fn library_metadata(path: &Path) -> Result<LibraryMetadata> {
+    Ok(storage::load(path)?.library_metadata())
+}
+
+pub(crate) fn add_folder(path: &Path) -> Result<(String, LibraryMetadata)> {
+    storage::edit(path, |library| {
+        let id = library.add_folder()?;
+        Ok((id, library.library_metadata()))
+    })
+}
+
+pub(crate) fn rename_folder(path: &Path, id: &str, label: &str) -> Result<LibraryMetadata> {
+    storage::edit(path, |library| {
+        library.rename_folder(id, label)?;
+        Ok(library.library_metadata())
+    })
+}
+
+pub(crate) fn ungroup_folder(path: &Path, id: &str) -> Result<LibraryMetadata> {
+    storage::edit(path, |library| {
+        library.ungroup_folder(id)?;
+        Ok(library.library_metadata())
+    })
+}
+
+pub(crate) fn move_entry(
+    path: &Path,
+    id: &str,
+    parent: Option<&str>,
+    before: Option<&str>,
+) -> Result<LibraryMetadata> {
+    storage::edit(path, |library| {
+        library.move_entry(id, parent, before)?;
+        Ok(library.library_metadata())
+    })
 }
 
 pub(crate) fn validate_id(id: &str) -> Result<()> {
@@ -77,22 +112,19 @@ pub fn saved_sections(
     ))
 }
 
-pub(crate) fn add(path: &Path) -> Result<PresetMetadata> {
+pub(crate) fn add(path: &Path) -> Result<(String, LibraryMetadata)> {
     storage::edit(path, |library| {
         let id = next_id(path, library)?;
         library.entries.push(Entry::Preset(Box::new(Preset {
             id: id.clone(),
             ..Default::default()
         })));
-        Ok(PresetMetadata {
-            id,
-            ..Default::default()
-        })
+        Ok((id, library.library_metadata()))
     })
 }
 
 /// Insert an independent copy beside its source, publishing only after all images exist.
-pub(crate) fn duplicate(path: &Path, source_id: &str) -> Result<PresetMetadata> {
+pub(crate) fn duplicate(path: &Path, source_id: &str) -> Result<(String, LibraryMetadata)> {
     storage::locked(path, |library| {
         let mut preset = library.get(source_id)?.clone();
         preset.id = next_id(path, library)?;
@@ -121,17 +153,13 @@ pub(crate) fn duplicate(path: &Path, source_id: &str) -> Result<PresetMetadata> 
             }
             created.push(images);
         }
-        let metadata = PresetMetadata {
-            id: preset.id.clone(),
-            label: preset.label.clone(),
-            shortcut: String::new(),
-        };
+        let id = preset.id.clone();
         library.insert_after(source_id, preset)?;
         storage::write(path, library)?;
         for images in created {
             images.commit();
         }
-        Ok(metadata)
+        Ok((id, library.library_metadata()))
     })
 }
 
@@ -191,10 +219,6 @@ pub(crate) fn rename(path: &Path, id: &str, label: &str) -> Result<()> {
     })
 }
 
-pub(crate) fn move_before(path: &Path, id: &str, before: Option<&str>) -> Result<()> {
-    storage::edit(path, |library| library.move_before(id, before))
-}
-
 /// Keep the writer lock until the caller has published the updated document.
 pub(crate) fn edit_shortcuts(
     path: &Path,
@@ -208,7 +232,7 @@ pub(crate) fn edit_shortcuts(
 }
 
 /// Commit removal before reclaiming resources. Cleanup failure must not resurrect a preset.
-pub fn remove(path: &Path, id: &str) -> Result<()> {
+pub(crate) fn remove(path: &Path, id: &str) -> Result<LibraryMetadata> {
     storage::locked(path, |library| {
         let directory = images::owned_directory(path, id)?;
         library.remove(id)?;
@@ -220,13 +244,11 @@ pub fn remove(path: &Path, id: &str) -> Result<()> {
             .any(|p| Path::new(p).starts_with(&relative))
         {
             tracing::warn!(%id, "removed preset still has shared template references; files retained");
-            return Ok(());
-        }
-        if let Err(error) = fs::remove_dir_all(directory)
+        } else if let Err(error) = fs::remove_dir_all(directory)
             && error.kind() != std::io::ErrorKind::NotFound
         {
             tracing::warn!(%id, %error, "preset removed; template cleanup failed");
         }
-        Ok(())
+        Ok(library.library_metadata())
     })
 }

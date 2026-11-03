@@ -13,6 +13,18 @@ export struct PresetRow {
     equipment: PreviewSection,
     equipment-cache-matches: int,
 }
+export struct LibraryEntryRow {
+    name: string,
+    label: string,
+    number: string,
+    parent: string,
+    is-folder: bool,
+    expanded: bool,
+    preset-index: int,
+    top: float,
+    height: float,
+}
+export struct EntryDropTarget { parent: string, before: string, top: float, inside: string, valid: bool, displace: bool }
 export struct ShortcutRow { name: string, label: string, number: string, binding: string }
 export enum MonitorRole { automatic, available, unavailable }
 export struct MonitorChoice { id: string, role: MonitorRole, name: string, number: string, primary: bool }

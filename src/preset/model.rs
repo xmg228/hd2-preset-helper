@@ -85,6 +85,30 @@ pub(crate) struct PresetMetadata {
     pub shortcut: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LibraryMetadata {
+    pub presets: Vec<PresetMetadata>,
+    pub entries: Vec<EntryMetadata>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EntryMetadata {
+    pub id: String,
+    pub label: String,
+    /// Empty for root entries; otherwise the containing folder ID.
+    pub parent: String,
+    pub is_folder: bool,
+}
+
+impl Entry {
+    fn id(&self) -> &str {
+        match self {
+            Self::Preset(preset) => &preset.id,
+            Self::Folder { id, .. } => id,
+        }
+    }
+}
+
 impl Preset {
     pub(super) fn image_paths(&self) -> impl Iterator<Item = &str> {
         let stratagems = self
@@ -118,7 +142,7 @@ impl Default for PresetLibrary {
 }
 
 impl PresetLibrary {
-    pub(super) fn presets(&self) -> impl Iterator<Item = &Preset> {
+    fn all_entries(&self) -> impl Iterator<Item = &Entry> {
         let mut stack = vec![self.entries.iter()];
         std::iter::from_fn(move || {
             loop {
@@ -126,11 +150,18 @@ impl PresetLibrary {
                     stack.pop();
                     continue;
                 };
-                match entry {
-                    Entry::Preset(preset) => return Some(preset.as_ref()),
-                    Entry::Folder { entries, .. } => stack.push(entries.iter()),
+                if let Entry::Folder { entries, .. } = entry {
+                    stack.push(entries.iter());
                 }
+                return Some(entry);
             }
+        })
+    }
+
+    pub(super) fn presets(&self) -> impl Iterator<Item = &Preset> {
+        self.all_entries().filter_map(|entry| match entry {
+            Entry::Preset(preset) => Some(preset.as_ref()),
+            Entry::Folder { .. } => None,
         })
     }
 
@@ -178,14 +209,136 @@ impl PresetLibrary {
             .ok_or_else(|| anyhow::anyhow!("preset not found: {id}"))
     }
 
-    pub(super) fn metadata(&self) -> Vec<PresetMetadata> {
-        self.presets()
-            .map(|preset| PresetMetadata {
-                id: preset.id.clone(),
-                label: preset.label.trim().into(),
-                shortcut: preset.shortcut.clone(),
-            })
-            .collect()
+    pub(super) fn library_metadata(&self) -> LibraryMetadata {
+        fn visit(entries: &[Entry], parent: &str, metadata: &mut LibraryMetadata) {
+            for entry in entries {
+                let (label, children) = match entry {
+                    Entry::Preset(preset) => {
+                        metadata.presets.push(PresetMetadata {
+                            id: preset.id.clone(),
+                            label: preset.label.trim().into(),
+                            shortcut: preset.shortcut.clone(),
+                        });
+                        (preset.label.as_str(), None)
+                    }
+                    Entry::Folder { label, entries, .. } => (label.as_str(), Some(entries)),
+                };
+                metadata.entries.push(EntryMetadata {
+                    id: entry.id().into(),
+                    label: label.trim().into(),
+                    parent: parent.into(),
+                    is_folder: children.is_some(),
+                });
+                if let Some(children) = children {
+                    visit(children, entry.id(), metadata);
+                }
+            }
+        }
+        let mut metadata = LibraryMetadata::default();
+        visit(&self.entries, "", &mut metadata);
+        metadata
+    }
+
+    pub(super) fn add_folder(&mut self) -> Result<String> {
+        let number = self
+            .all_entries()
+            .filter_map(|entry| ordinal(entry.id(), "folder_"))
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .context("folder ID space exhausted")?;
+        let id = format!("folder_{number}");
+        self.entries.push(Entry::Folder {
+            id: id.clone(),
+            label: String::new(),
+            entries: Vec::new(),
+        });
+        Ok(id)
+    }
+
+    pub(super) fn rename_folder(&mut self, id: &str, label: &str) -> Result<()> {
+        validate_label(label)?;
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
+            .with_context(|| format!("folder not found: {id}"))?;
+        let Entry::Folder { label: saved, .. } = &mut entries[index] else {
+            anyhow::bail!("entry is not a folder: {id}");
+        };
+        *saved = label.trim().into();
+        Ok(())
+    }
+
+    pub(super) fn ungroup_folder(&mut self, id: &str) -> Result<()> {
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
+            .with_context(|| format!("folder not found: {id}"))?;
+        ensure!(
+            matches!(entries[index], Entry::Folder { .. }),
+            "entry is not a folder: {id}"
+        );
+        let Entry::Folder {
+            entries: children, ..
+        } = entries.remove(index)
+        else {
+            unreachable!("folder kind was validated before removal");
+        };
+        entries.splice(index..index, children);
+        Ok(())
+    }
+
+    pub(super) fn move_entry(
+        &mut self,
+        id: &str,
+        parent: Option<&str>,
+        before: Option<&str>,
+    ) -> Result<()> {
+        let source = self
+            .all_entries()
+            .find(|entry| entry.id() == id)
+            .with_context(|| format!("entry not found: {id}"))?;
+        ensure!(
+            parent.is_none() || !matches!(source, Entry::Folder { .. }),
+            "folders cannot be nested"
+        );
+        let destination = if let Some(parent) = parent {
+            match self.all_entries().find(|entry| entry.id() == parent) {
+                Some(Entry::Folder { entries, .. }) => entries.as_slice(),
+                _ => anyhow::bail!("destination folder not found: {parent}"),
+            }
+        } else {
+            self.entries.as_slice()
+        };
+        if let Some(before) = before {
+            ensure!(
+                destination.iter().any(|entry| entry.id() == before),
+                "destination entry {before} is not in the requested folder"
+            );
+            if id == before {
+                return Ok(());
+            }
+        }
+
+        // All fallible destination checks precede removal. Moving a preset cannot
+        // remove its parent, and moving a folder is restricted to the root.
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
+            .context("validated source entry was not found")?;
+        let entry = entries.remove(index);
+        let entries = if let Some(parent) = parent {
+            let (entries, index) = Self::locate_entry(&mut self.entries, parent)
+                .expect("validated destination folder remains after removal");
+            let Entry::Folder { entries, .. } = &mut entries[index] else {
+                unreachable!("destination folder kind was validated");
+            };
+            entries
+        } else {
+            &mut self.entries
+        };
+        let index = before.map_or(entries.len(), |before| {
+            entries
+                .iter()
+                .position(|entry| entry.id() == before)
+                .expect("validated destination entry remains after removal")
+        });
+        entries.insert(index, entry);
+        Ok(())
     }
 
     pub(super) fn set_shortcuts(&mut self, bindings: &BTreeMap<String, String>) -> Result<()> {
@@ -207,48 +360,29 @@ impl PresetLibrary {
     }
 
     pub(super) fn insert_after(&mut self, id: &str, preset: Preset) -> Result<()> {
-        let (entries, index) = Self::locate_preset(&mut self.entries, id)
+        self.get(id)?;
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
             .with_context(|| format!("preset not found: {id}"))?;
         entries.insert(index + 1, Entry::Preset(Box::new(preset)));
         Ok(())
     }
 
-    pub(super) fn move_before(&mut self, id: &str, before: Option<&str>) -> Result<()> {
-        if let Some(before) = before {
-            self.get(before)?;
-            if id == before {
-                return Ok(());
-            }
-        }
-        let entry = self.take_preset(id)?;
-        if let Some(before) = before {
-            let (entries, index) = Self::locate_preset(&mut self.entries, before)
-                .context("validated destination preset was not found")?;
-            entries.insert(index, entry);
-        } else {
-            self.entries.push(entry);
-        }
-        Ok(())
-    }
-
     fn take_preset(&mut self, id: &str) -> Result<Entry> {
-        let (entries, index) = Self::locate_preset(&mut self.entries, id)
+        self.get(id)?;
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
             .with_context(|| format!("preset not found: {id}"))?;
         Ok(entries.remove(index))
     }
 
-    fn locate_preset<'a>(
+    fn locate_entry<'a>(
         entries: &'a mut Vec<Entry>,
         id: &str,
     ) -> Option<(&'a mut Vec<Entry>, usize)> {
-        if let Some(index) = entries
-            .iter()
-            .position(|entry| matches!(entry, Entry::Preset(preset) if preset.id == id))
-        {
+        if let Some(index) = entries.iter().position(|entry| entry.id() == id) {
             return Some((entries, index));
         }
         entries.iter_mut().find_map(|entry| match entry {
-            Entry::Folder { entries, .. } => Self::locate_preset(entries, id),
+            Entry::Folder { entries, .. } => Self::locate_entry(entries, id),
             _ => None,
         })
     }

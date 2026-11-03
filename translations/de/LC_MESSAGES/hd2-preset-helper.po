@@ -58,6 +58,21 @@ msgstr "Vorschauen werden geladen…"
 msgid "+ New preset"
 msgstr "+ Neues Preset"
 
+msgid "New folder"
+msgstr "Neuer Ordner"
+
+msgid "Folder {}"
+msgstr "Ordner {}"
+
+msgid "Rename folder"
+msgstr "Ordner umbenennen"
+
+msgid "Ungroup"
+msgstr "Gruppierung aufheben"
+
+msgid "Folder name"
+msgstr "Ordnername"
+
 msgid "Compact list"
 msgstr "Kompakte Liste"
 

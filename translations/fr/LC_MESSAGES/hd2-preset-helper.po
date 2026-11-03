@@ -58,6 +58,21 @@ msgstr "Chargement des aperçus…"
 msgid "+ New preset"
 msgstr "+ Nouveau préréglage"
 
+msgid "New folder"
+msgstr "Nouveau dossier"
+
+msgid "Folder {}"
+msgstr "Dossier {}"
+
+msgid "Rename folder"
+msgstr "Renommer le dossier"
+
+msgid "Ungroup"
+msgstr "Dissocier"
+
+msgid "Folder name"
+msgstr "Nom du dossier"
+
 msgid "Compact list"
 msgstr "Liste compacte"
 

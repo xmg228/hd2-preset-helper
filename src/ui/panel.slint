@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Icon, Icons } from "icons.slint";
+import { Icon, Icons, DragHandle } from "icons.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice } from "controls.slint";
 import { SettingsDialog } from "settings.slint";
@@ -7,6 +7,9 @@ import { UpdatePhase } from "updates.slint";
 export { UpdatePhase }
 import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
 import { UiText } from "text.slint";
+import { FolderHeader } from "library.slint";
+import { LibraryEntryRow, EntryDropTarget } from "models.slint";
+export { LibraryEntryRow, EntryDropTarget }
 export { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
 export { ActionStatus, StatusItem, StatusTone } from "status.slint";
@@ -210,7 +213,7 @@ component StratagemPreview inherits Rectangle {
     }
 }
 
-enum PresetReorderPhase { idle, dragging, committing }
+enum ReorderPhase { idle, dragging, committing }
 
 component PresetCard inherits Rectangle {
     in property <PresetRow> item;
@@ -227,20 +230,12 @@ component PresetCard inherits Rectangle {
     border-color: selected ? Theme.accent : transparent;
     border-radius: 5px;
     @children
-    for column in 2: Rectangle {
+    DragHandle {
+        x: 0px;
         visible: root.reorderable;
-        x: 6px + column * 4px;
         y: (parent.height - self.height) / 2;
-        width: 2px;
-        height: 10px;
-        for row in 3: Rectangle {
-            y: row * 4px;
-            width: 2px;
-            height: 2px;
-            border-radius: 1px;
-            background: Theme.text-secondary;
-            opacity: root.handle-hovered ? 1 : root.hovered ? 0.7 : 0.4;
-        }
+        stroke: Theme.text-secondary;
+        opacity: root.handle-hovered ? 1 : root.hovered ? 0.7 : 0.4;
     }
     VerticalLayout {
         padding: 5px;
@@ -309,7 +304,8 @@ export component PresetPanel inherits Window {
     animate panel-opacity { duration: root.fade-duration; easing: linear; }
 
     in property <[PresetRow]> presets;
-    in property <data-transfer> preset-drag-data;
+    in property <[LibraryEntryRow]> entries;
+    in property <data-transfer> entry-drag-data;
     in property <string> status;
     in-out property <string> failure-details;
     in property <string> failure-label;
@@ -350,7 +346,9 @@ export component PresetPanel inherits Window {
     in-out property <string> search-query;
     out property <bool> editing-search: preset-search.has-focus;
     private property <bool> search-active: search-query != "";
-    private property <[int]> visible-presets: root.filter-presets(root.presets, root.search-query, UiText.preset-title("", "{}"));
+    private property <[LibraryEntryRow]> visible-entries: root.project-entries(root.presets, root.entries,
+        root.search-query, UiText.preset-title("", "{}"), root.row-height / 1px);
+    private property <[int]> visible-presets: root.visible-preset-indices(root.visible-entries);
     private property <int> current-visible-index: root.visible-preset-index(root.visible-presets, root.current-index);
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
@@ -360,48 +358,68 @@ export component PresetPanel inherits Window {
     private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
     private property <bool> include-equipment: scope-equipment && equipment-state != PreviewState.missing;
     out property <bool> editing-name: editing-preset != "";
-    out property <bool> reordering-preset: reorder-phase != PresetReorderPhase.idle;
+    out property <bool> editing-folder-name: editing-folder != "";
+    out property <bool> reordering-entry: reorder-phase != ReorderPhase.idle;
     out property <bool> save-available: root.action-available(true, ActionScope.selected);
     out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
-    private property <PresetRow> preview: presets[!editing-name && !reordering-preset && hovered-index >= 0 ? hovered-index : current-index];
+    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && hovered-index >= 0 ? hovered-index : current-index];
     private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-installing
-        && reorder-phase != PresetReorderPhase.committing;
+        && reorder-phase != ReorderPhase.committing;
     private property <string> editing-preset;
     private property <string> name-draft;
+    private property <string> editing-folder;
+    private property <string> folder-name-draft;
+    private property <string> reveal-target;
     private property <bool> apply-key-down;
     private property <bool> skip-delete-confirmation;
     private property <length> row-height: compact-list ? 36px : 68px;
     private property <length> row-spacing: 4px;
-    private property <length> row-pitch: row-height + row-spacing;
-    private property <PresetReorderPhase> reorder-phase;
+    private property <length> entry-indent: 20px;
+    private property <ReorderPhase> reorder-phase;
+    private property <length> drag-x;
     private property <length> drag-y;
     private property <length> drag-offset-y;
-    private property <int> drag-source-index: -1;
-    private property <bool> reorder-preview-visible: !search-active && reordering-preset && drag-source-index >= 0 && drag-source-index < presets.length;
-    private property <length> drag-card-y: clamp(drag-y - drag-offset-y, 0px, max(0px, list-viewport.height - row-height));
-    // Use the unchanged row grid, not the animated card positions, to avoid feedback jitter.
-    private property <int> drag-target-index: reorder-preview-visible
-        ? clamp(round((drag-card-y - preset-list.content-y) / row-pitch), 0, max(0, presets.length - 1)) : -1;
-    changed current-index => { root.finish-rename(true); root.reveal-current(); }
-    changed compact-list => { root.hovered-index = -1; root.reveal-current(); }
+    private property <bool> drag-source-ready;
+    private property <LibraryEntryRow> drag-entry;
+    private property <length> drag-span;
+    private property <bool> reorder-preview-visible: !search-active && reordering-entry && drag-source-ready;
+    private property <length> drag-card-y: clamp(drag-y - drag-offset-y, 0px, max(0px, list-viewport.height - drag-entry.height * 1px));
+    private property <EntryDropTarget> drop-target: root.entry-drop-target(root.visible-entries,
+        root.reorder-preview-visible ? root.drag-entry.name : "", root.drag-x < root.entry-indent,
+        (root.drag-y - preset-list.content-y) / 1px);
+    private property <length> drop-y: drop-target.top * 1px - (drop-target.top > drag-entry.top ? drag-span + row-spacing : 0px);
+    private property <length> insertion-y: drop-target.displace ? drop-y : drop-target.top * 1px;
+    changed current-index => { root.commit-names(); root.reveal-current(); }
+    changed compact-list => { root.hovered-index = -1; root.ensure-revealed(); }
+    changed search-query => { root.reveal-current(); }
     changed visible-presets => {
         root.hovered-index = -1;
         root.apply-key-down = false;
-        root.reveal-current();
+        if (root.search-active || root.editing-folder-name) { root.reveal-current(); }
     }
     changed editing-search => { root.apply-key-down = false; root.hovered-index = -1; }
+    changed editing-folder-name => { root.apply-key-down = false; root.hovered-index = -1; }
     callback request-action(bool, ActionScope);
     callback request-scope(ActionScope);
     callback request-equipment-item(int);
     pure callback selected-equipment-state([bool], [PreviewRow]) -> PreviewState;
-    pure callback filter-presets([PresetRow], string, string) -> [int];
+    pure callback project-entries([PresetRow], [LibraryEntryRow], string, string, float) -> [LibraryEntryRow];
+    pure callback visible-preset-indices([LibraryEntryRow]) -> [int];
     pure callback visible-preset-index([int], int) -> int;
+    pure callback adjacent-preset([int], int, int) -> int;
+    pure callback find-entry([LibraryEntryRow], string) -> LibraryEntryRow;
+    pure callback entry-span([LibraryEntryRow], string) -> float;
+    pure callback entry-drop-target([LibraryEntryRow], string, bool, float) -> EntryDropTarget;
     callback request-rename(string, string);
     callback request-delete(string);
-    pure callback is-preset-drag(data-transfer) -> bool;
-    callback request-reorder(string, string);
+    pure callback is-entry-drag(data-transfer) -> bool;
+    callback request-reorder(string, string, string);
+    callback add-folder();
+    callback toggle-folder(string);
+    callback request-folder-rename(string, string);
+    callback request-ungroup(string);
     callback request-compact-list(bool);
     callback edit-settings(bool);
     callback edit-shortcut(string);
@@ -428,10 +446,22 @@ export component PresetPanel inherits Window {
         root.focus-list();
     }
     public function finish-reorder() {
-        root.reorder-phase = PresetReorderPhase.idle;
-        root.drag-source-index = -1;
+        root.reorder-phase = ReorderPhase.idle;
+        root.drag-source-ready = false;
         root.hovered-index = -1;
         root.apply-key-down = false;
+    }
+    function begin-folder-rename(name: string, label: string) {
+        root.commit-names();
+        root.folder-name-draft = label;
+        root.editing-folder = name;
+        root.reveal-current();
+    }
+    function finish-folder-rename(save: bool) {
+        if (root.editing-folder == "") { return; }
+        let name = root.editing-folder;
+        root.editing-folder = "";
+        if (save) { root.request-folder-rename(name, root.folder-name-draft); }
     }
     public function focus-settings(show-about: bool) { root.hovered-index = -1; settings.focus-dialog(show-about); }
     public function close-dialogs() {
@@ -444,7 +474,7 @@ export component PresetPanel inherits Window {
     }
     function begin-delete() {
         if (!root.interactive || root.presets.length == 0) { return; }
-        root.finish-rename(true);
+        root.commit-names();
         root.hovered-index = -1;
         root.apply-key-down = false;
         keyboard.focus();
@@ -457,6 +487,7 @@ export component PresetPanel inherits Window {
     }
     function begin-rename() {
         if (!root.interactive || root.presets.length == 0 || root.editing-name) { return; }
+        root.commit-names();
         root.hovered-index = -1;
         root.apply-key-down = false;
         root.name-draft = root.current.label;
@@ -465,35 +496,49 @@ export component PresetPanel inherits Window {
         name-input.focus();
         name-input.select-all();
     }
-    public function finish-rename(save: bool) {
+    public function commit-names() {
+        root.finish-rename(true);
+        root.finish-folder-rename(true);
+    }
+    function finish-rename(save: bool) {
         if (!root.editing-name) { return; }
         let preset = root.editing-preset;
         root.editing-preset = "";
         if (save) { root.request-rename(preset, root.name-draft); }
     }
     function reveal-current() {
-        if (root.current-visible-index < 0) { preset-list.content-y = 0px; return; }
-        let top = root.current-visible-index * root.row-pitch;
-        if (top + preset-list.content-y < 0px) {
-            preset-list.content-y = -top;
-        } else if (top + root.row-height + preset-list.content-y > preset-list.visible-height) {
-            preset-list.content-y = preset-list.visible-height - top - root.row-height;
-        }
+        if (root.reordering-entry) { return; }
+        root.reveal-entry(root.editing-folder != "" ? root.editing-folder : root.current.name);
+    }
+    public function reveal-entry(name: string) {
+        root.reveal-target = name;
+        root.ensure-revealed();
+    }
+    function ensure-revealed() {
+        if (root.reordering-entry || root.reveal-target == "" || preset-list.visible-height <= 0px) { return; }
+        let entry = root.find-entry(root.visible-entries, root.reveal-target);
+        if (entry.name == "") { if (root.search-active) { preset-list.content-y = 0px; } return; }
+        let top = entry.top * 1px;
+        let bottom = top + entry.height * 1px;
+        let height = preset-list.visible-height;
+        let y = top + preset-list.content-y < 0px ? -top
+            : bottom + preset-list.content-y > height ? max(-top, height - bottom) : preset-list.content-y;
+        preset-list.content-y = clamp(y, min(0px, height - preset-list.content-height), 0px);
     }
     function move-selection(delta: int) {
-        if (root.visible-presets.length == 0) { return; }
-        let index = root.current-visible-index < 0
-            ? (delta > 0 ? 0 : root.visible-presets.length - 1)
-            : clamp(root.current-visible-index + delta, 0, root.visible-presets.length - 1);
+        let index = root.adjacent-preset(root.visible-presets, root.current-index, delta);
+        if (index < 0) { return; }
         root.hovered-index = -1;
         root.apply-key-down = false;
-        root.current-index = root.visible-presets[index];
+        root.current-index = index;
+        keyboard.focus();
     }
     public pure function action-available(saving: bool, scope: ActionScope) -> bool {
         let stratagems = scope == ActionScope.stratagems || (scope == ActionScope.selected && root.scope-stratagems);
         let equipment = root.equipment-items-selected
             && (scope == ActionScope.equipment || (scope == ActionScope.selected && root.scope-equipment));
-        if (!root.interactive || root.reordering-preset || root.current-visible-index < 0 || (!stratagems && !equipment)) { return false; }
+        if (!root.interactive || root.reordering-entry || root.presets.length == 0
+            || (root.search-active && root.current-visible-index < 0) || (!stratagems && !equipment)) { return false; }
         if (saving) { return true; }
         let include-stratagems = stratagems && root.current.stratagems.saved;
         let include-equipment = equipment && root.equipment-state != PreviewState.missing;
@@ -503,13 +548,13 @@ export component PresetPanel inherits Window {
     }
     function apply-current(scope: ActionScope) {
         if (root.action-available(false, scope)) {
-            root.finish-rename(true);
+            root.commit-names();
             root.request-action(false, scope);
         }
     }
     function save-current() {
         if (root.save-available) {
-            root.finish-rename(true);
+            root.commit-names();
             root.request-action(true, ActionScope.selected);
         }
     }
@@ -525,13 +570,13 @@ export component PresetPanel inherits Window {
         keyboard := FocusScope {
             enabled: root.presented && !root.settings-open && !root.delete-open;
             key-pressed(event) => {
-                if (root.editing-name || root.editing-search) { return reject; }
+                if (root.editing-name || root.editing-search || root.editing-folder-name) { return reject; }
                 if (event.text == Key.Escape) {
                     if (root.search-active) { root.search-query = ""; }
                     else { root.dismiss(); }
                     return accept;
                 }
-                if (root.reordering-preset) { return accept; }
+                if (root.reordering-entry) { return accept; }
                 if (!root.interactive) { return reject; }
                 if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
                     && (event.text == "s" || event.text == "S")) {
@@ -556,7 +601,7 @@ export component PresetPanel inherits Window {
                     // Editing may end on key-down; its key-up must not apply a preset.
                     let apply = root.apply-key-down;
                     root.apply-key-down = false;
-                    if (apply && !root.editing-name && !root.editing-search && root.interactive) {
+                    if (apply && !root.editing-name && !root.editing-search && !root.editing-folder-name && root.interactive) {
                         root.apply-current(ActionScope.selected);
                     }
                     return accept;
@@ -595,7 +640,7 @@ export component PresetPanel inherits Window {
                         filled: true;
                         enabled: root.interactive;
                         clicked => {
-                            root.finish-rename(true);
+                            root.commit-names();
                             root.edit-settings(true);
                             root.install-update();
                         }
@@ -604,7 +649,7 @@ export component PresetPanel inherits Window {
                         label: @tr("View available update");
                         icon: Icons.update;
                         enabled: root.interactive;
-                        clicked => { root.finish-rename(true); root.edit-settings(true); }
+                        clicked => { root.commit-names(); root.edit-settings(true); }
                         Rectangle {
                             x: parent.width - 7px; y: 1px;
                             width: 5px; height: 5px; border-radius: 3px;
@@ -615,7 +660,7 @@ export component PresetPanel inherits Window {
                         label: @tr("Settings");
                         icon: Icons.settings;
                         enabled: root.interactive;
-                        clicked => { root.finish-rename(true); root.edit-settings(false); }
+                        clicked => { root.commit-names(); root.edit-settings(false); }
                     }
                     VerticalLayout {
                         width: 28px;
@@ -637,90 +682,108 @@ export component PresetPanel inherits Window {
                     VerticalLayout {
                         width: 210px;
                         spacing: 8px;
-                        Rectangle {
+                        HorizontalLayout {
                             height: 30px;
-                            background: Theme.control;
-                            border-radius: 4px;
-                            border-width: 1px;
-                            border-color: preset-search.has-focus ? Theme.accent-soft : Theme.border;
-                            TouchArea {
-                                enabled: root.interactive && !root.reordering-preset;
-                                mouse-cursor: text;
-                                clicked => { preset-search.focus(); }
-                            }
-                            Icon {
-                                x: 8px;
-                                y: (parent.height - self.height) / 2;
-                                icon: Icons.search;
-                                stroke: root.interactive ? Theme.text-secondary : Theme.inactive;
-                            }
-                            Text {
-                                x: 32px;
-                                width: parent.width - 42px;
-                                height: parent.height;
-                                text: @tr("Search presets");
-                                color: Theme.text-disabled;
-                                font-size: 13px;
-                                vertical-alignment: center;
-                                overflow: elide;
-                                visible: root.search-query == "" && preset-search.preedit-text == "";
-                            }
+                            spacing: 8px;
                             Rectangle {
-                                x: 32px;
-                                width: parent.width - self.x - (root.search-active ? 32px : 10px);
-                                height: parent.height;
-                                clip: true;
-                                preset-search := TextInput {
-                                    property <length> scroll-offset;
-                                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
-                                    width: max(parent.width, self.preferred-width);
+                                horizontal-stretch: 1;
+                                height: 30px;
+                                background: Theme.control;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: preset-search.has-focus ? Theme.accent-soft : Theme.border;
+                                TouchArea {
+                                    enabled: root.interactive && !root.reordering-entry;
+                                    mouse-cursor: text;
+                                    clicked => { preset-search.focus(); }
+                                }
+                                Icon {
+                                    x: 8px;
+                                    y: (parent.height - self.height) / 2;
+                                    icon: Icons.search;
+                                    stroke: root.interactive ? Theme.text-secondary : Theme.inactive;
+                                }
+                                Text {
+                                    x: 32px;
+                                    width: parent.width - 42px;
                                     height: parent.height;
-                                    enabled: root.interactive && !root.reordering-preset;
-                                    single-line: true;
-                                    text <=> root.search-query;
-                                    color: Theme.text;
+                                    text: @tr("Search presets");
+                                    color: Theme.text-disabled;
                                     font-size: 13px;
                                     vertical-alignment: center;
-                                    selection-background-color: #786c38;
-                                    selection-foreground-color: #fff8d4;
-                                    accessible-label: @tr("Search presets");
-                                    cursor-position-changed(position) => {
-                                        if (position.x + self.x < 0px) { self.scroll-offset = -position.x; }
-                                        else if (position.x + self.x > parent.width - self.text-cursor-width) {
-                                            self.scroll-offset = parent.width - self.text-cursor-width - position.x;
-                                        }
-                                    }
-                                    key-pressed(event) => {
-                                        if (self.preedit-text != "") { return reject; }
-                                        if (event.text == Key.Escape) {
-                                            if (root.search-active) { root.search-query = ""; keyboard.focus(); }
-                                            else { root.dismiss(); }
-                                            return accept;
-                                        }
-                                        if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
-                                        if (event.text == Key.Return) {
-                                            if (!event.repeat && root.visible-presets.length > 0) { root.focus-search-results(); }
-                                            return accept;
-                                        }
-                                        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
-                                            if (root.visible-presets.length > 0) {
-                                                root.move-selection(event.text == Key.DownArrow ? 1 : -1);
-                                                keyboard.focus();
+                                    overflow: elide;
+                                    visible: root.search-query == "" && preset-search.preedit-text == "";
+                                }
+                                Rectangle {
+                                    x: 32px;
+                                    width: parent.width - self.x - (root.search-active ? 32px : 10px);
+                                    height: parent.height;
+                                    clip: true;
+                                    preset-search := TextInput {
+                                        property <length> scroll-offset;
+                                        x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                        width: max(parent.width, self.preferred-width);
+                                        height: parent.height;
+                                        enabled: root.interactive && !root.reordering-entry;
+                                        single-line: true;
+                                        text <=> root.search-query;
+                                        color: Theme.text;
+                                        font-size: 13px;
+                                        vertical-alignment: center;
+                                        selection-background-color: #786c38;
+                                        selection-foreground-color: #fff8d4;
+                                        accessible-label: @tr("Search presets");
+                                        cursor-position-changed(position) => {
+                                            if (position.x + self.x < 0px) { self.scroll-offset = -position.x; }
+                                            else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                                self.scroll-offset = parent.width - self.text-cursor-width - position.x;
                                             }
-                                            return accept;
                                         }
-                                        return reject;
+                                        key-pressed(event) => {
+                                            if (self.preedit-text != "") { return reject; }
+                                            if (event.text == Key.Escape) {
+                                                if (root.search-active) { root.search-query = ""; keyboard.focus(); }
+                                                else { root.dismiss(); }
+                                                return accept;
+                                            }
+                                            if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
+                                            if (event.text == Key.Return) {
+                                                if (!event.repeat && root.visible-presets.length > 0) { root.focus-search-results(); }
+                                                return accept;
+                                            }
+                                            if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+                                                if (root.visible-presets.length > 0) {
+                                                    root.move-selection(event.text == Key.DownArrow ? 1 : -1);
+                                                    keyboard.focus();
+                                                }
+                                                return accept;
+                                            }
+                                            return reject;
+                                        }
                                     }
+                                }
+                                IconButton {
+                                    x: parent.width - self.width - 2px;
+                                    y: (parent.height - self.height) / 2;
+                                    label: @tr("Clear search");
+                                    icon: Icons.close;
+                                    visible: root.search-active;
+                                    enabled: root.interactive && !root.reordering-entry;
+                                    clicked => { root.search-query = ""; preset-search.focus(); }
                                 }
                             }
                             IconButton {
-                                x: parent.width - self.width - 2px;
-                                y: (parent.height - self.height) / 2;
-                                label: @tr("Clear search");
-                                icon: Icons.close;
-                                visible: root.search-active;
-                                enabled: root.interactive && !root.reordering-preset;
-                                clicked => { root.search-query = ""; preset-search.focus(); }
+                                cross-axis-self-alignment: center;
+                                label: @tr("Compact list");
+                                icon: Icons.list;
+                                checkable: true;
+                                checked: root.compact-list;
+                                enabled: root.interactive && !root.reordering-entry;
+                                clicked => {
+                                    root.commit-names();
+                                    keyboard.focus();
+                                    root.request-compact-list(!root.compact-list);
+                                }
                             }
                         }
                         list-viewport := Rectangle {
@@ -731,92 +794,128 @@ export component PresetPanel inherits Window {
                                 width: parent.width;
                                 height: parent.height;
                                 content-width: self.visible-width - 8px;
-                                changed visible-height => { root.reveal-current(); }
-                                changed content-height => { root.reveal-current(); }
+                                content-height: root.visible-entries.length > 0
+                                    ? (root.visible-entries[root.visible-entries.length - 1].top
+                                        + root.visible-entries[root.visible-entries.length - 1].height) * 1px : 0px;
+                                changed visible-height => { root.ensure-revealed(); }
+                                changed content-height => { root.ensure-revealed(); }
+                                scrolled => { root.reveal-target = ""; }
                                 VerticalLayout {
                                     alignment: start;
                                     spacing: root.row-spacing;
-                                    for source-index[index] in root.visible-presets: Rectangle {
-                                        height: root.row-height;
-                                        card := PresetCard {
+                                    for entry in root.visible-entries: Rectangle {
+                                        height: entry.height * 1px;
+                                        body := Rectangle {
                                             width: parent.width;
                                             height: parent.height;
-                                            y: !root.reorder-preview-visible ? 0px
-                                                : index >= root.drag-target-index && index < root.drag-source-index ? root.row-pitch
-                                                : index > root.drag-source-index && index <= root.drag-target-index ? -root.row-pitch : 0px;
+                                            y: !root.reorder-preview-visible || !root.drop-target.displace ? 0px
+                                                : entry.top >= root.drop-target.top && entry.top < root.drag-entry.top ? root.drag-span + root.row-spacing
+                                                : entry.top * 1px > root.drag-entry.top * 1px + root.drag-span && entry.top < root.drop-target.top ? -root.drag-span - root.row-spacing : 0px;
                                             animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
-                                            item: root.presets[source-index];
-                                            compact: root.compact-list;
-                                            reorderable: !root.search-active;
-                                            selected: source-index == root.current-index;
-                                            hovered: touch.has-hover || handle.has-hover;
-                                            handle-hovered: handle.has-hover;
-                                            scope-stratagems: root.scope-stratagems;
-                                            scope-equipment: root.scope-equipment && root.equipment-items-selected;
-                                            opacity: root.reorder-preview-visible && index == root.drag-source-index ? 0 : 1;
-                                            accessible-role: button;
-                                            accessible-label: UiText.preset-title(card.item.label, card.item.number);
-                                            accessible-description: UiText.section-message(card.item.stratagems) + " " + UiText.section-message(card.item.equipment);
-                                            accessible-enabled: root.interactive && !root.reordering-preset;
-                                            accessible-action-default => { root.current-index = source-index; }
-                                            changed hovered => {
-                                                if (self.hovered) { root.hovered-index = source-index; }
-                                                else if (root.hovered-index == source-index) { root.hovered-index = -1; }
+                                            opacity: root.reorder-preview-visible && entry.top >= root.drag-entry.top
+                                                && entry.top * 1px < root.drag-entry.top * 1px + root.drag-span
+                                                ? (root.drop-target.displace ? 0 : 0.35) : 1;
+                                            if (entry.is-folder): FolderHeader {
+                                                width: parent.width;
+                                                height: parent.height;
+                                                item: entry;
+                                                enabled: root.interactive && !root.reordering-entry;
+                                                reorderable: !root.search-active;
+                                                collapsible: !root.search-active;
+                                                handle-hovered: handle.has-hover;
+                                                highlighted: root.reorder-preview-visible && root.drop-target.inside == entry.name;
+                                                editing: root.editing-folder == entry.name;
+                                                draft <=> root.folder-name-draft;
+                                                toggled => {
+                                                    root.hovered-index = -1;
+                                                    root.apply-key-down = false;
+                                                    root.reveal-target = "";
+                                                    root.toggle-folder(entry.name);
+                                                }
+                                                rename => { root.begin-folder-rename(entry.name, entry.label); }
+                                                ungroup => { keyboard.focus(); root.request-ungroup(entry.name); }
+                                                finish-rename(save) => { root.finish-folder-rename(save); }
+                                            }
+                                            if (!entry.is-folder): PresetCard {
+                                                x: entry.parent == "" ? 0px : root.entry-indent;
+                                                width: parent.width - self.x;
+                                                height: parent.height;
+                                                item: root.presets[entry.preset-index];
+                                                compact: root.compact-list;
+                                                reorderable: !root.search-active;
+                                                selected: entry.preset-index == root.current-index;
+                                                hovered: touch.has-hover || handle.has-hover;
+                                                handle-hovered: handle.has-hover;
+                                                scope-stratagems: root.scope-stratagems;
+                                                scope-equipment: root.scope-equipment && root.equipment-items-selected;
+                                                accessible-role: button;
+                                                accessible-label: UiText.preset-title(self.item.label, self.item.number);
+                                                accessible-description: UiText.section-message(self.item.stratagems) + " " + UiText.section-message(self.item.equipment);
+                                                accessible-enabled: root.interactive && !root.reordering-entry;
+                                                accessible-action-default => { root.current-index = entry.preset-index; }
+                                                changed hovered => {
+                                                    if (self.hovered) { root.hovered-index = entry.preset-index; }
+                                                    else if (root.hovered-index == entry.preset-index) { root.hovered-index = -1; }
+                                                }
+                                                touch := TouchArea {
+                                                    x: root.search-active ? 0px : 18px;
+                                                    width: parent.width - self.x;
+                                                    enabled: root.interactive && !root.reordering-entry;
+                                                    mouse-cursor: pointer;
+                                                    pointer-event(event) => {
+                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = entry.preset-index; }
+                                                    }
+                                                    clicked => { root.current-index = entry.preset-index; keyboard.focus(); }
+                                                    double-clicked => { root.apply-current(ActionScope.selected); }
+                                                }
                                             }
                                             drag := DragArea {
-                                                x: 0px;
+                                                x: entry.parent == "" ? 0px : root.entry-indent;
                                                 y: 0px;
-                                                width: card.handle-width;
+                                                width: 18px;
                                                 height: parent.height;
-                                                enabled: root.interactive && !root.editing-name && !root.search-active;
-                                                data: root.preset-drag-data;
+                                                enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
+                                                data: root.entry-drag-data;
                                                 allow-move: true;
                                                 changed dragging => {
                                                     if (self.dragging) {
-                                                        root.reorder-phase = PresetReorderPhase.dragging;
-                                                        root.current-index = source-index;
+                                                        root.reorder-phase = ReorderPhase.dragging;
+                                                        root.reveal-target = "";
+                                                        if (!entry.is-folder) { root.current-index = entry.preset-index; }
                                                         root.hovered-index = -1;
                                                         root.apply-key-down = false;
                                                         keyboard.focus();
                                                     }
                                                 }
                                                 drag-finished(action) => {
-                                                    if (action == DragAction.move && root.drag-target-index >= 0
-                                                        && root.drag-target-index != index) {
-                                                        let before = root.drag-target-index + (root.drag-target-index > index ? 1 : 0);
-                                                        root.reorder-phase = PresetReorderPhase.committing;
-                                                        root.request-reorder(card.item.name,
-                                                            before < root.presets.length ? root.presets[before].name : "");
+                                                    if (action == DragAction.move && root.drop-target.valid) {
+                                                        root.reorder-phase = ReorderPhase.committing;
+                                                        root.request-reorder(root.drag-entry.name, root.drop-target.parent, root.drop-target.before);
                                                     } else {
                                                         root.finish-reorder();
                                                     }
                                                 }
                                                 handle := TouchArea {
-                                                    enabled: root.interactive && !root.editing-name && !root.search-active;
+                                                    enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
                                                     mouse-cursor: self.pressed ? grabbing : grab;
                                                     pointer-event(event) => {
                                                         if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
-                                                            root.drag-source-index = index;
+                                                            root.drag-source-ready = true;
+                                                            root.drag-entry = entry;
+                                                            root.drag-span = root.entry-span(root.visible-entries, entry.name) * 1px;
                                                             root.drag-offset-y = self.mouse-y;
-                                                            root.drag-y = index * root.row-pitch + preset-list.content-y + self.mouse-y;
-                                                        } else if (event.kind == PointerEventKind.up && root.reorder-phase == PresetReorderPhase.idle) {
-                                                            root.drag-source-index = -1;
+                                                            root.drag-x = self.mouse-x + self.absolute-position.x - list-viewport.absolute-position.x;
+                                                            root.drag-y = entry.top * 1px + preset-list.content-y + self.mouse-y;
+                                                        } else if (event.kind == PointerEventKind.up && root.reorder-phase == ReorderPhase.idle) {
+                                                            root.drag-source-ready = false;
                                                         }
-                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = source-index; }
+                                                        if (event.kind == PointerEventKind.move && !entry.is-folder) { root.hovered-index = entry.preset-index; }
                                                     }
-                                                    clicked => { root.current-index = source-index; keyboard.focus(); }
+                                                    clicked => {
+                                                        if (!entry.is-folder) { root.current-index = entry.preset-index; }
+                                                        keyboard.focus();
+                                                    }
                                                 }
-                                            }
-                                            touch := TouchArea {
-                                                x: root.search-active ? 0px : card.handle-width;
-                                                width: parent.width - self.x;
-                                                enabled: root.interactive && !root.reordering-preset;
-                                                mouse-cursor: pointer;
-                                                pointer-event(event) => {
-                                                    if (event.kind == PointerEventKind.move) { root.hovered-index = source-index; }
-                                                }
-                                                clicked => { root.current-index = source-index; keyboard.focus(); }
-                                                double-clicked => { root.apply-current(ActionScope.selected); }
                                             }
                                         }
                                     }
@@ -839,27 +938,56 @@ export component PresetPanel inherits Window {
                                 width: preset-list.visible-width - 8px;
                                 height: parent.height;
                                 clip: true;
-                                PresetCard {
+                                Rectangle {
                                     visible: root.reorder-preview-visible;
-                                    x: 0px;
-                                    y: root.reorder-phase == PresetReorderPhase.committing
-                                        ? root.drag-target-index * root.row-pitch + preset-list.content-y : root.drag-card-y;
-                                    width: parent.width;
-                                    height: root.row-height;
-                                    item: root.presets[max(0, root.drag-source-index)];
-                                    compact: root.compact-list;
-                                    selected: true;
-                                    handle-hovered: true;
-                                    scope-stratagems: root.scope-stratagems;
-                                    scope-equipment: root.scope-equipment && root.equipment-items-selected;
+                                    x: (root.drop-target.valid ? root.drop-target.parent : root.drag-entry.parent) == "" ? 0px : root.entry-indent;
+                                    y: root.reorder-phase == ReorderPhase.committing && root.drop-target.inside == ""
+                                        ? root.drop-y + preset-list.content-y : root.drag-card-y;
+                                    width: parent.width - self.x;
+                                    height: root.drag-entry.height * 1px;
+                                    animate x { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
                                     drop-shadow-color: #00000080;
                                     drop-shadow-blur: 8px;
                                     drop-shadow-offset-y: 2px;
+                                    if (root.drag-entry.is-folder): FolderHeader {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        item: root.drag-entry;
+                                        enabled: false;
+                                        highlighted: true;
+                                        handle-hovered: true;
+                                    }
+                                    if (!root.drag-entry.is-folder): PresetCard {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        item: root.presets[max(0, root.drag-entry.preset-index)];
+                                        compact: root.compact-list;
+                                        selected: true;
+                                        handle-hovered: true;
+                                        scope-stratagems: root.scope-stratagems;
+                                        scope-equipment: root.scope-equipment && root.equipment-items-selected;
+                                    }
+                                }
+                                Rectangle {
+                                    visible: root.reorder-preview-visible && root.drop-target.valid && root.drop-target.inside == "";
+                                    x: root.drop-target.parent == "" ? 0px : root.entry-indent;
+                                    y: max(0px, root.insertion-y + preset-list.content-y - root.row-spacing / 2 - 1px);
+                                    width: parent.width - self.x;
+                                    height: 2px;
+                                    background: Theme.accent;
+                                    Rectangle {
+                                        x: 0px;
+                                        y: -2px;
+                                        width: 6px;
+                                        height: 6px;
+                                        border-radius: 3px;
+                                        background: Theme.accent;
+                                    }
                                 }
                             }
                             Timer {
                                 interval: 16ms;
-                                running: list-drop.has-drag && root.reorder-phase == PresetReorderPhase.dragging
+                                running: list-drop.has-drag && root.reorder-phase == ReorderPhase.dragging
                                     && (root.drag-y < 28px || root.drag-y > list-viewport.height - 28px);
                                 triggered => {
                                     let step = root.drag-y < 28px ? 8px : -8px;
@@ -876,19 +1004,13 @@ export component PresetPanel inherits Window {
                                 text: @tr("+ New preset");
                                 filled: true;
                                 enabled: root.interactive;
-                                clicked => { root.finish-rename(true); root.add-preset(); }
+                                clicked => { root.commit-names(); root.add-preset(); }
                             }
                             IconButton {
-                                label: @tr("Compact list");
-                                icon: Icons.list;
-                                checkable: true;
-                                checked: root.compact-list;
-                                enabled: root.interactive && !root.reordering-preset;
-                                clicked => {
-                                    root.finish-rename(true);
-                                    keyboard.focus();
-                                    root.request-compact-list(!root.compact-list);
-                                }
+                                label: @tr("New folder");
+                                icon: Icons.folder-plus;
+                                enabled: root.interactive && !root.reordering-entry;
+                                clicked => { root.commit-names(); root.add-folder(); }
                             }
                         }
                     }
@@ -929,14 +1051,16 @@ export component PresetPanel inherits Window {
                                         width: min(self.preferred-width, shortcut-button.x - rename-button.width - 16px);
                                         height: parent.height;
                                         visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
-                                        text: root.presets.length > 0 ? UiText.preset-title(root.preview.label, root.preview.number) : @tr("No presets");
+                                        text: root.presets.length > 0
+                                            ? UiText.preset-title(root.editing-name ? "" : root.preview.label, root.preview.number)
+                                            : @tr("No presets");
                                         color: root.editing-name ? Theme.text-disabled : Theme.text;
                                         font-size: 21px;
                                         overflow: elide;
                                         vertical-alignment: center;
                                         TouchArea {
                                             enabled: root.interactive && !root.editing-name
-                                                && !root.reordering-preset && root.presets.length > 0;
+                                                && !root.reordering-entry && root.presets.length > 0;
                                             double-clicked => { root.begin-rename(); }
                                         }
                                     }
@@ -977,6 +1101,7 @@ export component PresetPanel inherits Window {
                                                 accepted => { root.finish-rename(true); keyboard.focus(); }
                                                 changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
                                                 key-pressed(event) => {
+                                                    if (self.preedit-text != "") { return reject; }
                                                     if (event.text == Key.Escape) {
                                                         root.finish-rename(false);
                                                         keyboard.focus();
@@ -1003,16 +1128,16 @@ export component PresetPanel inherits Window {
                                         enabled: root.interactive;
                                         label: @tr("Set shortcut");
                                         icon: Icons.keyboard;
-                                        clicked => { root.finish-rename(true); root.edit-shortcut(root.current.name); }
+                                        clicked => { root.commit-names(); root.edit-shortcut(root.current.name); }
                                     }
                                     copy-button := IconButton {
                                         x: delete-button.x - self.width - 4px;
                                         y: (parent.height - self.height) / 2;
                                         visible: !root.editing-name && root.presets.length > 0;
-                                        enabled: root.interactive && !root.reordering-preset;
+                                        enabled: root.interactive && !root.reordering-entry;
                                         label: @tr("Duplicate preset");
                                         icon: Icons.copy;
-                                        clicked => { root.duplicate-preset(root.current.name); }
+                                        clicked => { root.commit-names(); root.duplicate-preset(root.current.name); }
                                     }
                                     delete-button := IconButton {
                                         x: parent.width - self.width;
@@ -1033,7 +1158,7 @@ export component PresetPanel inherits Window {
                                 apply-enabled: root.action-available(false, ActionScope.stratagems);
                                 apply => { root.apply-current(ActionScope.stratagems); }
                                 toggled => {
-                                    root.finish-rename(true);
+                                    root.commit-names();
                                     root.request-scope(ActionScope.stratagems);
                                 }
                                 Rectangle {
@@ -1064,7 +1189,7 @@ export component PresetPanel inherits Window {
                                 apply-enabled: root.action-available(false, ActionScope.equipment);
                                 apply => { root.apply-current(ActionScope.equipment); }
                                 toggled => {
-                                    root.finish-rename(true);
+                                    root.commit-names();
                                     root.request-scope(ActionScope.equipment);
                                 }
                                 Rectangle {
@@ -1203,16 +1328,17 @@ export component PresetPanel inherits Window {
                 }
             }
         }
-        // Ignore horizontal motion while reordering; ordinary pointer events pass through.
+        // The preview stays on the vertical axis; horizontal intent chooses the drop level.
         list-drop := DropArea {
             x: 0px;
             y: list-viewport.absolute-position.y - surface.absolute-position.y;
             width: parent.width;
             height: list-viewport.height;
-            enabled: root.interactive && !root.editing-name && !root.search-active && root.drag-source-index >= 0;
+            enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active && root.drag-source-ready;
             can-drop(event) => {
-                if (!root.is-preset-drag(event.data)) { return DragAction.none; }
-                root.reorder-phase = PresetReorderPhase.dragging;
+                if (!root.is-entry-drag(event.data)) { return DragAction.none; }
+                root.reorder-phase = ReorderPhase.dragging;
+                root.drag-x = event.position.x + self.absolute-position.x - list-viewport.absolute-position.x;
                 root.drag-y = event.position.y;
                 return DragAction.move;
             }

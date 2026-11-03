@@ -58,6 +58,21 @@ msgstr "미리 보기 불러오는 중…"
 msgid "+ New preset"
 msgstr "+ 새 프리셋"
 
+msgid "New folder"
+msgstr "새 폴더"
+
+msgid "Folder {}"
+msgstr "폴더 {}"
+
+msgid "Rename folder"
+msgstr "폴더 이름 변경"
+
+msgid "Ungroup"
+msgstr "그룹 해제"
+
+msgid "Folder name"
+msgstr "폴더 이름"
+
 msgid "Compact list"
 msgstr "간략한 목록"
 

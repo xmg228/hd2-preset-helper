@@ -5,6 +5,9 @@ export global UiText {
     public pure function preset-title(label: string, number: string) -> string {
         return label != "" ? label : @tr("Preset {}", number);
     }
+    public pure function folder-title(label: string, number: string) -> string {
+        return label != "" ? label : @tr("Folder {}", number);
+    }
     public pure function section-message(section: PreviewSection) -> string {
         return section.saved ? section.error : @tr("Not saved");
     }

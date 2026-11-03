@@ -58,6 +58,21 @@ msgstr "Загрузка предпросмотра…"
 msgid "+ New preset"
 msgstr "+ Новый набор"
 
+msgid "New folder"
+msgstr "Новая папка"
+
+msgid "Folder {}"
+msgstr "Папка {}"
+
+msgid "Rename folder"
+msgstr "Переименовать папку"
+
+msgid "Ungroup"
+msgstr "Разгруппировать"
+
+msgid "Folder name"
+msgstr "Название папки"
+
 msgid "Compact list"
 msgstr "Компактный список"
 

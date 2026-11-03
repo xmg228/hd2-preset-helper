@@ -58,6 +58,21 @@ msgstr "正在載入預覽…"
 msgid "+ New preset"
 msgstr "+ 新增預設"
 
+msgid "New folder"
+msgstr "新增資料夾"
+
+msgid "Folder {}"
+msgstr "資料夾 {}"
+
+msgid "Rename folder"
+msgstr "重新命名資料夾"
+
+msgid "Ungroup"
+msgstr "取消群組"
+
+msgid "Folder name"
+msgstr "資料夾名稱"
+
 msgid "Compact list"
 msgstr "精簡清單"
 

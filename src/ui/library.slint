@@ -1,0 +1,157 @@
+import { Theme } from "theme.slint";
+import { Icon, Icons, DragHandle } from "icons.slint";
+import { IconButton } from "controls.slint";
+import { LibraryEntryRow } from "models.slint";
+import { UiText } from "text.slint";
+
+export component FolderHeader inherits Rectangle {
+    in property <LibraryEntryRow> item;
+    in property <bool> enabled: true;
+    in property <bool> reorderable: true;
+    in property <bool> collapsible: true;
+    in property <bool> handle-hovered;
+    in property <bool> highlighted;
+    in property <bool> editing;
+    in-out property <string> draft;
+    private property <string> title: UiText.folder-title(item.label, item.number);
+    private property <bool> hovered: touch.has-hover || rename-button.hovered || ungroup-button.hovered || handle-hovered;
+    callback toggled();
+    callback rename();
+    callback ungroup();
+    callback finish-rename(bool);
+    border-radius: 5px;
+    border-width: highlighted || keys.has-focus ? 1px : 0px;
+    border-color: highlighted ? Theme.accent : Theme.border-strong;
+    background: highlighted ? #302e22 : hovered ? Theme.control : transparent;
+    forward-focus: keys;
+    changed editing => {
+        if (root.editing) { name-input.scroll-offset = 0px; name-input.focus(); name-input.select-all(); }
+    }
+    @children
+    DragHandle {
+        x: 0px;
+        visible: root.reorderable;
+        y: (parent.height - self.height) / 2;
+        stroke: Theme.text-secondary;
+        opacity: root.handle-hovered ? 1 : root.hovered ? 0.7 : 0.4;
+    }
+    touch := TouchArea {
+        x: root.reorderable ? 18px : 0px;
+        width: parent.width - self.x;
+        enabled: root.enabled && !root.editing;
+        mouse-cursor: root.collapsible ? pointer : default;
+        clicked => { if (root.collapsible) { keys.focus(); root.toggled(); } }
+    }
+    Icon {
+        x: 20px;
+        y: (parent.height - self.height) / 2;
+        size: 12px;
+        icon: root.item.expanded ? Icons.chevron-down : Icons.chevron-right;
+        stroke: Theme.text-secondary;
+        opacity: root.collapsible ? 1 : 0.5;
+    }
+    Icon {
+        x: 35px;
+        y: (parent.height - self.height) / 2;
+        icon: Icons.folder;
+        stroke: Theme.text-secondary;
+    }
+    Text {
+        x: 57px;
+        width: max(0px, (root.hovered ? rename-button.x - 4px : parent.width - 8px) - self.x);
+        height: parent.height;
+        text: root.title;
+        color: root.enabled ? Theme.text : Theme.text-disabled;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+        visible: !root.editing;
+        Tooltip { text: @markdown("\{root.title}"); }
+    }
+    Rectangle {
+        x: 57px;
+        y: 4px;
+        width: parent.width - self.x - 4px;
+        height: parent.height - 8px;
+        visible: root.editing;
+        clip: true;
+        background: Theme.control;
+        border-width: 1px;
+        border-color: Theme.accent-soft;
+        border-radius: 3px;
+        Text {
+            x: 4px;
+            width: parent.width - 8px;
+            height: parent.height;
+            visible: root.draft == "" && name-input.preedit-text == "";
+            text: UiText.folder-title("", root.item.number);
+            color: Theme.text-disabled;
+            font-size: 13px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        name-input := TextInput {
+            property <length> scroll-offset;
+            x: 4px + min(0px, max(parent.width - 8px - self.width - self.text-cursor-width, self.scroll-offset));
+            width: max(parent.width - 8px, self.preferred-width);
+            height: parent.height;
+            enabled: root.enabled && root.editing;
+            single-line: true;
+            text <=> root.draft;
+            color: Theme.text;
+            font-size: 13px;
+            vertical-alignment: center;
+            selection-background-color: #786c38;
+            selection-foreground-color: #fff8d4;
+            accessible-label: @tr("Folder name");
+            cursor-position-changed(position) => {
+                if (position.x + self.x < 4px) { self.scroll-offset = -position.x; }
+                else if (position.x + self.x > parent.width - 4px - self.text-cursor-width) {
+                    self.scroll-offset = parent.width - 8px - self.text-cursor-width - position.x;
+                }
+            }
+            accepted => { root.finish-rename(true); keys.focus(); }
+            changed has-focus => { if (!self.has-focus && root.editing) { root.finish-rename(true); } }
+            key-pressed(event) => {
+                if (self.preedit-text != "") { return reject; }
+                if (event.text == Key.Escape) { root.finish-rename(false); keys.focus(); return accept; }
+                return reject;
+            }
+        }
+    }
+    rename-button := IconButton {
+        x: ungroup-button.x - self.width;
+        y: (parent.height - self.height) / 2;
+        visible: root.hovered && !root.editing;
+        enabled: root.enabled;
+        label: @tr("Rename folder");
+        icon: Icons.rename;
+        clicked => { root.rename(); }
+    }
+    ungroup-button := IconButton {
+        x: parent.width - self.width - 2px;
+        y: (parent.height - self.height) / 2;
+        visible: root.hovered && !root.editing;
+        enabled: root.enabled;
+        label: @tr("Ungroup");
+        icon: Icons.close;
+        clicked => { root.ungroup(); }
+    }
+    keys := FocusScope {
+        enabled: root.enabled && !root.editing;
+        focus-on-click: false;
+        accessible-role: button;
+        accessible-label: root.title;
+        accessible-enabled: root.enabled;
+        accessible-expandable: root.collapsible;
+        accessible-expanded: root.item.expanded;
+        accessible-action-default => { if (root.enabled && root.collapsible) { root.toggled(); } }
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!event.repeat && root.collapsible) { root.toggled(); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+}

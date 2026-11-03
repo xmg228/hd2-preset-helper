@@ -58,6 +58,21 @@ msgstr "Caricamento anteprime…"
 msgid "+ New preset"
 msgstr "+ Nuovo preset"
 
+msgid "New folder"
+msgstr "Nuova cartella"
+
+msgid "Folder {}"
+msgstr "Cartella {}"
+
+msgid "Rename folder"
+msgstr "Rinomina cartella"
+
+msgid "Ungroup"
+msgstr "Separa"
+
+msgid "Folder name"
+msgstr "Nome della cartella"
+
 msgid "Compact list"
 msgstr "Elenco compatto"
 
