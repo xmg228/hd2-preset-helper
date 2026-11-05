@@ -1,4 +1,7 @@
-//! Stable release discovery and single-executable updates. No UI or game APIs.
+//! Stable release discovery and single-executable updates.
+#[cfg(target_os = "windows")]
+mod cleanup;
+
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -9,6 +12,12 @@ use semver::Version;
 const ASSET_API: &str = "https://api.github.com/repos/xmg228/hd2-preset-helper/releases/assets/";
 const BINARY_IN_ARCHIVE: &str = "HD2PresetHelper/HD2PresetHelper.exe";
 const STAGED_BINARY: &str = "HD2PresetHelper.exe";
+
+/// Start best-effort cleanup of leftover Windows update files.
+pub fn cleanup_previous_updates() {
+    #[cfg(target_os = "windows")]
+    cleanup::start();
+}
 
 #[derive(Clone)]
 pub struct AvailableUpdate {
@@ -31,10 +40,7 @@ pub struct PreparedUpdate {
 impl PreparedUpdate {
     /// Only the executable is replaced. Licenses are embedded; user data is untouched.
     pub fn install(self, executable: &Path) -> Result<()> {
-        replace_with_backup(executable, || {
-            self_replace::self_replace(self.directory.path().join(STAGED_BINARY))
-                .context("could not replace the installed executable")
-        })
+        replace_with_backup(executable, &self.directory.path().join(STAGED_BINARY))
     }
 }
 
@@ -174,7 +180,7 @@ pub fn prepare(
     Ok(PreparedUpdate { directory })
 }
 
-fn replace_with_backup(executable: &Path, replace: impl FnOnce() -> Result<()>) -> Result<()> {
+fn replace_with_backup(executable: &Path, new_executable: &Path) -> Result<()> {
     // self-replace can fail after renaming the loaded image on Windows. Keep
     // an independent copy, since its old image is scheduled for deletion.
     let staging = tempfile::Builder::new()
@@ -189,7 +195,9 @@ fn replace_with_backup(executable: &Path, replace: impl FnOnce() -> Result<()>) 
         )?;
     let backup = staging.path().join("previous-executable");
     fs::copy(executable, &backup).context("could not back up the installed executable")?;
-    if let Err(error) = replace() {
+    if let Err(error) = self_replace::self_replace(new_executable)
+        .context("could not replace the installed executable")
+    {
         if !executable.exists()
             && let Err(restore) = fs::rename(&backup, executable)
         {

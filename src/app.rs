@@ -76,6 +76,7 @@ pub fn run() -> Result<Option<PathBuf>> {
         diagnostics = cfg!(feature = "diagnostics"),
         "application starting"
     );
+    crate::update::cleanup_previous_updates();
     let config_path = &paths.config;
     let presets_path = &paths.presets;
     let result = load_app_config(config_path).and_then(|loaded| {
