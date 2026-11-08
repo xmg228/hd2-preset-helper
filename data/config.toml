@@ -4,6 +4,9 @@
 # Toggle the panel from the game or desktop. Set to "" to use the tray only.
 panel_shortcut = "Ctrl + Shift + Space"
 
+# Panel size and work-area-relative position are in logical pixels.
+panel = { size = [900, 620] }
+
 # "auto" follows the game, or uses the primary display when the game is not in front.
 # To use a fixed display, select it in Settings > General.
 monitor = "auto"

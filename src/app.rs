@@ -133,6 +133,7 @@ fn run_with_config(
         library,
         config.ui.monitor,
         config.ui.language,
+        config.ui.panel,
         paths.presets.clone(),
     )?;
     ui.set_scope(config.presets.scope);
@@ -297,7 +298,11 @@ impl AppController {
             self.close_panel()?;
         }
         self.finish_pending_action()?;
-        self.ui.tick()?;
+        if let Some(placement) = self.ui.tick()?
+            && let Err(error) = crate::config::save_panel_placement(&self.paths.config, placement)
+        {
+            tracing::warn!(error = %format!("{error:#}"), "could not save panel placement");
+        }
         loop {
             match self.worker.events.try_recv() {
                 Ok(WorkerEvent::Progress(event)) => {

@@ -287,17 +287,17 @@ export component PresetPanel inherits Window {
     title: "HD2 Preset Helper";
     always-on-top: true;
     no-frame: true;
-    resize-border-width: 0px;
-    out property <length> ideal-width: 900px;
-    out property <length> ideal-height: 620px;
+    resize-border-width: 5px;
+    private property <length> ideal-width: 900px;
+    private property <length> ideal-height: 620px;
     in property <length> available-width: ideal-width;
     in property <length> available-height: ideal-height;
     preferred-width: min(ideal-width, available-width);
-    min-width: self.preferred-width;
-    max-width: self.preferred-width;
+    min-width: min(ideal-width, available-width);
+    max-width: available-width;
     preferred-height: min(ideal-height, available-height);
-    min-height: self.preferred-height;
-    max-height: self.preferred-height;
+    min-height: min(ideal-height, available-height);
+    max-height: available-height;
     background: transparent;
     in property <string> ui-font-family;
     default-font-family: root.ui-font-family;
@@ -632,8 +632,14 @@ export component PresetPanel inherits Window {
                 HorizontalLayout {
                     height: 32px;
                     spacing: 12px;
-                    WindowMoveArea {
+                    Rectangle {
                         horizontal-stretch: 1;
+                        WindowMoveArea {
+                            x: root.resize-border-width - 18px;
+                            y: root.resize-border-width - 18px;
+                            width: parent.width - self.x;
+                            height: parent.height - self.y + 12px;
+                        }
                         HorizontalLayout {
                             alignment: start;
                             spacing: 8px;
@@ -1240,6 +1246,7 @@ export component PresetPanel inherits Window {
                 }
                 Rectangle { height: 1px; background: Theme.border; }
                 VerticalLayout {
+                    vertical-stretch: 0;
                     spacing: 8px;
                     if (!root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
                         details: UiText.preset-title(root.failure-label, root.failure-number) + " — " + root.failure-details;
@@ -1261,87 +1268,94 @@ export component PresetPanel inherits Window {
                         wrap: word-wrap;
                         Tooltip { text: @markdown("\{root.shortcut-warning}"); }
                     }
-                    actions := GridLayout {
-                        property <bool> stacked: root.preferred-width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
-                        height: self.stacked ? 112px : 50px;
-                        spacing: 12px;
-                        shortcut-hint := Rectangle {
-                            row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
-                            height: 50px;
-                            horizontal-stretch: 1;
-                            if (root.panel-shortcut-keys.length > 0): VerticalLayout {
-                                spacing: 4px;
-                                HorizontalLayout {
-                                    height: 32px;
-                                    alignment: start;
-                                    spacing: 8px;
-                                    for key in root.panel-shortcut-keys: Rectangle {
+                    Rectangle {
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        height: actions.stacked ? 112px : 50px;
+                        actions := GridLayout {
+                            x: 0px;
+                            width: parent.width;
+                            property <bool> stacked: root.width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
+                            height: parent.height;
+                            spacing: 12px;
+                            shortcut-hint := Rectangle {
+                                row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
+                                height: 50px;
+                                horizontal-stretch: 1;
+                                if (root.panel-shortcut-keys.length > 0): VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
                                         height: 32px;
-                                        width: panel-key.preferred-width + 14px;
-                                        Rectangle {
-                                            y: (parent.height - self.height) / 2;
-                                            height: 26px;
-                                            width: parent.width;
-                                            border-radius: 3px;
-                                            border-width: 1px;
-                                            border-color: Theme.inactive;
-                                            background: Theme.control;
+                                        alignment: start;
+                                        spacing: 8px;
+                                        for key in root.panel-shortcut-keys: Rectangle {
+                                            height: 32px;
+                                            width: panel-key.preferred-width + 14px;
+                                            Rectangle {
+                                                y: (parent.height - self.height) / 2;
+                                                height: 26px;
+                                                width: parent.width;
+                                                border-radius: 3px;
+                                                border-width: 1px;
+                                                border-color: Theme.inactive;
+                                                background: Theme.control;
+                                            }
+                                            panel-key := Text {
+                                                text: key;
+                                                color: Theme.text;
+                                                font-size: 12px;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
-                                        panel-key := Text {
-                                            text: key;
-                                            color: Theme.text;
-                                            font-size: 12px;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
+                                        Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
                                     }
-                                    Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
+                                    Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
                                 }
-                                Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
                             }
-                        }
-                        save-action := VerticalLayout {
-                            row: actions.stacked ? 1 : 0; col: 1;
-                            height: 50px;
-                            width: max(150px, save-button.preferred-width);
-                            spacing: 4px;
-                            save-button := PanelButton {
-                                height: 32px;
-                                text: root.scope-stratagems ? (root.scope-equipment && root.equipment-items-selected ? @tr("Save preset") : @tr("Save Stratagems"))
-                                    : root.scope-equipment && root.equipment-items-selected ? @tr("Save equipment") : @tr("Select content");
-                                filled: true;
-                                enabled: root.save-available;
-                                property <string> hint: @tr("Fill all four Stratagem slots before saving.");
-                                if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
-                                clicked => { root.save-current(); }
+                            save-action := VerticalLayout {
+                                row: actions.stacked ? 1 : 0; col: 1;
+                                height: 50px;
+                                width: max(150px, save-button.preferred-width);
+                                spacing: 4px;
+                                save-button := PanelButton {
+                                    height: 32px;
+                                    text: root.scope-stratagems ? (root.scope-equipment && root.equipment-items-selected ? @tr("Save preset") : @tr("Save Stratagems"))
+                                        : root.scope-equipment && root.equipment-items-selected ? @tr("Save equipment") : @tr("Select content");
+                                    filled: true;
+                                    enabled: root.save-available;
+                                    property <string> hint: @tr("Fill all four Stratagem slots before saving.");
+                                    if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
+                                    clicked => { root.save-current(); }
+                                }
+                                Text {
+                                    text: "Ctrl+S";
+                                    color: root.save-available ? Theme.text-secondary : Theme.inactive;
+                                    font-size: 10px;
+                                    height: 14px;
+                                    horizontal-alignment: center;
+                                }
                             }
-                            Text {
-                                text: "Ctrl+S";
-                                color: root.save-available ? Theme.text-secondary : Theme.inactive;
-                                font-size: 10px;
-                                height: 14px;
-                                horizontal-alignment: center;
-                            }
-                        }
-                        apply-action := VerticalLayout {
-                            row: actions.stacked ? 1 : 0; col: 2;
-                            height: 50px;
-                            width: max(150px, apply-button.preferred-width);
-                            spacing: 4px;
-                            apply-button := PanelButton {
-                                height: 32px;
-                                text: root.include-stratagems ? (root.include-equipment ? @tr("Apply preset") : @tr("Apply Stratagems"))
-                                    : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
-                                accent: true;
-                                enabled: root.available;
-                                clicked => { root.apply-current(ActionScope.selected); }
-                            }
-                            Text {
-                                text: "Enter";
-                                color: root.available ? Theme.text-secondary : Theme.inactive;
-                                font-size: 10px;
-                                height: 14px;
-                                horizontal-alignment: center;
+                            apply-action := VerticalLayout {
+                                row: actions.stacked ? 1 : 0; col: 2;
+                                height: 50px;
+                                width: max(150px, apply-button.preferred-width);
+                                spacing: 4px;
+                                apply-button := PanelButton {
+                                    height: 32px;
+                                    text: root.include-stratagems ? (root.include-equipment ? @tr("Apply preset") : @tr("Apply Stratagems"))
+                                        : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
+                                    accent: true;
+                                    enabled: root.available;
+                                    clicked => { root.apply-current(ActionScope.selected); }
+                                }
+                                Text {
+                                    text: "Enter";
+                                    color: root.available ? Theme.text-secondary : Theme.inactive;
+                                    font-size: 10px;
+                                    height: 14px;
+                                    horizontal-alignment: center;
+                                }
                             }
                         }
                     }

@@ -7,7 +7,7 @@ use anyhow::Result;
 use slint::winit_030::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, VecModel};
 
-use super::{ActionStatus, StatusItem, StatusTone, place_top_right};
+use super::{ActionStatus, StatusItem, StatusTone, placement};
 use crate::app_events::{AppEvent, PresetCompletion};
 use crate::preset::PresetMetadata;
 
@@ -176,7 +176,7 @@ impl Status {
 
     pub fn reposition(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {
         if self.window.window().is_visible() {
-            place_top_right(self.window.window(), monitor, anchor, 16.0, None)?;
+            placement::place(self.window.window(), monitor, anchor, 16.0, None)?;
         }
         Ok(())
     }
