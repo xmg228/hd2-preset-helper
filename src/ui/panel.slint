@@ -358,6 +358,7 @@ export component PresetPanel inherits Window {
         root.search-query, UiText.preset-title("", "{}"), root.row-height / 1px);
     private property <[int]> visible-presets: root.visible-preset-indices(root.visible-entries);
     private property <int> current-visible-index: root.visible-preset-index(root.visible-presets, root.current-index);
+    private property <string> current-visible-entry: root.visible-entry(root.entries, root.current.name);
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
     in property <[bool]> scope-equipment-items;
@@ -380,6 +381,7 @@ export component PresetPanel inherits Window {
     private property <string> editing-folder;
     private property <string> folder-name-draft;
     private property <string> reveal-target;
+    private property <bool> reveal-contents;
     private property <bool> apply-key-down;
     private property <bool> skip-delete-confirmation;
     private property <length> row-height: compact-list ? 36px : 68px;
@@ -418,6 +420,7 @@ export component PresetPanel inherits Window {
     pure callback visible-preset-index([int], int) -> int;
     pure callback adjacent-preset([int], int, int) -> int;
     pure callback find-entry([LibraryEntryRow], string) -> LibraryEntryRow;
+    pure callback visible-entry([LibraryEntryRow], string) -> string;
     pure callback entry-span([LibraryEntryRow], string) -> float;
     pure callback entry-drop-target([LibraryEntryRow], string, bool, float) -> EntryDropTarget;
     callback request-rename(string, string);
@@ -519,19 +522,26 @@ export component PresetPanel inherits Window {
         root.reveal-entry(root.editing-folder != "" ? root.editing-folder : root.current.name);
     }
     public function reveal-entry(name: string) {
-        root.reveal-target = name;
+        root.prepare-reveal(name, false);
         root.ensure-revealed();
     }
-    function ensure-revealed() {
+    public function prepare-reveal(name: string, contents: bool) {
+        root.reveal-target = name;
+        root.reveal-contents = contents;
+    }
+    public function ensure-revealed() {
         if (root.reordering-entry || root.reveal-target == "" || preset-list.visible-height <= 0px) { return; }
         let entry = root.find-entry(root.visible-entries, root.reveal-target);
         if (entry.name == "") { if (root.search-active) { preset-list.content-y = 0px; } return; }
         let top = entry.top * 1px;
-        let bottom = top + entry.height * 1px;
+        let span = root.reveal-contents && entry.is-folder && entry.expanded && !root.search-active
+            ? root.entry-span(root.visible-entries, entry.name) : entry.height;
+        let bottom = top + span * 1px;
         let height = preset-list.visible-height;
         let y = top + preset-list.content-y < 0px ? -top
             : bottom + preset-list.content-y > height ? max(-top, height - bottom) : preset-list.content-y;
         preset-list.content-y = clamp(y, min(0px, height - preset-list.content-height), 0px);
+        root.reveal-contents = false;
     }
     function move-selection(delta: int) {
         let index = root.adjacent-preset(root.visible-presets, root.current-index, delta);
@@ -832,8 +842,10 @@ export component PresetPanel inherits Window {
                                                 collapsible: !root.search-active;
                                                 handle-hovered: handle.has-hover;
                                                 highlighted: root.reorder-preview-visible && root.drop-target.inside == entry.name;
+                                                contains-current: !entry.expanded && entry.name == root.current-visible-entry;
                                                 editing: root.editing-folder == entry.name;
                                                 draft <=> root.folder-name-draft;
+                                                clicked => { keyboard.focus(); }
                                                 toggled => {
                                                     root.hovered-index = -1;
                                                     root.apply-key-down = false;

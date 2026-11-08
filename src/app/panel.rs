@@ -278,6 +278,19 @@ impl AppController {
                     }
                 }
                 UiRequest::CreateFolder => {}
+                UiRequest::ToggleFolder(folder)
+                    if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
+                {
+                    match crate::preset::toggle_folder(&self.paths.presets, &folder) {
+                        Ok(collapsed) => self.ui.set_folder_collapsed(&folder, collapsed),
+                        Err(error) => {
+                            warn!(%folder, error = %format!("{error:#}"), "could not save folder state");
+                            self.ui
+                                .set_status(&format!("Could not save folder state: {error:#}"));
+                        }
+                    }
+                }
+                UiRequest::ToggleFolder(_) => {}
                 UiRequest::RenameFolder { folder, label }
                     if matches!(self.state, ActionState::Idle) && !self.updates.installing() =>
                 {

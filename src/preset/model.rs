@@ -37,6 +37,8 @@ pub(super) enum Entry {
     Folder {
         id: String,
         label: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        collapsed: bool,
         entries: Vec<Entry>,
     },
 }
@@ -98,6 +100,11 @@ pub(crate) struct EntryMetadata {
     /// Empty for root entries; otherwise the containing folder ID.
     pub parent: String,
     pub is_folder: bool,
+    pub collapsed: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl Entry {
@@ -212,22 +219,28 @@ impl PresetLibrary {
     pub(super) fn library_metadata(&self) -> LibraryMetadata {
         fn visit(entries: &[Entry], parent: &str, metadata: &mut LibraryMetadata) {
             for entry in entries {
-                let (label, children) = match entry {
+                let (label, children, collapsed) = match entry {
                     Entry::Preset(preset) => {
                         metadata.presets.push(PresetMetadata {
                             id: preset.id.clone(),
                             label: preset.label.trim().into(),
                             shortcut: preset.shortcut.clone(),
                         });
-                        (preset.label.as_str(), None)
+                        (preset.label.as_str(), None, false)
                     }
-                    Entry::Folder { label, entries, .. } => (label.as_str(), Some(entries)),
+                    Entry::Folder {
+                        label,
+                        entries,
+                        collapsed,
+                        ..
+                    } => (label.as_str(), Some(entries), *collapsed),
                 };
                 metadata.entries.push(EntryMetadata {
                     id: entry.id().into(),
                     label: label.trim().into(),
                     parent: parent.into(),
                     is_folder: children.is_some(),
+                    collapsed,
                 });
                 if let Some(children) = children {
                     visit(children, entry.id(), metadata);
@@ -251,9 +264,20 @@ impl PresetLibrary {
         self.entries.push(Entry::Folder {
             id: id.clone(),
             label: String::new(),
+            collapsed: false,
             entries: Vec::new(),
         });
         Ok(id)
+    }
+
+    pub(super) fn toggle_folder(&mut self, id: &str) -> Result<bool> {
+        let (entries, index) = Self::locate_entry(&mut self.entries, id)
+            .with_context(|| format!("folder not found: {id}"))?;
+        let Entry::Folder { collapsed, .. } = &mut entries[index] else {
+            anyhow::bail!("entry is not a folder: {id}");
+        };
+        *collapsed = !*collapsed;
+        Ok(*collapsed)
     }
 
     pub(super) fn rename_folder(&mut self, id: &str, label: &str) -> Result<()> {
@@ -360,10 +384,29 @@ impl PresetLibrary {
     }
 
     pub(super) fn insert_after(&mut self, id: &str, preset: Preset) -> Result<()> {
+        fn expand_ancestors(entries: &mut [Entry], id: &str) -> bool {
+            if entries.iter().any(|entry| entry.id() == id) {
+                return true;
+            }
+            entries.iter_mut().any(|entry| {
+                if let Entry::Folder {
+                    entries, collapsed, ..
+                } = entry
+                    && expand_ancestors(entries, id)
+                {
+                    *collapsed = false;
+                    true
+                } else {
+                    false
+                }
+            })
+        }
+
         self.get(id)?;
         let (entries, index) = Self::locate_entry(&mut self.entries, id)
             .with_context(|| format!("preset not found: {id}"))?;
         entries.insert(index + 1, Entry::Preset(Box::new(preset)));
+        expand_ancestors(&mut self.entries, id);
         Ok(())
     }
 

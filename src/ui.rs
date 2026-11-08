@@ -81,6 +81,7 @@ pub enum UiRequest {
     },
     DeletePreset(String),
     CreateFolder,
+    ToggleFolder(String),
     RenameFolder {
         folder: String,
         label: String,
@@ -604,7 +605,7 @@ impl AppUi {
             .unwrap_or_else(|| previous_index.min(rows.len().saturating_sub(1)));
         self.window.invoke_finish_reorder();
         self.preset_info = library.presets;
-        let entries = library::rows(library.entries, &self.window.get_entries());
+        let entries = library::rows(library.entries);
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
         self.window.set_entries(entries);
@@ -628,20 +629,29 @@ impl AppUi {
                 .set_presets(Rc::new(VecModel::from(rows)).into());
         }
         self.set_library(library, Some(id));
+        self.reveal_entry(id);
+    }
+
+    pub fn set_folder_collapsed(&self, id: &str, collapsed: bool) {
         let entries = self.window.get_entries();
-        let parent = entries
-            .iter()
-            .find(|row| row.name == id)
-            .map(|row| row.parent);
-        if let Some((index, mut folder)) = entries
+        if let Some((index, mut row)) = entries
             .iter()
             .enumerate()
-            .find(|(_, row)| row.is_folder && Some(&row.name) == parent.as_ref())
+            .find(|(_, row)| row.is_folder && row.name == id)
         {
-            folder.expanded = true;
-            entries.set_row_data(index, folder);
+            row.expanded = !collapsed;
+            entries.set_row_data(index, row);
+            if !collapsed {
+                // Set the target now so manual scrolling can cancel it before layout settles.
+                self.window.invoke_prepare_reveal(id.into(), true);
+                let weak = self.window.as_weak();
+                slint::Timer::single_shot(Duration::ZERO, move || {
+                    if let Some(window) = weak.upgrade() {
+                        window.invoke_ensure_revealed();
+                    }
+                });
+            }
         }
-        self.reveal_entry(id);
     }
 
     pub fn insert_folder(&mut self, library: LibraryMetadata, id: &str) {
@@ -652,18 +662,14 @@ impl AppUi {
 
     pub fn reveal_entry(&self, id: &str) {
         let entries: Vec<_> = self.window.get_entries().iter().collect();
-        let Some(mut target) = entries.iter().find(|entry| entry.name == id) else {
+        let target = if self.window.get_search_query().trim().is_empty() {
+            library::visible_entry(&entries, id)
+        } else {
+            entries.iter().find(|entry| entry.name == id)
+        };
+        let Some(target) = target else {
             return;
         };
-        if self.window.get_search_query().trim().is_empty() {
-            let mut parent = target.parent.as_str();
-            while let Some(folder) = entries.iter().find(|entry| entry.name == parent) {
-                if !folder.expanded {
-                    target = folder;
-                }
-                parent = folder.parent.as_str();
-            }
-        }
         // Reveal after the queued search and model change handlers have settled.
         let weak = self.window.as_weak();
         let name = target.name.clone();

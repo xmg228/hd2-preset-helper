@@ -72,6 +72,10 @@ pub(crate) fn rename_folder(path: &Path, id: &str, label: &str) -> Result<Librar
     })
 }
 
+pub(crate) fn toggle_folder(path: &Path, id: &str) -> Result<bool> {
+    storage::edit(path, |library| library.toggle_folder(id))
+}
+
 pub(crate) fn ungroup_folder(path: &Path, id: &str) -> Result<LibraryMetadata> {
     storage::edit(path, |library| {
         library.ungroup_folder(id)?;
