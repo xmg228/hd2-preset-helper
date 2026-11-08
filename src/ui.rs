@@ -12,7 +12,7 @@ use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
-use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
+use crate::config::{PanelPlacement, SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::item::EquipmentKind;
 use crate::item_cache::CachedChoices;
 use crate::preset::preview::{
@@ -23,6 +23,7 @@ use crate::scan::{ScanProgress, ScanScope, ScanSummary};
 
 mod editor;
 mod library;
+mod placement;
 mod settings;
 mod status;
 #[cfg(target_os = "windows")]
@@ -93,6 +94,7 @@ pub enum UiRequest {
     },
     DeletePreset(String),
     CreateFolder,
+    ToggleFolder(String),
     RenameFolder {
         folder: String,
         label: String,
@@ -117,6 +119,7 @@ pub struct AppUi {
     status: status::Status,
     monitor: String,
     language: UiLanguage,
+    panel_placement: PanelPlacement,
     anchor: Option<(i32, i32)>,
     placement_dirty: Rc<Cell<bool>>,
     panel_hide_at: Option<Instant>,
@@ -127,6 +130,7 @@ impl AppUi {
         library: LibraryMetadata,
         monitor: String,
         language: UiLanguage,
+        panel_placement: PanelPlacement,
         presets: PathBuf,
     ) -> Result<Self> {
         // Both surfaces are created without activation. Only the interactive
@@ -141,6 +145,8 @@ impl AppUi {
             })
             .select()?;
         let window = PresetPanel::new()?;
+        #[cfg(target_os = "windows")]
+        windows::install_resize_sync(window.window())?;
         window.set_current_version(env!("CARGO_PKG_VERSION").into());
         #[cfg(target_os = "windows")]
         window.set_language_fonts(
@@ -284,6 +290,7 @@ impl AppUi {
             status: status::Status::new(presets)?,
             monitor,
             language,
+            panel_placement,
             anchor: None,
             placement_dirty,
             panel_hide_at: None,
@@ -432,19 +439,19 @@ impl AppUi {
     }
 
     fn reposition(&self) -> Result<()> {
-        let size = slint::LogicalSize::new(
-            self.window.get_ideal_width(),
-            self.window.get_ideal_height(),
-        );
-        if let Some(size) = place_top_right(
+        self.position_panel(&self.monitor, self.anchor)
+    }
+
+    fn position_panel(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {
+        if let Some(available) = placement::place(
             self.window.window(),
-            &self.monitor,
-            self.anchor,
+            monitor,
+            anchor,
             24.0,
-            Some(size),
+            Some(self.panel_placement),
         )? {
-            self.window.set_available_width(size.width);
-            self.window.set_available_height(size.height);
+            self.window.set_available_width(available.width);
+            self.window.set_available_height(available.height);
         }
         Ok(())
     }
@@ -574,21 +581,54 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn tick(&mut self) -> Result<()> {
+    pub fn tick(&mut self) -> Result<Option<PanelPlacement>> {
+        #[cfg(target_os = "windows")]
+        if windows::take_display_change() {
+            self.placement_dirty.set(true);
+        }
+        #[cfg(target_os = "windows")]
+        let placement = self.remember_panel_placement();
+        #[cfg(not(target_os = "windows"))]
+        let placement = None;
+
         if self
             .panel_hide_at
             .is_some_and(|deadline| Instant::now() >= deadline)
         {
             self.hide_panel()?;
         }
-        // Wait until Slint and the OS have finished processing the DPI event.
-        if self.placement_dirty.replace(false) {
+        // Apply pending placement after DPI changes and native move/resize gestures.
+        #[cfg(target_os = "windows")]
+        let interacting = windows::panel_interacting();
+        #[cfg(not(target_os = "windows"))]
+        let interacting = false;
+        if !interacting && self.placement_dirty.replace(false) {
             if self.is_panel_visible() {
-                self.reposition()?;
+                self.position_panel("auto", None)?;
             }
             self.status.reposition(&self.monitor, self.anchor)?;
         }
-        self.status.tick()
+        self.status.tick()?;
+        Ok(placement)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn remember_panel_placement(&mut self) -> Option<PanelPlacement> {
+        let change = windows::take_panel_change()?;
+        let mut placement = self.panel_placement;
+        let minimum = PanelPlacement::default().size;
+        for (axis, size) in change.size.into_iter().enumerate() {
+            if let Some(size) = size {
+                placement.size[axis] = size.max(minimum[axis]);
+            }
+        }
+        placement.position = Some(change.position);
+        if placement == self.panel_placement {
+            return None;
+        }
+        self.panel_placement = placement;
+        self.placement_dirty.set(true);
+        Some(placement)
     }
 
     pub fn is_panel_active(&self) -> bool {
@@ -731,7 +771,7 @@ impl AppUi {
             .unwrap_or_else(|| previous_index.min(rows.len().saturating_sub(1)));
         self.window.invoke_finish_reorder();
         self.preset_info = library.presets;
-        let entries = library::rows(library.entries, &self.window.get_entries());
+        let entries = library::rows(library.entries);
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
         self.window.set_entries(entries);
@@ -755,20 +795,29 @@ impl AppUi {
                 .set_presets(Rc::new(VecModel::from(rows)).into());
         }
         self.set_library(library, Some(id));
+        self.reveal_entry(id);
+    }
+
+    pub fn set_folder_collapsed(&self, id: &str, collapsed: bool) {
         let entries = self.window.get_entries();
-        let parent = entries
-            .iter()
-            .find(|row| row.name == id)
-            .map(|row| row.parent);
-        if let Some((index, mut folder)) = entries
+        if let Some((index, mut row)) = entries
             .iter()
             .enumerate()
-            .find(|(_, row)| row.is_folder && Some(&row.name) == parent.as_ref())
+            .find(|(_, row)| row.is_folder && row.name == id)
         {
-            folder.expanded = true;
-            entries.set_row_data(index, folder);
+            row.expanded = !collapsed;
+            entries.set_row_data(index, row);
+            if !collapsed {
+                // Set the target now so manual scrolling can cancel it before layout settles.
+                self.window.invoke_prepare_reveal(id.into(), true);
+                let weak = self.window.as_weak();
+                slint::Timer::single_shot(Duration::ZERO, move || {
+                    if let Some(window) = weak.upgrade() {
+                        window.invoke_ensure_revealed();
+                    }
+                });
+            }
         }
-        self.reveal_entry(id);
     }
 
     pub fn insert_folder(&mut self, library: LibraryMetadata, id: &str) {
@@ -779,18 +828,14 @@ impl AppUi {
 
     pub fn reveal_entry(&self, id: &str) {
         let entries: Vec<_> = self.window.get_entries().iter().collect();
-        let Some(mut target) = entries.iter().find(|entry| entry.name == id) else {
+        let target = if self.window.get_search_query().trim().is_empty() {
+            library::visible_entry(&entries, id)
+        } else {
+            entries.iter().find(|entry| entry.name == id)
+        };
+        let Some(target) = target else {
             return;
         };
-        if self.window.get_search_query().trim().is_empty() {
-            let mut parent = target.parent.as_str();
-            while let Some(folder) = entries.iter().find(|entry| entry.name == parent) {
-                if !folder.expanded {
-                    target = folder;
-                }
-                parent = folder.parent.as_str();
-            }
-        }
         // Reveal after the queued search and model change handlers have settled.
         let weak = self.window.as_weak();
         let name = target.name.clone();
@@ -1083,91 +1128,4 @@ pub fn run<T: 'static>(mut tick: impl FnMut() -> Result<ControlFlow<T>> + 'stati
         .borrow_mut()
         .take()
         .context("the UI event loop exited without a result")?
-}
-
-/// Placement uses desktop coordinates only inside the presentation layer.
-fn place_top_right(
-    window: &slint::Window,
-    monitor: &str,
-    anchor: Option<(i32, i32)>,
-    margin: f64,
-    preferred_size: Option<slint::LogicalSize>,
-) -> Result<Option<slint::LogicalSize>> {
-    use slint::winit_030::winit::dpi::PhysicalPosition;
-    window
-        .with_winit_window(|native| -> Result<Option<slint::LogicalSize>> {
-            let screens: Vec<_> = native.available_monitors().collect();
-            let screen = anchor
-                .and_then(|(x, y)| {
-                    screens.iter().find(|screen| {
-                        let p = screen.position();
-                        let s = screen.size();
-                        x >= p.x
-                            && y >= p.y
-                            && x < p.x + s.width as i32
-                            && y < p.y + s.height as i32
-                    })
-                })
-                .cloned()
-                .or_else(|| native.current_monitor());
-            let Some(screen) = screen else {
-                return Ok(None);
-            };
-            let p = screen.position();
-            let s = screen.size();
-            let mut bounds = (p.x, p.y, s.width as i32, s.height as i32);
-            #[cfg(target_os = "windows")]
-            if monitor != "auto" {
-                bounds = windows::monitor_bounds(monitor)?;
-            }
-            let scale = screens
-                .iter()
-                .find(|s| {
-                    let p = s.position();
-                    p.x == bounds.0 && p.y == bounds.1
-                })
-                .map_or(screen.scale_factor(), |s| s.scale_factor());
-            #[cfg(target_os = "windows")]
-            let bounds = windows::work_area(bounds)?;
-            // Fit the layout in logical pixels; Slint owns DPI scaling and rendering.
-            let margin = (margin * scale).round() as i32;
-            let fitted = preferred_size.map(|size| {
-                slint::LogicalSize::new(
-                    size.width
-                        .min(((bounds.2 - 2 * margin) as f64 / scale) as f32),
-                    size.height
-                        .min(((bounds.3 - 2 * margin) as f64 / scale) as f32),
-                )
-            });
-            let size = fitted.map_or_else(
-                || native.outer_size().to_logical::<f64>(native.scale_factor()),
-                |size| {
-                    slint::winit_030::winit::dpi::LogicalSize::new(
-                        size.width as f64,
-                        size.height as f64,
-                    )
-                },
-            );
-            let physical = slint::PhysicalSize::new(
-                (size.width * scale).round() as u32,
-                (size.height * scale).round() as u32,
-            );
-            if fitted.is_some() {
-                // Slint 1.18 caches physical min/max sizes when logical constraints
-                // stay unchanged. Refresh them as well as the actual window size.
-                let bounds = slint::winit_030::winit::dpi::PhysicalSize::new(
-                    physical.width,
-                    physical.height,
-                );
-                native.set_min_inner_size(Some(bounds));
-                native.set_max_inner_size(Some(bounds));
-                window.set_size(physical);
-            }
-            let w = physical.width as i32;
-            let (x, y) = (bounds.0 + bounds.2 - w - margin, bounds.1 + margin);
-            native.set_outer_position(PhysicalPosition::new(x, y));
-            Ok(fitted)
-        })
-        .transpose()
-        .map(Option::flatten)
 }

@@ -290,17 +290,17 @@ export component PresetPanel inherits Window {
     title: "HD2 Preset Helper";
     always-on-top: true;
     no-frame: true;
-    resize-border-width: 0px;
-    out property <length> ideal-width: 900px;
-    out property <length> ideal-height: 620px;
+    resize-border-width: 5px;
+    private property <length> ideal-width: 900px;
+    private property <length> ideal-height: 620px;
     in property <length> available-width: ideal-width;
     in property <length> available-height: ideal-height;
     preferred-width: min(ideal-width, available-width);
-    min-width: self.preferred-width;
-    max-width: self.preferred-width;
+    min-width: min(ideal-width, available-width);
+    max-width: available-width;
     preferred-height: min(ideal-height, available-height);
-    min-height: self.preferred-height;
-    max-height: self.preferred-height;
+    min-height: min(ideal-height, available-height);
+    max-height: available-height;
     background: transparent;
     in property <string> ui-font-family;
     default-font-family: root.ui-font-family;
@@ -378,6 +378,7 @@ export component PresetPanel inherits Window {
         root.search-query, UiText.preset-title("", "{}"), root.row-height / 1px);
     private property <[int]> visible-presets: root.visible-preset-indices(root.visible-entries);
     private property <int> current-visible-index: root.visible-preset-index(root.visible-presets, root.current-index);
+    private property <string> current-visible-entry: root.visible-entry(root.entries, root.current.name);
     in property <bool> scope-stratagems: true;
     in property <bool> scope-equipment: true;
     in property <[bool]> scope-equipment-items;
@@ -399,6 +400,7 @@ export component PresetPanel inherits Window {
     private property <string> editing-folder;
     private property <string> folder-name-draft;
     private property <string> reveal-target;
+    private property <bool> reveal-contents;
     private property <bool> apply-key-down;
     private property <bool> skip-delete-confirmation;
     private property <length> row-height: compact-list ? 36px : 68px;
@@ -445,6 +447,7 @@ export component PresetPanel inherits Window {
     pure callback visible-preset-index([int], int) -> int;
     pure callback adjacent-preset([int], int, int) -> int;
     pure callback find-entry([LibraryEntryRow], string) -> LibraryEntryRow;
+    pure callback visible-entry([LibraryEntryRow], string) -> string;
     pure callback entry-span([LibraryEntryRow], string) -> float;
     pure callback entry-drop-target([LibraryEntryRow], string, bool, float) -> EntryDropTarget;
     callback request-rename(string, string);
@@ -581,19 +584,26 @@ export component PresetPanel inherits Window {
         root.reveal-entry(root.editing-folder != "" ? root.editing-folder : root.current.name);
     }
     public function reveal-entry(name: string) {
-        root.reveal-target = name;
+        root.prepare-reveal(name, false);
         root.ensure-revealed();
     }
-    function ensure-revealed() {
+    public function prepare-reveal(name: string, contents: bool) {
+        root.reveal-target = name;
+        root.reveal-contents = contents;
+    }
+    public function ensure-revealed() {
         if (root.reordering-entry || root.reveal-target == "" || preset-list.visible-height <= 0px) { return; }
         let entry = root.find-entry(root.visible-entries, root.reveal-target);
         if (entry.name == "") { if (root.search-active) { preset-list.content-y = 0px; } return; }
         let top = entry.top * 1px;
-        let bottom = top + entry.height * 1px;
+        let span = root.reveal-contents && entry.is-folder && entry.expanded && !root.search-active
+            ? root.entry-span(root.visible-entries, entry.name) : entry.height;
+        let bottom = top + span * 1px;
         let height = preset-list.visible-height;
         let y = top + preset-list.content-y < 0px ? -top
             : bottom + preset-list.content-y > height ? max(-top, height - bottom) : preset-list.content-y;
         preset-list.content-y = clamp(y, min(0px, height - preset-list.content-height), 0px);
+        root.reveal-contents = false;
     }
     function move-selection(delta: int) {
         let index = root.adjacent-preset(root.visible-presets, root.current-index, delta);
@@ -694,8 +704,14 @@ export component PresetPanel inherits Window {
                 HorizontalLayout {
                     height: 32px;
                     spacing: 12px;
-                    WindowMoveArea {
+                    Rectangle {
                         horizontal-stretch: 1;
+                        WindowMoveArea {
+                            x: root.resize-border-width - 18px;
+                            y: root.resize-border-width - 18px;
+                            width: parent.width - self.x;
+                            height: parent.height - self.y + 12px;
+                        }
                         HorizontalLayout {
                             alignment: start;
                             spacing: 8px;
@@ -904,8 +920,10 @@ export component PresetPanel inherits Window {
                                                 collapsible: !root.search-active;
                                                 handle-hovered: handle.has-hover;
                                                 highlighted: root.reorder-preview-visible && root.drop-target.inside == entry.name;
+                                                contains-current: !entry.expanded && entry.name == root.current-visible-entry;
                                                 editing: root.editing-folder == entry.name;
                                                 draft <=> root.folder-name-draft;
+                                                clicked => { keyboard.focus(); }
                                                 toggled => {
                                                     root.hovered-index = -1;
                                                     root.apply-key-down = false;
@@ -1391,6 +1409,7 @@ export component PresetPanel inherits Window {
                 }
                 Rectangle { height: 1px; background: Theme.border; }
                 VerticalLayout {
+                    vertical-stretch: 0;
                     spacing: 8px;
                     if (!root.editor-open && !root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
                         details: (root.failure-scan ? @tr("Item scan") : UiText.preset-title(root.failure-label, root.failure-number)) + " — " + root.failure-details;
@@ -1412,85 +1431,92 @@ export component PresetPanel inherits Window {
                         wrap: word-wrap;
                         Tooltip { text: @markdown("\{root.shortcut-warning}"); }
                     }
-                    actions := GridLayout {
-                        property <bool> stacked: root.preferred-width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
-                        height: self.stacked ? 112px : 50px;
-                        spacing: 12px;
-                        shortcut-hint := Rectangle {
-                            row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
-                            height: 50px;
-                            horizontal-stretch: 1;
-                            if (root.panel-shortcut-keys.length > 0): VerticalLayout {
-                                spacing: 4px;
-                                HorizontalLayout {
-                                    height: 32px;
-                                    alignment: start;
-                                    spacing: 8px;
-                                    for key in root.panel-shortcut-keys: Rectangle {
+                    Rectangle {
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        height: actions.stacked ? 112px : 50px;
+                        actions := GridLayout {
+                            x: 0px;
+                            width: parent.width;
+                            property <bool> stacked: root.width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
+                            height: parent.height;
+                            spacing: 12px;
+                            shortcut-hint := Rectangle {
+                                row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
+                                height: 50px;
+                                horizontal-stretch: 1;
+                                if (root.panel-shortcut-keys.length > 0): VerticalLayout {
+                                    spacing: 4px;
+                                    HorizontalLayout {
                                         height: 32px;
-                                        width: panel-key.preferred-width + 14px;
-                                        Rectangle {
-                                            y: (parent.height - self.height) / 2;
-                                            height: 26px;
-                                            width: parent.width;
-                                            border-radius: 3px;
-                                            border-width: 1px;
-                                            border-color: Theme.inactive;
-                                            background: Theme.control;
+                                        alignment: start;
+                                        spacing: 8px;
+                                        for key in root.panel-shortcut-keys: Rectangle {
+                                            height: 32px;
+                                            width: panel-key.preferred-width + 14px;
+                                            Rectangle {
+                                                y: (parent.height - self.height) / 2;
+                                                height: 26px;
+                                                width: parent.width;
+                                                border-radius: 3px;
+                                                border-width: 1px;
+                                                border-color: Theme.inactive;
+                                                background: Theme.control;
+                                            }
+                                            panel-key := Text {
+                                                text: key;
+                                                color: Theme.text;
+                                                font-size: 12px;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
-                                        panel-key := Text {
-                                            text: key;
-                                            color: Theme.text;
-                                            font-size: 12px;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
+                                        Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
                                     }
-                                    Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
+                                    Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
                                 }
-                                Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
                             }
-                        }
-                        save-action := VerticalLayout {
-                            row: actions.stacked ? 1 : 0; col: 1;
-                            height: 50px;
-                            width: max(150px, save-button.preferred-width);
-                            spacing: 4px;
-                            save-button := PanelButton {
-                                height: 32px;
-                                text: @tr("Capture from game");
-                                filled: true;
-                                enabled: root.save-available;
-                                property <string> hint: @tr("Fill all four Stratagem slots before saving.");
-                                if (root.scope-stratagems && !root.editor-open): Tooltip { text: @markdown("\{parent.hint}"); }
-                                clicked => { root.save-current(); }
+                            save-action := VerticalLayout {
+                                row: actions.stacked ? 1 : 0; col: 1;
+                                height: 50px;
+                                width: max(150px, save-button.preferred-width);
+                                spacing: 4px;
+                                save-button := PanelButton {
+                                    height: 32px;
+                                    text: @tr("Capture from game");
+                                    filled: true;
+                                    enabled: root.save-available;
+                                    property <string> hint: @tr("Fill all four Stratagem slots before saving.");
+                                    if (root.scope-stratagems && !root.editor-open): Tooltip { text: @markdown("\{parent.hint}"); }
+                                    clicked => { root.save-current(); }
+                                }
+                                Text {
+                                    text: root.editor-open ? "" : "Ctrl+S";
+                                    color: root.save-available ? Theme.text-secondary : Theme.inactive;
+                                    font-size: 10px;
+                                    height: 14px;
+                                    horizontal-alignment: center;
+                                }
                             }
-                            Text {
-                                text: root.editor-open ? "" : "Ctrl+S";
-                                color: root.save-available ? Theme.text-secondary : Theme.inactive;
-                                font-size: 10px;
-                                height: 14px;
-                                horizontal-alignment: center;
-                            }
-                        }
-                        apply-action := VerticalLayout {
-                            row: actions.stacked ? 1 : 0; col: 2;
-                            height: 50px;
-                            width: max(150px, apply-button.preferred-width);
-                            spacing: 4px;
-                            apply-button := PanelButton {
-                                height: 32px;
-                                text: @tr("Apply to game");
-                                accent: true;
-                                enabled: root.available;
-                                clicked => { root.apply-current(ActionScope.selected); }
-                            }
-                            Text {
-                                text: root.editor-open ? "" : "Enter";
-                                color: root.available ? Theme.text-secondary : Theme.inactive;
-                                font-size: 10px;
-                                height: 14px;
-                                horizontal-alignment: center;
+                            apply-action := VerticalLayout {
+                                row: actions.stacked ? 1 : 0; col: 2;
+                                height: 50px;
+                                width: max(150px, apply-button.preferred-width);
+                                spacing: 4px;
+                                apply-button := PanelButton {
+                                    height: 32px;
+                                    text: @tr("Apply to game");
+                                    accent: true;
+                                    enabled: root.available;
+                                    clicked => { root.apply-current(ActionScope.selected); }
+                                }
+                                Text {
+                                    text: root.editor-open ? "" : "Enter";
+                                    color: root.available ? Theme.text-secondary : Theme.inactive;
+                                    font-size: 10px;
+                                    height: 14px;
+                                    horizontal-alignment: center;
+                                }
                             }
                         }
                     }

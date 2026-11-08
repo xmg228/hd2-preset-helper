@@ -76,6 +76,11 @@ pub(super) fn connect(window: &PresetPanel, send: Sender<UiRequest>) {
             .find(|row| row.name == name)
             .unwrap_or_default()
     });
+    window.on_visible_entry(|entries, name| {
+        visible_entry(&tracked_rows(&entries), name.as_str())
+            .map(|row| row.name.clone())
+            .unwrap_or_default()
+    });
     window.on_entry_span(|entries, name| {
         let rows = tracked_rows(&entries);
         let Some(index) = rows.iter().position(|row| row.name == name) else {
@@ -93,19 +98,9 @@ pub(super) fn connect(window: &PresetPanel, send: Sender<UiRequest>) {
     window.on_entry_drop_target(|entries, source, outdent, y| {
         drop_target(&tracked_rows(&entries), source.as_str(), outdent, y)
     });
-    let weak = window.as_weak();
+    let toggle = send.clone();
     window.on_toggle_folder(move |folder| {
-        if let Some(window) = weak.upgrade() {
-            let entries = window.get_entries();
-            if let Some((index, mut row)) = entries
-                .iter()
-                .enumerate()
-                .find(|(_, row)| row.is_folder && row.name == folder)
-            {
-                row.expanded = !row.expanded;
-                entries.set_row_data(index, row);
-            }
-        }
+        let _ = toggle.send(UiRequest::ToggleFolder(folder.to_string()));
     });
     let create = send.clone();
     window.on_add_folder(move || {
@@ -132,20 +127,13 @@ pub(super) fn connect(window: &PresetPanel, send: Sender<UiRequest>) {
     });
 }
 
-pub(super) fn rows(
-    entries: Vec<EntryMetadata>,
-    previous: &ModelRc<LibraryEntryRow>,
-) -> ModelRc<LibraryEntryRow> {
-    let expanded: BTreeMap<_, _> = previous
-        .iter()
-        .map(|row| (row.name.to_string(), row.expanded))
-        .collect();
+pub(super) fn rows(entries: Vec<EntryMetadata>) -> ModelRc<LibraryEntryRow> {
     model(
         entries
             .into_iter()
             .map(|entry| LibraryEntryRow {
                 number: entry.id.rsplit('_').next().unwrap_or("").into(),
-                expanded: expanded.get(&entry.id).copied().unwrap_or(true),
+                expanded: !entry.collapsed,
                 name: entry.id.into(),
                 label: entry.label.into(),
                 parent: entry.parent.into(),
@@ -155,6 +143,22 @@ pub(super) fn rows(
             })
             .collect(),
     )
+}
+
+/// Resolve an entry to its visible collapsed ancestor, or itself.
+pub(super) fn visible_entry<'a>(
+    entries: &'a [LibraryEntryRow],
+    id: &str,
+) -> Option<&'a LibraryEntryRow> {
+    let mut target = entries.iter().find(|entry| entry.name == id)?;
+    let mut parent = target.parent.as_str();
+    while let Some(folder) = entries.iter().find(|entry| entry.name == parent) {
+        if !folder.expanded {
+            target = folder;
+        }
+        parent = folder.parent.as_str();
+    }
+    Some(target)
 }
 
 fn project(
@@ -228,10 +232,22 @@ fn project(
 }
 
 fn group_end(rows: &[LibraryEntryRow], start: usize) -> usize {
-    rows[start + 1..]
-        .iter()
-        .position(|row| row.parent.is_empty())
-        .map_or(rows.len(), |offset| start + 1 + offset)
+    let mut parents = vec![rows[start].name.as_str()];
+    for (index, row) in rows.iter().enumerate().skip(start + 1) {
+        while parents
+            .last()
+            .is_some_and(|&parent| parent != row.parent.as_str())
+        {
+            parents.pop();
+        }
+        if parents.is_empty() {
+            return index;
+        }
+        if row.is_folder {
+            parents.push(row.name.as_str());
+        }
+    }
+    rows.len()
 }
 
 fn after_row(rows: &[LibraryEntryRow], index: usize, parent: &str) -> EntryDropTarget {
