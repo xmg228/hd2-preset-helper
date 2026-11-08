@@ -179,7 +179,6 @@ impl Session<'_> {
         kind: EquipmentKind,
         progress: &mut impl FnMut(ScanProgress),
         cancel: &ScanCancellation,
-        #[cfg(feature = "diagnostics")] diagnostics: &mut super::ScanDiagnostics,
     ) -> Result<EquipmentCatalog> {
         self.automation.set_cancellation(cancel.clone());
         self.open(kind)?;
@@ -188,17 +187,13 @@ impl Session<'_> {
             category: Some(self.page.category.to_template()),
             client_size: self.client_size,
         };
-        let collection = self.collect(
-            &mut |category, items| {
-                progress(ScanProgress {
-                    kind: ScanKind::Equipment(kind),
-                    category: Some(crate::vision::text::render_category(category)),
-                    items,
-                })
-            },
-            #[cfg(feature = "diagnostics")]
-            Some(&mut *diagnostics),
-        )?;
+        let collection = self.collect(&mut |category, items| {
+            progress(ScanProgress {
+                kind: ScanKind::Equipment(kind),
+                category: Some(crate::vision::text::render_category(category)),
+                items,
+            })
+        })?;
         cancel.check()?;
         let columns = kind.list_columns();
         let categories = &collection.catalog.categories;
@@ -214,8 +209,6 @@ impl Session<'_> {
                 !input.retried,
                 "equipment scan lost continuity while restoring the original position"
             );
-            #[cfg(feature = "diagnostics")]
-            diagnostics.observe(self, kind, "restore", Some(input), None);
         }
         let focus = self.page.focus.context("equipment scan focus is missing")?;
         if self.page.slots[focus].col != collection.original.col {
@@ -227,8 +220,6 @@ impl Session<'_> {
                 !input.retried,
                 "equipment scan lost continuity while restoring the original column"
             );
-            #[cfg(feature = "diagnostics")]
-            diagnostics.observe(self, kind, "restore", Some(input), None);
         }
         self.equip_and_return(&original)
             .context("failed to restore the equipment selected before scanning")?;
@@ -239,7 +230,6 @@ impl Session<'_> {
     pub(super) fn collect(
         &mut self,
         progress: &mut impl FnMut(&TextSample, usize),
-        #[cfg(feature = "diagnostics")] mut diagnostics: Option<&mut super::ScanDiagnostics>,
     ) -> Result<Collection> {
         self.check_active()?;
         let kind = self.observer.kind();
@@ -254,10 +244,6 @@ impl Session<'_> {
         let mut row: Option<RowScan<TextSample>> = None;
         let mut items = 0;
         let mut visits = 1;
-        #[cfg(feature = "diagnostics")]
-        if let Some(diagnostics) = diagnostics.as_deref_mut() {
-            diagnostics.observe(self, kind, "opened", None, Some((0, false)));
-        }
 
         let start = loop {
             self.check_active()?;
@@ -349,16 +335,6 @@ impl Session<'_> {
                 // Focus wrap still supplies a fallback head when a cap is missing;
                 // only the independently confirmed global wrap sets the rotation cut.
                 boundary_before = global_wrap || input.wrapped || width < kind.list_columns();
-            }
-            #[cfg(feature = "diagnostics")]
-            if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                diagnostics.observe(
-                    self,
-                    kind,
-                    "collect",
-                    Some(input),
-                    Some((rows.len(), boundary_before)),
-                );
             }
             visits += 1;
         };

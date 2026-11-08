@@ -120,56 +120,13 @@ pub(super) fn write_cached(
         booster: None,
         fallback_booster: None,
     });
-    let sources = (0..4)
-        .map(|index| match choices[index] {
-            IconChoice::Keep => {
-                let template = preset.stratagems.get(index).with_context(|| {
-                    format!("select a Stratagem for slot {} before saving", index + 1)
-                })?;
-                load_template_sample(path, template)
-            }
-            IconChoice::Clear => bail!("all four Stratagem slots must be filled"),
-            IconChoice::Item(index) => cache
-                .stratagems
-                .as_ref()
-                .and_then(|catalog| catalog.items.get(index))
-                .map(|item| item.icon.sample.clone())
-                .context("selected Stratagem is not available in the cache"),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    for index in 0..4 {
-        for previous in 0..index {
-            match (choices[previous], choices[index]) {
-                (IconChoice::Item(a), IconChoice::Item(b)) => ensure!(
-                    a != b,
-                    "the same Stratagem cannot fill slots {} and {}",
-                    previous + 1,
-                    index + 1,
-                ),
-                (IconChoice::Keep, IconChoice::Keep) => {}
-                _ => ensure!(
-                    !TemplateClassifier::same_item(
-                        ItemKind::Stratagem,
-                        &sources[previous],
-                        &sources[index],
-                    )?,
-                    "could not distinguish the Stratagems in slots {} and {}; choose different items",
-                    previous + 1,
-                    index + 1,
-                ),
-            }
-        }
+    if choices[..4]
+        .iter()
+        .any(|choice| *choice != IconChoice::Keep)
+    {
+        preset.stratagems =
+            write_cached_stratagems(path, cache, &choices[..4], &preset.stratagems, images)?;
     }
-    preset.stratagems = (0..4)
-        .map(|index| match choices[index] {
-            IconChoice::Keep => Ok(preset.stratagems[index].clone()),
-            IconChoice::Item(_) => Ok(LocalTemplate {
-                path: images.save(&format!("stratagem-{}", index + 1), &sources[index].image)?,
-                geometry: sources[index].geometry,
-            }),
-            IconChoice::Clear => unreachable!("empty Stratagem slots were rejected above"),
-        })
-        .collect::<Result<_>>()?;
     for (index, role, field) in [
         (4, "booster", &mut preset.booster),
         (5, "fallback-booster", &mut preset.fallback_booster),
@@ -219,6 +176,70 @@ pub(super) fn write_cached(
     validate(name, &preset)?;
     record.stratagems = Some(preset);
     Ok(())
+}
+
+fn write_cached_stratagems(
+    path: &Path,
+    cache: &ItemCache,
+    choices: &[IconChoice],
+    previous: &[LocalTemplate],
+    images: &mut NewImages,
+) -> Result<Vec<LocalTemplate>> {
+    let sources = choices
+        .iter()
+        .enumerate()
+        .map(|(index, choice)| match *choice {
+            IconChoice::Keep => {
+                let template = previous.get(index).with_context(|| {
+                    format!("select a Stratagem for slot {} before saving", index + 1)
+                })?;
+                load_template_sample(path, template)
+            }
+            IconChoice::Clear => bail!("all four Stratagem slots must be filled"),
+            IconChoice::Item(index) => cache
+                .stratagems
+                .as_ref()
+                .and_then(|catalog| catalog.items.get(index))
+                .map(|item| item.icon.sample.clone())
+                .context("selected Stratagem is not available in the cache"),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for index in 0..choices.len() {
+        for earlier in 0..index {
+            match (choices[earlier], choices[index]) {
+                (IconChoice::Item(a), IconChoice::Item(b)) => ensure!(
+                    a != b,
+                    "the same Stratagem cannot fill slots {} and {}",
+                    earlier + 1,
+                    index + 1,
+                ),
+                (IconChoice::Keep, IconChoice::Keep) => {}
+                _ => ensure!(
+                    !TemplateClassifier::same_item(
+                        ItemKind::Stratagem,
+                        &sources[earlier],
+                        &sources[index],
+                    )?,
+                    "could not distinguish the Stratagems in slots {} and {}; choose different items",
+                    earlier + 1,
+                    index + 1,
+                ),
+            }
+        }
+    }
+    choices
+        .iter()
+        .zip(sources)
+        .enumerate()
+        .map(|(index, (choice, source))| match choice {
+            IconChoice::Keep => Ok(previous[index].clone()),
+            IconChoice::Item(_) => Ok(LocalTemplate {
+                path: images.save(&format!("stratagem-{}", index + 1), &source.image)?,
+                geometry: source.geometry,
+            }),
+            IconChoice::Clear => unreachable!("empty Stratagem slots were rejected above"),
+        })
+        .collect()
 }
 
 pub fn save_fallback_booster(

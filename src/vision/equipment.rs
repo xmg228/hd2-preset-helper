@@ -159,13 +159,6 @@ pub struct EquipmentObserver {
     geometry: RoiGeometry,
 }
 
-#[cfg(feature = "diagnostics")]
-pub(crate) struct ScrollbarDiagnostic {
-    pub(crate) region: ImageRect,
-    pub(crate) track_top: f64,
-    pub(crate) track_bottom: f64,
-}
-
 impl EquipmentObserver {
     pub fn kind(&self) -> EquipmentKind {
         self.kind
@@ -190,36 +183,6 @@ impl EquipmentObserver {
             EquipmentKind::Primary | EquipmentKind::Secondary => 168.0,
             _ => 200.0,
         }
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(crate) fn scrollbar_diagnostic(&self, image: &RgbaImage) -> Option<ScrollbarDiagnostic> {
-        let track = SCROLLBAR_TRACK;
-        let scale = self.geometry.scale;
-        if !scale.is_finite() || scale <= 0.0 {
-            return None;
-        }
-        let center_x = self.geometry.logical_origin_x + track.center_x * scale;
-        let track_top = self.geometry.logical_origin_y + track.top * scale;
-        let track_bottom = self.geometry.logical_origin_y + track.bottom * scale;
-        let left = (center_x - 6.0 * scale).floor();
-        let right = (center_x + 6.0 * scale).ceil();
-        let top = (track_top - 4.0 * scale).floor();
-        let bottom = (track_bottom + 4.0 * scale).ceil();
-        if left < 0.0 || top < 0.0 || right > image.width() as f64 || bottom > image.height() as f64
-        {
-            return None;
-        }
-        Some(ScrollbarDiagnostic {
-            region: ImageRect {
-                x: left as u32,
-                y: top as u32,
-                w: (right - left) as u32,
-                h: (bottom - top) as u32,
-            },
-            track_top,
-            track_bottom,
-        })
     }
 
     pub fn resolve(width: u32, height: u32, kind: EquipmentKind) -> Result<(Self, ResolvedRoi)> {

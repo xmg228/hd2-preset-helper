@@ -1,7 +1,5 @@
 //! Equipment capture/application, independent of the UI and preset persistence.
 mod cache;
-#[cfg(feature = "diagnostics")]
-mod diagnostics;
 mod evidence;
 mod navigation;
 mod row;
@@ -9,8 +7,6 @@ mod scan;
 mod search;
 
 pub(crate) use crate::item_cache::{EquipmentItem, EquipmentSet};
-#[cfg(feature = "diagnostics")]
-pub(crate) use diagnostics::ScanDiagnostics;
 use evidence::EquipmentEvidence;
 
 use crate::{
@@ -328,17 +324,13 @@ impl<'a> Session<'a> {
                     category: &self.page.category,
                     items: 0,
                 });
-                let collection = self.collect(
-                    &mut |category, items| {
-                        progress(ApplyProgress::Caching {
-                            kind,
-                            category,
-                            items,
-                        })
-                    },
-                    #[cfg(feature = "diagnostics")]
-                    None,
-                )?;
+                let collection = self.collect(&mut |category, items| {
+                    progress(ApplyProgress::Caching {
+                        kind,
+                        category,
+                        items,
+                    })
+                })?;
                 position = Some(collection.position);
                 cache.set_equipment(kind, collection.catalog);
                 rebuilt = true;

@@ -1,4 +1,4 @@
-//! Read-only identities and routes over a complete equipment catalog.
+//! Equipment catalog identities, position checks, and navigation routes.
 use super::{InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD};
 use crate::{
     input::Key,

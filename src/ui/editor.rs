@@ -69,10 +69,19 @@ fn has_fallback(window: &PresetPanel) -> bool {
 }
 
 fn can_randomize(equipment: bool, catalogs: &ModelRc<CandidateCatalogRow>, fallback: bool) -> bool {
+    let count = |slot| {
+        catalogs.row_data(slot).map_or(0, |catalog| {
+            catalog
+                .groups
+                .iter()
+                .map(|group| group.items.row_count())
+                .sum::<usize>()
+        })
+    };
     if equipment {
-        (6..12).all(|slot| !candidates(catalogs, slot).is_empty())
+        (6..12).all(|slot| count(slot) > 0)
     } else {
-        candidates(catalogs, 0).len() >= 4 && candidates(catalogs, 4).len() > usize::from(fallback)
+        count(0) >= 4 && count(4) > usize::from(fallback)
     }
 }
 

@@ -9,8 +9,6 @@ use tracing::{debug, error, info_span, warn};
 
 use super::GameAction;
 use super::failure::save_failure_report;
-#[cfg(feature = "diagnostics")]
-use super::failure::save_scan_diagnostics;
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::app_paths::AppPaths;
 use crate::capture::CaptureSessionManager;
@@ -160,27 +158,16 @@ impl ActionWorker {
                                 }
                                 GameAction::Scan { scope, cancel } => {
                                     let progress = event_tx.clone();
-                                    #[cfg(feature = "diagnostics")]
-                                    let mut diagnostics = crate::loadout::equipment::ScanDiagnostics::default();
                                     let result = scan::execute(
                                         &runtime, &mut item_cache, &cache_path, &mut capture_session,
                                         target, *scope, cancel,
                                         move |event| { let _ = progress.send(WorkerEvent::ScanProgress(event)); },
                                         &evidence,
-                                        #[cfg(feature = "diagnostics")]
-                                        &mut diagnostics,
                                     );
                                     let cancelled = result.is_err() && cancel.is_cancelled();
                                     if !cancelled && let Err(error) = &result {
                                         error!(elapsed_s = start.elapsed().as_secs_f64(), error = %format!("{error:#}"), "item scan failed");
                                         save_failure_report(&paths.last_failure, &action, error, Some(&evidence));
-                                    }
-                                    #[cfg(feature = "diagnostics")]
-                                    if !diagnostics.is_empty() {
-                                        save_scan_diagnostics(
-                                            &paths.last_failure.with_file_name("last_scan.zip"),
-                                            &action, result.as_ref().err(), &evidence, &diagnostics,
-                                        );
                                     }
                                     if cancelled {
                                         WorkCompletion::ScanCancelled

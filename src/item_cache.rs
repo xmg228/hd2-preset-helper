@@ -76,7 +76,7 @@ pub(crate) struct ItemCache {
     pub equipment: [Option<EquipmentCatalog>; 6],
     pub stratagems: Option<IconCatalog>,
     pub boosters: Option<IconCatalog>,
-    pub dirty: bool,
+    dirty: bool,
 }
 
 impl ItemCache {

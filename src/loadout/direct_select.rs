@@ -903,15 +903,15 @@ fn observe_post_click_state(
             continue;
         };
 
-        let sample = HoverVerifier::sample_current_frame(&page.roi.image, &slot)?;
-        let brightness_dropped = sample.is_dimmer_than(before);
+        let after_score = HoverVerifier::score_current_frame(&page.roi.image, &slot)?;
+        let brightness_dropped = before.is_dimmed(after_score);
 
         if brightness_dropped {
             automation.evidence().record(
                 "post-click-dimmed",
                 Some(&page.roi.image),
                 serde_json::json!({
-                    "before_score": before.target_score(), "after_score": sample.target_score(),
+                    "before_score": before.target_score(), "after_score": after_score,
                     "required_drop": before.required_score_drop(),
                 }),
             );
@@ -919,7 +919,7 @@ fn observe_post_click_state(
                 item_id,
                 observation,
                 before_score = before.target_score(),
-                after_score = sample.target_score(),
+                after_score,
                 required_drop = before.required_score_drop(),
                 "post-click success confirmed by brightness drop"
             );
@@ -936,7 +936,7 @@ fn observe_post_click_state(
                 "post-click-unchanged",
                 Some(&page.roi.image),
                 serde_json::json!({
-                    "before_score": before.target_score(), "after_score": sample.target_score(),
+                    "before_score": before.target_score(), "after_score": after_score,
                     "required_drop": before.required_score_drop(),
                 }),
             );
@@ -944,14 +944,11 @@ fn observe_post_click_state(
                 item_id,
                 observation,
                 before_score = before.target_score(),
-                after_score = sample.target_score(),
+                after_score,
                 required_drop = before.required_score_drop(),
                 "post-click target remained bright"
             );
-            return Ok(PostClickObservation::Unchanged {
-                slot,
-                after_score: sample.target_score(),
-            });
+            return Ok(PostClickObservation::Unchanged { slot, after_score });
         }
     }
 }
@@ -1082,14 +1079,14 @@ fn unchanged_terminal_target(
     };
     let moved = clicked_target.slot.x.abs_diff(target.slot.x) > TARGET_POSITION_TOLERANCE
         || clicked_target.slot.y.abs_diff(target.slot.y) > TARGET_POSITION_TOLERANCE;
-    let sample = HoverVerifier::sample_current_frame(&page.roi.image, &target.slot)?;
-    let brightness_dropped = !moved && sample.is_dimmer_than(before);
+    let after_score = HoverVerifier::score_current_frame(&page.roi.image, &target.slot)?;
+    let brightness_dropped = !moved && before.is_dimmed(after_score);
     automation.evidence().record(
         "terminal-target",
         Some(&page.roi.image),
         serde_json::json!({
             "moved": moved, "dimmed": brightness_dropped, "slot": target.slot,
-            "before_score": before.target_score(), "after_score": sample.target_score(),
+            "before_score": before.target_score(), "after_score": after_score,
             "required_drop": before.required_score_drop(),
         }),
     );
@@ -1100,7 +1097,7 @@ fn unchanged_terminal_target(
             moved,
             brightness_dropped,
             before_score = before.target_score(),
-            after_score = sample.target_score(),
+            after_score,
             "final click changed the target state; continuing to wait for home"
         );
         return Ok(None);

@@ -140,7 +140,6 @@ pub(crate) fn execute(
     cancel: &ScanCancellation,
     mut progress: impl FnMut(ScanProgress),
     evidence: &OperationEvidence,
-    #[cfg(feature = "diagnostics")] diagnostics: &mut equipment::ScanDiagnostics,
 ) -> Result<ScanSummary> {
     cancel.check()?;
     let kinds = scope.kinds(cache);
@@ -188,15 +187,7 @@ pub(crate) fn execute(
                         colors,
                         evidence,
                         Some(cancel.clone()),
-                        |session| {
-                            session.scan(
-                                equipment_kind,
-                                &mut progress,
-                                cancel,
-                                #[cfg(feature = "diagnostics")]
-                                diagnostics,
-                            )
-                        },
+                        |session| session.scan(equipment_kind, &mut progress, cancel),
                     )?;
                     let count = categories
                         .categories

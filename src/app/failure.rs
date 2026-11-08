@@ -8,8 +8,6 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::GameAction;
 use crate::evidence::OperationEvidence;
-#[cfg(feature = "diagnostics")]
-use crate::loadout::equipment::ScanDiagnostics;
 
 pub(super) fn save_failure_report(
     path: &Path,
@@ -17,14 +15,7 @@ pub(super) fn save_failure_report(
     error: &anyhow::Error,
     evidence: Option<&OperationEvidence>,
 ) {
-    let result = save_report(
-        path,
-        action,
-        Some(error),
-        evidence,
-        #[cfg(feature = "diagnostics")]
-        None,
-    );
+    let result = save_report(path, action, error, evidence);
     match result {
         Ok(()) => info!(path = %path.display(), "failure report saved"),
         Err(error) => {
@@ -33,29 +24,11 @@ pub(super) fn save_failure_report(
     }
 }
 
-#[cfg(feature = "diagnostics")]
-pub(super) fn save_scan_diagnostics(
-    path: &Path,
-    action: &GameAction,
-    error: Option<&anyhow::Error>,
-    evidence: &OperationEvidence,
-    diagnostics: &ScanDiagnostics,
-) {
-    let result = save_report(path, action, error, Some(evidence), Some(diagnostics));
-    match result {
-        Ok(()) => info!(path = %path.display(), "scan diagnostics saved"),
-        Err(error) => {
-            warn!(path = %path.display(), error = %format!("{error:#}"), "failed to save scan diagnostics")
-        }
-    }
-}
-
 fn save_report(
     path: &Path,
     action: &GameAction,
-    error: Option<&anyhow::Error>,
+    error: &anyhow::Error,
     evidence: Option<&OperationEvidence>,
-    #[cfg(feature = "diagnostics")] diagnostics: Option<&ScanDiagnostics>,
 ) -> Result<()> {
     // Freeze execution timing before PNG encoding and report publication.
     let evidence_report = evidence.map(OperationEvidence::report);
@@ -76,18 +49,10 @@ fn save_report(
             })
             .err()
     });
-    #[cfg(feature = "diagnostics")]
-    if let Some(diagnostics) = diagnostics {
-        diagnostics.write_files(|name, bytes| {
-            archive.start_file(name, options)?;
-            archive.write_all(bytes)?;
-            Ok(())
-        })?;
-    }
     let report = json!({
         "version": env!("CARGO_PKG_VERSION"), "diagnostics": cfg!(feature = "diagnostics"),
         "operation": action.report(),
-        "errors": error.into_iter().flat_map(|error| error.chain()).map(ToString::to_string).collect::<Vec<_>>(),
+        "errors": error.chain().map(ToString::to_string).collect::<Vec<_>>(),
         "evidence": evidence_report,
         "image_save_error": image_error.map(|error| format!("{error:#}")),
     });

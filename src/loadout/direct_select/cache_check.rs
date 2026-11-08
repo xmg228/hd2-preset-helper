@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::{
     item::ItemKind,
     item_cache::{IconCatalog, IconPosition},
-    vision::{IconTemplate, icon_cosine_errors},
+    vision::icon_cosine_errors,
 };
 
 use super::{list_map::ListMap, page_navigation::PageSnapshot};
@@ -106,7 +106,7 @@ impl CacheCheck {
         let templates = catalog
             .items
             .iter()
-            .map(|item| &*item.icon as &IconTemplate)
+            .map(|item| &*item.icon)
             .collect::<Vec<_>>();
         let scores = icon_cosine_errors(kind, &templates, &samples)?;
         let positions = catalog
@@ -163,28 +163,15 @@ impl CacheCheck {
         }
         anchors.retain(|&(_, index)| counts[index] == 1);
         result.anchors = anchors.len();
-        let offsets = anchors
-            .iter()
-            .filter_map(|&(query, index)| {
-                let position = observed[query].position;
-                (position.col == cached[index].col).then_some(position.y - cached[index].y)
-            })
-            .collect::<Vec<_>>();
-
         if self.offset_y.is_none() {
-            let support = |offset: f32| {
-                offsets
-                    .iter()
-                    .filter(|&&other| (other - offset).abs() <= POSITION_TOLERANCE)
-                    .count()
-            };
-            self.offset_y = offsets
+            let offsets = anchors
                 .iter()
-                .copied()
-                .map(|offset| (offset, support(offset)))
-                .max_by_key(|&(_, count)| count)
-                .filter(|&(_, count)| count >= 2)
-                .map(|(offset, _)| offset);
+                .filter_map(|&(query, index)| {
+                    let position = observed[query].position;
+                    (position.col == cached[index].col).then_some(position.y - cached[index].y)
+                })
+                .collect::<Vec<_>>();
+            self.offset_y = common_offset(&offsets);
         }
         result.offset_y = self.offset_y;
         result.conflicts = anchors
@@ -248,10 +235,34 @@ impl CacheCheck {
         } else if different >= 2 {
             "expected_items_changed"
         } else {
-            "layout_consistent"
+            "no_change_observed"
         };
         result.changed = boundary_changed || extra > 0 || different >= 2;
         result.conflicts += extra + different;
         result
     }
+}
+
+fn common_offset(offsets: &[f32]) -> Option<f32> {
+    let supports = |candidate: f32| {
+        offsets
+            .iter()
+            .filter(|&&offset| (offset - candidate).abs() <= POSITION_TOLERANCE)
+            .count()
+    };
+    let &seed = offsets
+        .iter()
+        .max_by_key(|&&candidate| supports(candidate))?;
+    let support = offsets
+        .iter()
+        .copied()
+        .filter(|offset| (offset - seed).abs() <= POSITION_TOLERANCE)
+        .collect::<Vec<_>>();
+    if support.len() < 2 {
+        return None;
+    }
+    // Center the common tolerance interval without dropping any supporting anchor.
+    let low = support.iter().copied().min_by(f32::total_cmp)?;
+    let high = support.iter().copied().max_by(f32::total_cmp)?;
+    Some((low + high) * 0.5)
 }
