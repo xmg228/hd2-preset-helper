@@ -14,11 +14,14 @@ use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use crate::app_events::AppEvent;
 use crate::config::{SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::item::EquipmentKind;
+use crate::item_cache::CachedChoices;
 use crate::preset::preview::{
     PresetPreview, PreviewContent, PreviewImage, PreviewRole as PreviewImageRole,
 };
 use crate::preset::{LibraryMetadata, PresetMetadata, PresetScope, PresetSection};
+use crate::scan::{ScanProgress, ScanScope, ScanSummary};
 
+mod editor;
 mod library;
 mod settings;
 mod status;
@@ -58,6 +61,15 @@ pub enum UiRequest {
         preset: String,
         saving: bool,
         section: Option<PresetSection>,
+    },
+    Scan(ScanScope),
+    ScanMissingItems,
+    ConfirmScan,
+    CancelScan,
+    EditItems,
+    SaveItemChoices {
+        preset: String,
+        choices: CachedChoices,
     },
     ToggleSection(PresetSection),
     ToggleEquipment(EquipmentKind),
@@ -158,6 +170,15 @@ impl AppUi {
         let dirty = placement_dirty.clone();
         let mut handle_keys = settings::connect(&window, send.clone());
         library::connect(&window, send.clone());
+        editor::connect(&window, send.clone());
+        let confirm_send = send.clone();
+        window.on_confirm_scan(move || {
+            let _ = confirm_send.send(UiRequest::ConfirmScan);
+        });
+        let cancel_send = send.clone();
+        window.on_cancel_scan(move || {
+            let _ = cancel_send.send(UiRequest::CancelScan);
+        });
         window.window().on_winit_window_event(move |_, event| {
             if matches!(event, WindowEvent::ScaleFactorChanged { .. }) {
                 dirty.set(true);
@@ -288,8 +309,6 @@ impl AppUi {
         self.panel_hide_at = None;
         self.anchor = anchor;
         self.status.hide()?;
-        self.window.set_search_query("".into());
-        self.window.invoke_focus_list();
         self.window.set_pending(false);
         self.window.set_loading(!installing);
         self.window.set_status("".into());
@@ -311,9 +330,42 @@ impl AppUi {
             self.window.set_settings_open(true);
             self.window.invoke_focus_settings(true);
         } else {
-            self.window.invoke_focus_list();
+            self.window.invoke_focus_current_view();
         }
         Ok(())
+    }
+
+    pub fn show_scan_confirmation(
+        &mut self,
+        preset: &str,
+        count: usize,
+        anchor: Option<(i32, i32)>,
+    ) -> Result<()> {
+        self.show_panel(anchor)?;
+        self.window.set_loading(false);
+        if let Some(index) = self
+            .window
+            .get_presets()
+            .iter()
+            .position(|row| row.name == preset)
+        {
+            self.window.set_current_index(index as i32);
+        }
+        self.window.set_scan_confirm_count(count as i32);
+        self.window.set_scan_confirm_open(true);
+        self.window.invoke_focus_scan_confirm();
+        Ok(())
+    }
+
+    pub fn dismiss_scan_confirmation(&self) {
+        self.window.set_scan_confirm_open(false);
+        if self.is_panel_open() {
+            self.window.invoke_focus_current_view();
+        }
+    }
+
+    pub fn is_scan_confirm_open(&self) -> bool {
+        self.window.get_scan_confirm_open()
     }
 
     /// Stop interaction now; hide the native window after the scene fades out.
@@ -322,7 +374,7 @@ impl AppUi {
             return Ok(());
         }
         self.window.invoke_commit_names();
-        self.window.invoke_close_dialogs();
+        self.window.invoke_prepare_hide();
         self.window
             .window()
             .with_winit_window(|window| window.set_cursor_hittest(false))
@@ -333,13 +385,29 @@ impl AppUi {
         Ok(())
     }
 
-    /// Automation and shutdown must not wait for a visual transition.
+    /// Hide immediately while retaining the current view.
     pub fn hide_panel(&mut self) -> Result<()> {
         self.panel_hide_at = None;
         self.window.invoke_commit_names();
-        self.window.invoke_close_dialogs();
+        self.window.invoke_prepare_hide();
         self.window.set_presented(false);
         self.window.hide()?;
+        Ok(())
+    }
+
+    pub fn can_scan_missing_items(&self) -> bool {
+        self.window.get_editor_open()
+            && self.window.get_editor_missing()
+            && !self.window.get_editor_busy()
+            && !self.window.get_editor_loading()
+    }
+
+    pub fn resume_item_editor(&mut self, error: Option<&str>) -> Result<()> {
+        self.show_panel(self.anchor)?;
+        self.window.set_loading(false);
+        self.window.set_editor_loading(true);
+        self.window.set_editor_error(error.unwrap_or("").into());
+        self.window.invoke_focus_item_editor();
         Ok(())
     }
 
@@ -427,6 +495,7 @@ impl AppUi {
                 preset,
                 reason: error,
             } => {
+                self.window.set_failure_scan(false);
                 let label = self
                     .preset_info
                     .iter()
@@ -437,6 +506,7 @@ impl AppUi {
                 self.window.set_failure_details(error.as_str().into());
             }
             AppEvent::PresetDone { .. } => {
+                self.window.set_failure_scan(false);
                 self.window.set_failure_label("".into());
                 self.window.set_failure_number("".into());
                 self.window.set_failure_details("".into());
@@ -444,6 +514,51 @@ impl AppUi {
             _ => {}
         }
         self.status.update(event, &self.preset_info);
+        if self.is_panel_open() {
+            if failed {
+                self.set_status("");
+            } else {
+                self.set_status(&self.status.message());
+            }
+        } else {
+            if self.panel_hide_at.is_some() {
+                self.hide_panel()?;
+            }
+            self.status.show(&self.monitor, self.anchor)?;
+        }
+        Ok(())
+    }
+
+    pub fn scan_waiting(&mut self) -> Result<()> {
+        self.window.set_failure_details("".into());
+        if self.window.get_editor_open() {
+            self.window.set_editor_loading(true);
+        }
+        self.status.scan_waiting();
+        self.present_scan_status(false)
+    }
+
+    pub fn scan_progress(&mut self, progress: ScanProgress) -> Result<()> {
+        self.status.scan_progress(progress);
+        self.present_scan_status(false)
+    }
+
+    pub fn scan_finished(
+        &mut self,
+        result: std::result::Result<ScanSummary, String>,
+        cancelled: bool,
+    ) -> Result<()> {
+        let failed = result.is_err() && !cancelled;
+        self.window.set_failure_scan(true);
+        self.window.set_failure_details(match &result {
+            Err(error) if failed => error.as_str().into(),
+            _ => "".into(),
+        });
+        self.status.scan_finished(&result, cancelled);
+        self.present_scan_status(failed)
+    }
+
+    fn present_scan_status(&mut self, failed: bool) -> Result<()> {
         if self.is_panel_open() {
             if failed {
                 self.set_status("");
@@ -485,7 +600,9 @@ impl AppUi {
                 .unwrap_or(false)
     }
     pub fn is_editing(&self) -> bool {
-        self.window.get_editing_name()
+        self.is_editing_items()
+            || self.is_scan_confirm_open()
+            || self.window.get_editing_name()
             || self.window.get_editing_search()
             || self.window.get_editing_folder_name()
             || self.window.get_reordering_entry()
@@ -494,12 +611,22 @@ impl AppUi {
     }
 
     pub fn shortcuts_blocked(&self) -> bool {
-        self.window.get_editing_name()
-            || self.window.get_editing_search()
-            || self.window.get_editing_folder_name()
-            || self.window.get_reordering_entry()
-            || self.window.get_recording_shortcut() >= 0
-            || (self.window.get_settings_open() && self.window.get_viewing_licenses())
+        self.is_editing_items()
+            || self.is_scan_confirm_open()
+            || self.window.get_delete_open()
+            || self.panel_shortcut_blocked()
+            || (self.is_panel_open()
+                && self.window.get_settings_open()
+                && self.window.get_viewing_licenses())
+    }
+
+    pub fn panel_shortcut_blocked(&self) -> bool {
+        self.is_panel_open()
+            && (self.window.get_editing_name()
+                || self.window.get_editing_search()
+                || self.window.get_editing_folder_name()
+                || self.window.get_reordering_entry()
+                || self.window.get_recording_shortcut() >= 0)
     }
 
     pub fn settings_saved(&mut self, config: &ShortcutBindings) {
@@ -738,6 +865,13 @@ impl AppUi {
             self.window.invoke_focus_list();
         }
         self.window.set_pending(pending);
+    }
+
+    pub fn cancel_pending_action(&self) {
+        self.window.set_pending(false);
+        if self.window.get_editor_open() {
+            self.window.set_editor_loading(false);
+        }
     }
 
     pub fn set_previews(&self, mut previews: BTreeMap<String, PresetPreview>) {

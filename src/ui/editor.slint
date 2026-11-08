@@ -1,0 +1,383 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { NameImage, PanelButton, IconButton } from "controls.slint";
+import { Icons } from "icons.slint";
+import { CandidateGroupRole, CandidateGroupRow, PreviewRow, PreviewState } from "models.slint";
+import { UiText } from "text.slint";
+
+component ItemChoice inherits Rectangle {
+    in property <string> label;
+    in property <image> picture;
+    in property <bool> selected;
+    in property <bool> missing;
+    in property <bool> icon-mode;
+    in property <bool> enabled: true;
+    callback clicked();
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: selected ? Theme.accent-soft : keys.has-focus ? Theme.text-secondary : transparent;
+    background: selected ? #e9d77812 : touch.has-hover && enabled ? Theme.hover : Theme.control;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    VerticalLayout {
+        padding: root.icon-mode && root.label == "" ? 6px : 8px;
+        spacing: 4px;
+        alignment: center;
+        if (root.label != "" && !root.icon-mode): Text {
+            text: root.label;
+            color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+            font-size: 11px;
+            height: 13px;
+            overflow: elide;
+        }
+        if (!root.missing && !root.icon-mode): NameImage {
+            height: 18px;
+            source: root.picture;
+            colorize: root.enabled ? Theme.text : Theme.text-disabled;
+        }
+        if (!root.missing && root.icon-mode): Image {
+            width: 44px;
+            height: 44px;
+            cross-axis-self-alignment: center;
+            source: root.picture;
+            image-fit: contain;
+            opacity: root.enabled ? 1 : 0.5;
+        }
+        if (root.missing): Text {
+            text: @tr("Not saved");
+            color: Theme.text-disabled;
+            font-size: 12px;
+            height: root.icon-mode ? 44px : 18px;
+            wrap: word-wrap;
+            horizontal-alignment: root.icon-mode ? center : left;
+            vertical-alignment: center;
+        }
+        if (root.label != "" && root.icon-mode): Text {
+            text: root.label;
+            color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
+            font-size: 11px;
+            height: 13px;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    if (root.label != ""): Tooltip { text: @markdown("\{root.label}"); }
+    keys := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == Key.Space) {
+                if (!event.repeat) { root.clicked(); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component EditorHeading inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> random-label;
+    in property <bool> enabled;
+    in property <bool> can-randomize;
+    callback randomize();
+    height: 28px;
+    spacing: 8px;
+    Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: 15px;
+        font-weight: 600;
+        min-width: 0px;
+        horizontal-stretch: 1;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+    IconButton {
+        icon: Icons.dice;
+        label: root.random-label;
+        enabled: root.enabled && root.can-randomize;
+        clicked => { root.randomize(); }
+    }
+}
+
+export component ItemEditor inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <[PreviewRow]> slots;
+    in property <[CandidateGroupRow]> groups;
+    in property <bool> loading;
+    in property <bool> busy;
+    in property <bool> dirty;
+    in property <bool> can-clear;
+    in property <bool> can-save;
+    in property <bool> can-randomize-stratagems;
+    in property <bool> can-randomize-equipment;
+    in property <string> error;
+    in-out property <int> current-slot: 0;
+    in property <int> chosen-category: -1;
+    in property <int> chosen-item: -1;
+    private property <bool> interactive: enabled && !loading && !busy;
+    private property <bool> choosing;
+    private property <bool> icon-mode: current-slot < 6;
+    private property <int> icon-columns: clamp(floor(candidates.visible-width / 64px), 1, 8);
+    callback choose(int, int);
+    callback clear();
+    callback randomize(bool);
+    callback save();
+    callback cancel();
+    forward-focus: keys;
+    public function focus-dialog() { keys.focus(); }
+    public function reset() { root.choosing = false; }
+    public function save-changes() {
+        if (root.interactive && root.dirty && root.can-save) { root.save(); }
+    }
+    public function back-or-cancel() {
+        if (!root.busy) {
+            if (root.choosing) { root.choosing = false; keys.focus(); }
+            else { root.cancel(); }
+        }
+    }
+    function choose-slot(slot: int) {
+        root.current-slot = slot;
+        root.choosing = true;
+        candidates.content-y = 0px;
+        keys.focus();
+    }
+    function finish-choice(category: int, item: int) {
+        root.choose(category, item);
+        root.choosing = false;
+        keys.focus();
+    }
+    changed current-slot => { candidates.content-y = 0px; }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.back-or-cancel();
+                return accept;
+            }
+            if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
+                && (event.text == "s" || event.text == "S")) {
+                if (!event.repeat) { root.save-changes(); }
+                return accept;
+            }
+            if (event.text == Key.Return || event.text == Key.Space) { return accept; }
+            return reject;
+        }
+        key-released(event) => {
+            if (event.text == Key.Escape || event.text == Key.Return || event.text == Key.Space
+                || (event.modifiers.control && (event.text == "s" || event.text == "S"))) { return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            spacing: 12px;
+            if (root.choosing): HorizontalLayout {
+                height: 28px;
+                spacing: 8px;
+                IconButton {
+                    icon: Icons.back;
+                    label: @tr("Back");
+                    enabled: root.enabled && !root.busy;
+                    clicked => { root.choosing = false; keys.focus(); }
+                }
+                Text {
+                    text: UiText.item-label(root.slots[root.current-slot]);
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 600;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                if (root.can-clear): PanelButton {
+                    text: @tr("Clear");
+                    enabled: root.interactive;
+                    clicked => { root.clear(); root.choosing = false; keys.focus(); }
+                }
+            }
+            Rectangle {
+                min-height: 0px;
+                vertical-stretch: 1;
+                overview := ScrollView {
+                    visible: !root.choosing;
+                    x: 0px; y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    content-width: max(0px, self.visible-width - 8px);
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 16px;
+                        alignment: start;
+                        VerticalLayout {
+                            spacing: 10px;
+                            EditorHeading {
+                                text: @tr("Stratagems & Booster");
+                                random-label: @tr("Randomize Stratagems & Booster");
+                                enabled: root.interactive;
+                                can-randomize: root.can-randomize-stratagems;
+                                randomize => { root.randomize(false); }
+                            }
+                            HorizontalLayout {
+                                height: 82px;
+                                spacing: 8px;
+                                for slot in 6: Rectangle {
+                                    min-width: 0px;
+                                    preferred-width: 0px;
+                                    horizontal-stretch: 1;
+                                    ItemChoice {
+                                        x: 0px; y: 0px;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        label: UiText.item-label(root.slots[slot]);
+                                        picture: root.slots[slot].picture;
+                                        missing: root.slots[slot].state != PreviewState.ready;
+                                        icon-mode: true;
+                                        selected: root.current-slot == slot;
+                                        enabled: root.interactive && !root.choosing;
+                                        clicked => { root.choose-slot(slot); }
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle { height: 1px; background: Theme.border; }
+                        VerticalLayout {
+                            spacing: 10px;
+                            EditorHeading {
+                                text: @tr("Equipment");
+                                random-label: @tr("Randomize equipment");
+                                enabled: root.interactive;
+                                can-randomize: root.can-randomize-equipment;
+                                randomize => { root.randomize(true); }
+                            }
+                            for row in 2: HorizontalLayout {
+                                height: 54px;
+                                spacing: 14px;
+                                for column in 3: Rectangle {
+                                    min-width: 0px;
+                                    preferred-width: 0px;
+                                    horizontal-stretch: 1;
+                                    ItemChoice {
+                                        x: 0px; y: 0px;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        label: UiText.item-label(root.slots[6 + row * 3 + column]);
+                                        picture: root.slots[6 + row * 3 + column].picture;
+                                        missing: root.slots[6 + row * 3 + column].state != PreviewState.ready;
+                                        selected: root.current-slot == 6 + row * 3 + column;
+                                        enabled: root.interactive && !root.choosing;
+                                        clicked => { root.choose-slot(6 + row * 3 + column); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                candidates := ScrollView {
+                    visible: root.choosing && !root.loading && root.groups.length > 0;
+                    x: 0px; y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    content-width: max(0px, self.visible-width - 8px);
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 14px;
+                        for group in root.groups: VerticalLayout {
+                            spacing: 6px;
+                            if (group.role == CandidateGroupRole.title): NameImage {
+                                height: 16px;
+                                source: group.title;
+                                colorize: Theme.text-secondary;
+                            }
+                            if (group.role != CandidateGroupRole.title && group.role != CandidateGroupRole.all): Text {
+                                text: UiText.candidate-group-label(group.role);
+                                color: Theme.text-secondary;
+                                font-size: 12px;
+                                height: 16px;
+                            }
+                            if (root.icon-mode): VerticalLayout {
+                                spacing: 8px;
+                                for row in ceil(group.items.length / root.icon-columns): HorizontalLayout {
+                                    height: 60px;
+                                    spacing: 8px;
+                                    for column in root.icon-columns: Rectangle {
+                                        min-width: 56px;
+                                        preferred-width: 0px;
+                                        horizontal-stretch: 1;
+                                        if (row * root.icon-columns + column < group.items.length): ItemChoice {
+                                            x: 0px; y: 0px;
+                                            width: parent.width;
+                                            height: parent.height;
+                                            icon-mode: true;
+                                            picture: group.items[row * root.icon-columns + column].picture;
+                                            selected: root.chosen-category == group.items[row * root.icon-columns + column].category
+                                                && root.chosen-item == group.items[row * root.icon-columns + column].item;
+                                            enabled: root.interactive && root.choosing;
+                                            clicked => {
+                                                root.finish-choice(group.items[row * root.icon-columns + column].category,
+                                                    group.items[row * root.icon-columns + column].item);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (!root.icon-mode): VerticalLayout {
+                                spacing: 6px;
+                                for row in ceil(group.items.length / 2): HorizontalLayout {
+                                    height: 38px;
+                                    spacing: 8px;
+                                    for column in 2: Rectangle {
+                                        min-width: 0px;
+                                        preferred-width: 0px;
+                                        horizontal-stretch: 1;
+                                        if (row * 2 + column < group.items.length): ItemChoice {
+                                            x: 0px; y: 0px;
+                                            width: parent.width;
+                                            height: parent.height;
+                                            picture: group.items[row * 2 + column].picture;
+                                            selected: root.chosen-category == group.items[row * 2 + column].category
+                                                && root.chosen-item == group.items[row * 2 + column].item;
+                                            enabled: root.interactive && root.choosing;
+                                            clicked => {
+                                                root.finish-choice(group.items[row * 2 + column].category,
+                                                    group.items[row * 2 + column].item);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (root.choosing && (root.loading || root.groups.length == 0)): Text {
+                    text: root.loading ? @tr("Loading…") : @tr("No items available.");
+                    color: Theme.text-secondary;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            if (root.error != ""): Text {
+                text: root.error;
+                color: Theme.error;
+                font-size: 12px;
+                wrap: word-wrap;
+                max-height: 48px;
+                overflow: elide;
+                Tooltip { text: @markdown("\{root.error}"); }
+            }
+        }
+    }
+}

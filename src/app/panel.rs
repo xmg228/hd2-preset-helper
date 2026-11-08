@@ -5,20 +5,28 @@ use tracing::{debug, error, warn};
 
 use super::failure::save_failure_report;
 use super::{
-    ACTION_COOLDOWN, ACTIVATION_CONFIRM_TIMEOUT, ActionState, AppController,
-    HOTKEY_RELEASE_TIMEOUT, Work, preset_hotkeys,
+    ACTION_COOLDOWN, ACTIVATION_CONFIRM_TIMEOUT, ActionState, AppController, GameAction,
+    HOTKEY_RELEASE_TIMEOUT, PendingAction, Work, preset_hotkeys,
 };
 use crate::{
     app_events::AppEvent,
     game_window, input,
     preset::{PresetScope, PresetSection},
     preset_action::PresetCommand,
+    scan::{ScanCancellation, ScanScope, ScanSummary},
     ui::UiRequest,
     window::WindowTarget,
 };
 
 impl AppController {
     pub(super) fn open_panel(&mut self) -> Result<()> {
+        if let ActionState::Running {
+            scan_cancel: Some(cancel),
+        } = &self.state
+        {
+            cancel.cancel();
+            return Ok(());
+        }
         if self.exiting || !matches!(self.state, ActionState::Idle) {
             return Ok(());
         }
@@ -29,14 +37,13 @@ impl AppController {
         let anchor = game.as_ref().map(|target| target.client_origin());
         self.ui.show_panel(anchor)?;
         if !self.updates.installing() {
-            self.worker.send(Work::LoadPreviews {
-                client_size: game.as_ref().map(WindowTarget::client_size),
-            })?;
+            self.worker.send(Work::LoadPreviews)?;
         }
         Ok(())
     }
 
     pub(super) fn close_panel(&mut self) -> Result<()> {
+        self.cancel_action_check()?;
         // Never reclaim focus after the user has switched to another application.
         if self.ui.is_panel_active()
             && let Some(target) = &self.panel_return_target
@@ -77,10 +84,47 @@ impl AppController {
             (true, false, true) => PresetCommand::SaveEquipment(scope.equipment_items),
             (false, _, _) => PresetCommand::ApplySaved(scope),
         };
+        self.begin_game_action(
+            GameAction::Preset {
+                preset,
+                command,
+                options: self.settings,
+            },
+            hotkey_id,
+        )
+    }
+
+    fn begin_scan(&mut self, scope: ScanScope) -> Result<()> {
+        self.begin_game_action(
+            GameAction::Scan {
+                scope,
+                cancel: ScanCancellation::default(),
+            },
+            None,
+        )
+    }
+
+    fn begin_game_action(&mut self, action: GameAction, hotkey_id: Option<i32>) -> Result<()> {
+        let editor_scan = matches!(
+            action,
+            GameAction::Scan {
+                scope: ScanScope::Missing,
+                ..
+            }
+        ) && self.ui.can_scan_missing_items();
+        if self.exiting
+            || self.updates.installing()
+            || (self.ui.is_editing_items() && !editor_scan)
+            || !matches!(self.state, ActionState::Idle)
+            || Instant::now() < self.ready_after
+        {
+            return Ok(());
+        }
         // Include window lookup and activation, not just action-worker execution.
         crate::logging::clear_recent();
-        debug!(%preset, ?command, "preset action requested");
-        let target = if hotkey_id.is_some() && !self.ui.is_panel_active() {
+        debug!(?action, "game action requested");
+        let from_panel = self.ui.is_panel_active();
+        let target = if hotkey_id.is_some() && !from_panel {
             game_window::foreground_game_window().map(|window| {
                 self.ui.set_anchor(Some(window.client_origin()));
                 window.identity()
@@ -91,30 +135,189 @@ impl AppController {
         let target = match target {
             Ok(target) => target,
             Err(error) => {
-                error!(%preset, ?command, error = %format!("{error:#}"), "could not locate game window for preset action");
-                save_failure_report(&self.paths.last_failure, &preset, command, &error, None);
-                self.ui.event(AppEvent::PresetCancelled {
-                    preset,
-                    reason: format!("{error:#}"),
-                })?;
+                error!(?action, error = %format!("{error:#}"), "could not locate game window");
+                save_failure_report(&self.paths.last_failure, &action, &error, None);
+                self.present_action_problem(&action, format!("{error:#}"), false)?;
                 return Ok(());
             }
         };
-        if hotkey_id.is_some() {
-            self.worker.send(Work::Prepare(target))?;
+        let request = PendingAction {
+            action,
+            target,
+            hotkey_id,
+            from_panel,
+        };
+        if let GameAction::Preset {
+            preset,
+            command: PresetCommand::ApplySaved(scope),
+            ..
+        } = &request.action
+        {
+            self.worker.send(Work::CheckPreset {
+                preset: preset.clone(),
+                scope: *scope,
+            })?;
+            self.ui.set_pending(true);
+            self.state = ActionState::Checking(Some(request));
+            Ok(())
+        } else {
+            self.wait_for_action(request)
+        }
+    }
+
+    fn wait_for_action(&mut self, request: PendingAction) -> Result<()> {
+        if request.hotkey_id.is_some() {
+            self.worker.send(Work::Prepare(request.target))?;
         }
         self.ui.set_pending(true);
-        self.ui.event(AppEvent::HotkeyReleaseRequested {
-            preset: preset.clone(),
-        })?;
+        match &request.action {
+            GameAction::Preset { preset, .. } => {
+                self.ui.event(AppEvent::HotkeyReleaseRequested {
+                    preset: preset.clone(),
+                })?
+            }
+            GameAction::Scan { .. } => self.ui.scan_waiting()?,
+        }
         self.state = ActionState::Waiting {
-            target,
-            preset,
-            command,
-            hotkey_id,
+            request,
             deadline: Instant::now() + HOTKEY_RELEASE_TIMEOUT,
         };
         Ok(())
+    }
+
+    pub(super) fn action_check_owns_focus(&self, request: &PendingAction) -> bool {
+        if request.from_panel {
+            self.ui.is_panel_active()
+        } else {
+            game_window::foreground_game_window()
+                .is_ok_and(|window| window.identity() == request.target)
+        }
+    }
+
+    pub(super) fn finish_action_check(
+        &mut self,
+        result: std::result::Result<usize, String>,
+    ) -> Result<()> {
+        let ActionState::Checking(request) = &mut self.state else {
+            return Ok(());
+        };
+        let request = request.take();
+        self.state = ActionState::Idle;
+        self.ui.set_pending(false);
+        let Some(request) =
+            request.filter(|request| !self.exiting && self.action_check_owns_focus(request))
+        else {
+            return Ok(());
+        };
+        let count = match result {
+            Ok(count) => count,
+            Err(error) => {
+                error!(action = ?request.action, %error, "could not prepare preset action");
+                save_failure_report(
+                    &self.paths.last_failure,
+                    &request.action,
+                    &anyhow::Error::msg(error.clone()),
+                    None,
+                );
+                return self.present_action_problem(&request.action, error, false);
+            }
+        };
+        if count == 0 {
+            return self.wait_for_action(request);
+        }
+        let target = match WindowTarget::from_identity(request.target) {
+            Ok(target) => target,
+            Err(error) => {
+                save_failure_report(&self.paths.last_failure, &request.action, &error, None);
+                return self.present_action_problem(&request.action, format!("{error:#}"), false);
+            }
+        };
+        let GameAction::Preset { preset, .. } = &request.action else {
+            unreachable!("only preset application requests a cache check");
+        };
+        if !request.from_panel {
+            self.panel_return_target = Some(request.target);
+        }
+        self.ui
+            .show_scan_confirmation(preset, count, Some(target.client_origin()))?;
+        self.state = ActionState::Confirming(request);
+        Ok(())
+    }
+
+    pub(super) fn cancel_action_check(&mut self) -> Result<bool> {
+        let hide_panel = match &mut self.state {
+            ActionState::Checking(request) => {
+                if request.take().is_none() {
+                    return Ok(false);
+                }
+                false
+            }
+            ActionState::Confirming(request) => !request.from_panel,
+            _ => return Ok(false),
+        };
+        if matches!(self.state, ActionState::Confirming(_)) {
+            self.state = ActionState::Idle;
+        }
+        self.ui.dismiss_scan_confirmation();
+        self.ui.set_pending(false);
+        self.hotkeys.discard_pending();
+        self.panel_hotkey.discard_pending();
+        self.ready_after = Instant::now() + ACTION_COOLDOWN;
+        self.worker.send(Work::Discard)?;
+        Ok(hide_panel)
+    }
+
+    fn confirm_scan(&mut self) -> Result<()> {
+        if !self.ui.is_panel_active() || !self.ui.is_scan_confirm_open() {
+            return Ok(());
+        }
+        if !matches!(self.state, ActionState::Confirming(_)) {
+            return Ok(());
+        }
+        let ActionState::Confirming(mut request) =
+            std::mem::replace(&mut self.state, ActionState::Idle)
+        else {
+            unreachable!();
+        };
+        self.ui.dismiss_scan_confirmation();
+        request.hotkey_id = None;
+        self.wait_for_action(request)
+    }
+
+    fn present_action_problem(
+        &mut self,
+        action: &GameAction,
+        reason: String,
+        cancelled: bool,
+    ) -> Result<()> {
+        match action {
+            GameAction::Preset { preset, .. } => self.ui.event(AppEvent::PresetCancelled {
+                preset: preset.clone(),
+                reason,
+            }),
+            GameAction::Scan { .. } => self.finish_scan(Err(reason), cancelled),
+        }
+    }
+
+    pub(super) fn finish_scan(
+        &mut self,
+        result: std::result::Result<ScanSummary, String>,
+        cancelled: bool,
+    ) -> Result<()> {
+        if self.exiting {
+            return Ok(());
+        }
+        if self.ui.is_editing_items() {
+            self.panel_return_target = game_window::foreground_game_window()
+                .ok()
+                .map(|target| target.identity());
+            self.ui
+                .resume_item_editor(result.as_ref().err().map(String::as_str))?;
+            self.worker.send(Work::LoadItemCandidates)?;
+        } else {
+            self.ui.scan_finished(result, cancelled)?;
+        }
+        self.worker.send(Work::LoadPreviews)
     }
 
     fn save_scope(&mut self, scope: PresetScope) {
@@ -142,19 +345,27 @@ impl AppController {
                         self.panel_return_target = None;
                     }
                     if let ActionState::Waiting {
-                        preset, command, ..
+                        request: PendingAction { action, .. },
+                        ..
                     }
                     | ActionState::Activating {
-                        preset, command, ..
+                        request: PendingAction { action, .. },
+                        ..
                     } = &self.state
                     {
-                        debug!(%preset, ?command, reason = "panel closed", "preset action cancelled");
+                        debug!(?action, reason = "panel closed", "game action cancelled");
                         self.state = ActionState::Idle;
                         self.worker.send(Work::Discard)?;
                         self.ready_after = Instant::now() + ACTION_COOLDOWN;
+                        self.ui.cancel_pending_action();
                     }
-                    self.ui.set_pending(false);
                     self.close_panel()?;
+                }
+                UiRequest::ConfirmScan => self.confirm_scan()?,
+                UiRequest::CancelScan => {
+                    if self.cancel_action_check()? {
+                        self.close_panel()?;
+                    }
                 }
                 UiRequest::Action {
                     preset,
@@ -171,6 +382,32 @@ impl AppController {
                     self.begin_action(preset, saving, scope, None)?;
                 }
                 UiRequest::Action { .. } => {}
+                UiRequest::Scan(scope) if self.ui.is_panel_active() => self.begin_scan(scope)?,
+                UiRequest::Scan(_) => {}
+                UiRequest::ScanMissingItems
+                    if self.ui.is_panel_active() && self.ui.can_scan_missing_items() =>
+                {
+                    self.begin_scan(ScanScope::Missing)?;
+                }
+                UiRequest::ScanMissingItems => {}
+                UiRequest::EditItems
+                    if !self.exiting
+                        && !self.updates.installing()
+                        && matches!(self.state, ActionState::Idle)
+                        && self.ui.is_panel_active()
+                        && !self.ui.is_editing() =>
+                {
+                    if self.ui.open_item_editor() {
+                        self.worker.send(Work::LoadItemCandidates)?;
+                    }
+                }
+                UiRequest::EditItems => {}
+                UiRequest::SaveItemChoices { preset, choices } => {
+                    self.worker.send(Work::SaveItemChoices {
+                        preset,
+                        choices: Box::new(choices),
+                    })?;
+                }
                 UiRequest::ToggleSection(section) => {
                     let mut scope = self.scope;
                     match section {
@@ -360,29 +597,30 @@ impl AppController {
     }
 
     pub(super) fn finish_pending_action(&mut self) -> Result<()> {
-        let (preset, command, target) = match &self.state {
-            ActionState::Waiting {
-                target,
-                preset,
-                command,
-                hotkey_id,
-                deadline,
-            } => {
+        let (action, target) = match &self.state {
+            ActionState::Waiting { request, deadline } => {
+                let PendingAction {
+                    action,
+                    target,
+                    hotkey_id,
+                    ..
+                } = request;
                 let owned_focus = self.ui.is_panel_active() || game_window::is_game_foreground();
                 if !owned_focus || Instant::now() >= *deadline {
-                    let preset = preset.clone();
+                    let action = action.clone();
                     let reason = if owned_focus {
                         "input was not released in time"
                     } else {
                         "focus changed"
                     };
-                    debug!(%preset, ?command, reason, "preset action cancelled");
-                    self.close_panel()?;
+                    debug!(?action, reason, "game action cancelled");
+                    if self.ui.is_editing_items() {
+                        self.ui.hide_panel()?;
+                    } else {
+                        self.close_panel()?;
+                    }
                     self.ui.set_pending(false);
-                    self.ui.event(AppEvent::PresetCancelled {
-                        preset,
-                        reason: reason.into(),
-                    })?;
+                    self.present_action_problem(&action, reason.into(), true)?;
                     self.worker.send(Work::Discard)?;
                     self.state = ActionState::Idle;
                     self.ready_after = Instant::now() + ACTION_COOLDOWN;
@@ -396,26 +634,19 @@ impl AppController {
                 let result = target.request_activation();
                 if matches!(result, Ok(false)) {
                     self.state = ActionState::Activating {
-                        target: *target,
-                        preset: preset.clone(),
-                        command: *command,
+                        request: request.clone(),
                         started: Instant::now(),
                     };
                     return Ok(());
                 }
                 // Restore first, then refresh placement; minimized geometry is not useful.
                 (
-                    preset.clone(),
-                    *command,
+                    action.clone(),
                     result.and_then(|_| WindowTarget::from_identity(*target)),
                 )
             }
-            ActionState::Activating {
-                target,
-                preset,
-                command,
-                started,
-            } => {
+            ActionState::Activating { request, started } => {
+                let PendingAction { action, target, .. } = request;
                 let result = if started.elapsed() < ACTIVATION_CONFIRM_TIMEOUT {
                     target.confirm_activation()
                 } else {
@@ -432,22 +663,24 @@ impl AppController {
                     );
                     WindowTarget::from_identity(*target)
                 });
-                debug!(%preset, ?command, confirmed = target.is_ok(), confirmation_wait_s = started.elapsed().as_secs_f64(), "game window activation confirmation finished");
-                (preset.clone(), *command, target)
+                debug!(
+                    ?action,
+                    confirmed = target.is_ok(),
+                    confirmation_wait_s = started.elapsed().as_secs_f64(),
+                    "game window activation confirmation finished"
+                );
+                (action.clone(), target)
             }
             _ => return Ok(()),
         };
         let target = match target {
             Ok(target) => target,
             Err(error) => {
-                error!(%preset, ?command, error = %format!("{error:#}"), "could not activate game window for preset action");
-                save_failure_report(&self.paths.last_failure, &preset, command, &error, None);
+                error!(?action, error = %format!("{error:#}"), "could not activate game window");
+                save_failure_report(&self.paths.last_failure, &action, &error, None);
                 self.ui.hide_panel()?;
                 self.panel_return_target = None;
-                self.ui.event(AppEvent::PresetCancelled {
-                    preset,
-                    reason: format!("{error:#}"),
-                })?;
+                self.present_action_problem(&action, format!("{error:#}"), false)?;
                 self.ui.set_pending(false);
                 self.worker.send(Work::Discard)?;
                 self.state = ActionState::Idle;
@@ -460,14 +693,16 @@ impl AppController {
         self.panel_return_target = None;
         // Unregister before the worker can inject its first key, not on the next tick.
         self.hotkeys.set_enabled(false)?;
-        self.panel_hotkey.set_enabled(false)?;
+        let scan_cancel = match &action {
+            GameAction::Scan { cancel, .. } => Some(cancel.clone()),
+            GameAction::Preset { .. } => None,
+        };
+        self.panel_hotkey.set_enabled(scan_cancel.is_some())?;
         self.worker.send(Work::Run {
-            preset,
-            command,
-            settings: self.settings,
+            action,
             target: target.identity(),
         })?;
-        self.state = ActionState::Running;
+        self.state = ActionState::Running { scan_cancel };
         Ok(())
     }
 }

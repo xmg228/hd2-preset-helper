@@ -1,21 +1,32 @@
 //! Equipment capture/application, independent of the UI and preset persistence.
 mod cache;
+#[cfg(feature = "diagnostics")]
+mod diagnostics;
 mod evidence;
 mod navigation;
+mod row;
+mod scan;
 mod search;
-mod survey;
 
-pub(crate) use crate::preset::equipment::{EquipmentItem, EquipmentSet};
-pub(crate) use cache::EquipmentCache;
+pub(crate) use crate::item_cache::{EquipmentItem, EquipmentSet};
+#[cfg(feature = "diagnostics")]
+pub(crate) use diagnostics::ScanDiagnostics;
 use evidence::EquipmentEvidence;
 
 use crate::{
     automation::AutomationSession,
+    capture::CaptureSource,
+    game_settings::GameColorSettings,
     game_window,
     input::Key,
     item::{EquipmentKind, EquipmentSelection},
-    vision::equipment::{EquipmentObservation, EquipmentObserver},
+    item_cache::ItemCache,
+    scan::ScanCancellation,
+    vision::equipment::{
+        CapturedEquipmentItem, CapturedEquipmentSet, EquipmentObservation, EquipmentObserver,
+    },
     vision::text::TextSample,
+    window::WindowTarget,
 };
 use anyhow::{Context, Result, bail, ensure};
 use search::{Next, Search};
@@ -41,6 +52,11 @@ pub(crate) struct Navigation {
     wrapped: bool,
 }
 
+pub(super) enum NavigationWait {
+    Responsive,
+    Settled,
+}
+
 impl InputAction {
     pub fn name(self) -> &'static str {
         match self {
@@ -64,6 +80,29 @@ const INPUT_HOLD_MS: u64 = 45;
 const INPUT_RELEASE_INTERVAL: Duration = Duration::from_millis(20);
 const PAGE_STABLE_INTERVAL: Duration = Duration::from_millis(40);
 
+pub(crate) fn with_session<T>(
+    capture: &mut CaptureSource,
+    target: WindowTarget,
+    colors: GameColorSettings,
+    evidence: &crate::evidence::OperationEvidence,
+    cancellation: Option<ScanCancellation>,
+    operation: impl FnOnce(&mut Session<'_>) -> Result<T>,
+) -> Result<T> {
+    let (width, height) = capture.output_size();
+    let (observer, resolved) = EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
+    let region = capture.region(resolved.rect, colors)?;
+    let mut automation = AutomationSession::new(region, target, evidence)?;
+    if let Some(cancellation) = cancellation {
+        automation.set_cancellation(cancellation);
+    }
+    let mut session = Session::new(automation, observer, (width, height))?;
+    ensure!(
+        session.at_entry(),
+        "open the six-card equipment page before using equipment actions"
+    );
+    operation(&mut session)
+}
+
 pub(crate) struct Session<'a> {
     automation: AutomationSession<'a>,
     observer: EquipmentObserver,
@@ -77,8 +116,9 @@ pub(crate) struct Session<'a> {
 pub(crate) enum ApplyProgress<'a> {
     Selecting(EquipmentKind),
     Caching {
+        kind: EquipmentKind,
         category: &'a TextSample,
-        repairing: bool,
+        items: usize,
     },
     Selected {
         kind: EquipmentKind,
@@ -108,6 +148,7 @@ impl<'a> Session<'a> {
     }
 
     fn check_active(&self) -> Result<()> {
+        self.automation.check_cancelled()?;
         ensure!(
             game_window::is_game_foreground(),
             "game lost foreground; equipment operation stopped"
@@ -132,7 +173,7 @@ impl<'a> Session<'a> {
         self.observer.entry(&self.frame).confirmed()
     }
 
-    fn sample_current(&mut self) -> Result<EquipmentItem> {
+    fn sample_current(&mut self) -> Result<CapturedEquipmentItem> {
         if !self.page.ready() {
             self.evidence
                 .checkpoint(&self.frame, &self.page, "not-ready");
@@ -141,7 +182,7 @@ impl<'a> Session<'a> {
         self.sync_category()?;
         self.evidence
             .checkpoint(&self.frame, &self.page, "remembered");
-        Ok(EquipmentItem {
+        Ok(CapturedEquipmentItem {
             name: self.page.name.clone(),
             category: Some(self.page.category.clone()),
             client_size: self.client_size,
@@ -149,13 +190,13 @@ impl<'a> Session<'a> {
     }
 
     /// Publish only after every requested sample and return succeeds.
-    pub fn sample(&mut self, selection: EquipmentSelection) -> Result<EquipmentSet> {
+    pub fn sample(&mut self, selection: EquipmentSelection) -> Result<CapturedEquipmentSet> {
         let mut items = std::array::from_fn(|_| None);
 
         for (index, kind) in selection.iter().enumerate() {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
-            let item = (|| -> Result<EquipmentItem> {
+            let item = (|| -> Result<CapturedEquipmentItem> {
                 self.check_active()?;
 
                 self.open(kind)?;
@@ -180,7 +221,7 @@ impl<'a> Session<'a> {
     pub fn apply(
         &mut self,
         items: &EquipmentSet,
-        cache: &mut EquipmentCache,
+        cache: &mut ItemCache,
         mut progress: impl FnMut(ApplyProgress<'_>),
     ) -> Result<()> {
         ensure!(
@@ -198,7 +239,7 @@ impl<'a> Session<'a> {
             self.open(kind)
                 .with_context(|| format!("failed to open {kind:?} for application"))?;
             let corrected_category = self
-                .apply_item(item, cache.search(kind, self.page.scale), &mut progress)
+                .apply_item(kind, item, cache, &mut progress)
                 .with_context(|| format!("failed to apply {kind:?}"))?;
             progress(ApplyProgress::Selected {
                 kind,
@@ -214,12 +255,13 @@ impl<'a> Session<'a> {
 
     fn apply_item(
         &mut self,
+        kind: EquipmentKind,
         item: &EquipmentItem,
-        cache: cache::SearchCache<'_>,
+        cache: &mut ItemCache,
         progress: &mut impl FnMut(ApplyProgress<'_>),
     ) -> Result<Option<TextSample>> {
         ensure!(
-            self.find_item(item, cache, progress)?,
+            self.find_item(kind, item, cache, progress)?,
             "saved equipment was not found in the list"
         );
         self.equip_and_return(item)
@@ -227,57 +269,80 @@ impl<'a> Session<'a> {
 
     fn find_item(
         &mut self,
+        kind: EquipmentKind,
         target: &EquipmentItem,
-        cache: cache::SearchCache<'_>,
+        cache: &mut ItemCache,
         progress: &mut impl FnMut(ApplyProgress<'_>),
     ) -> Result<bool> {
-        let kind = cache.kind;
-        let mut search = Search::new(target, cache);
         self.evidence.start_search(target);
         let started = Instant::now();
-        let mut navigation = None;
-        let mut caching = None;
-        let result = (|| loop {
-            self.sync_category()?;
-            let evaluate_started = Instant::now();
-            let (visit, next) = match search.advance(&self.page, navigation.take()) {
-                Ok(step) => step,
-                Err(error) => {
-                    self.evidence
-                        .checkpoint(&self.frame, &self.page, "search-error");
-                    return Err(error);
-                }
-            };
-            self.evidence.search_visit(
-                &self.frame,
-                &visit,
-                &self.page,
-                evaluate_started.elapsed().as_secs_f64() * 1000.0,
-            );
-            // The survey may briefly cross into another category to find its boundary.
-            // Keep its original title until cache work actually switches categories.
-            let active = search.caching();
-            if active != caching {
-                progress(match active {
-                    Some((_, repairing)) => ApplyProgress::Caching {
-                        category: &self.page.category,
-                        repairing,
-                    },
-                    None => ApplyProgress::Selecting(kind),
-                });
-                caching = active;
+        let result = (|| {
+            if cache.equipment[kind.index()].is_some()
+                && self.page.name.cosine(&target.name) >= NAME_IDENTITY_THRESHOLD
+            {
+                return Ok(true);
             }
-            match next {
-                Next::Input(action) => navigation = Some(self.navigate(action)?),
-                Next::Found | Next::NotFound => {
-                    let found = matches!(next, Next::Found);
-                    self.evidence.checkpoint(
-                        &self.frame,
-                        &self.page,
-                        if found { "found" } else { "not-found" },
-                    );
-                    return Ok(found);
+            let mut rebuilt = false;
+            let mut position = None;
+            loop {
+                if let Some(catalog) = &cache.equipment[kind.index()] {
+                    let mut search = Search::new(kind, target, catalog, position);
+                    let mut navigation = None;
+                    loop {
+                        self.sync_category()?;
+                        let evaluate_started = Instant::now();
+                        let (visit, next) = search
+                            .advance(&self.page, navigation.take())
+                            .inspect_err(|_| {
+                                self.evidence
+                                    .checkpoint(&self.frame, &self.page, "search-error")
+                            })?;
+                        self.evidence.search_visit(
+                            &self.frame,
+                            &visit,
+                            &self.page,
+                            evaluate_started.elapsed().as_secs_f64() * 1000.0,
+                        );
+                        match next {
+                            Next::Observe => self.refresh()?,
+                            Next::Input(action) => {
+                                navigation =
+                                    Some(self.navigate(action, NavigationWait::Responsive)?);
+                            }
+                            Next::Found => {
+                                self.evidence.checkpoint(&self.frame, &self.page, "found");
+                                return Ok(true);
+                            }
+                            Next::Rebuild => break,
+                        }
+                    }
                 }
+                if rebuilt {
+                    self.evidence
+                        .checkpoint(&self.frame, &self.page, "not-found-after-scan");
+                    return Ok(false);
+                }
+                tracing::info!(?kind, "building complete equipment catalog");
+                progress(ApplyProgress::Caching {
+                    kind,
+                    category: &self.page.category,
+                    items: 0,
+                });
+                let collection = self.collect(
+                    &mut |category, items| {
+                        progress(ApplyProgress::Caching {
+                            kind,
+                            category,
+                            items,
+                        })
+                    },
+                    #[cfg(feature = "diagnostics")]
+                    None,
+                )?;
+                position = Some(collection.position);
+                cache.set_equipment(kind, collection.catalog);
+                rebuilt = true;
+                progress(ApplyProgress::Selecting(kind));
             }
         })();
         self.evidence

@@ -6,8 +6,8 @@ use crate::item::StratagemCategory;
 use super::matcher::SemanticImage;
 use super::{ImageSample, SampleGeometry, Slot};
 
-const FIXED_BACKGROUND: [f32; 3] = [44.0 / 255.0; 3];
-const FIXED_WHITE: [f32; 3] = [1.0, 1.0, 238.0 / 255.0];
+pub(super) const FIXED_BACKGROUND: [f32; 3] = [44.0 / 255.0; 3];
+pub(super) const FIXED_WHITE: [f32; 3] = [1.0, 1.0, 238.0 / 255.0];
 const CATEGORIES: [StratagemCategory; 3] = [
     StratagemCategory::Offensive,
     StratagemCategory::Defensive,
@@ -136,7 +136,7 @@ impl SemanticSource {
     }
 }
 
-fn fixed_class_endpoint(category: StratagemCategory) -> [f32; 3] {
+pub(super) fn fixed_class_endpoint(category: StratagemCategory) -> [f32; 3] {
     let rgb = match category {
         StratagemCategory::Offensive => [213.0, 97.0, 82.0],
         StratagemCategory::Defensive => [103.0, 149.0, 82.0],

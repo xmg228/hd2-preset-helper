@@ -3,6 +3,7 @@ mod borders;
 mod color;
 pub(crate) mod equipment;
 mod geometry;
+mod icon;
 mod matcher;
 mod recognizer;
 mod roi;
@@ -20,6 +21,10 @@ use crate::item::ItemKind;
 
 pub(crate) use booster::crop_sample as crop_booster_sample;
 pub use color::luma601_u8;
+pub(crate) use icon::{
+    IconSample, IconTemplate, crop_icon_sample, icon_alignment_response, icon_cosine_errors,
+    render_icon,
+};
 pub use recognizer::{RecognizerRuntime, RecognizerSession};
 pub use roi::{
     Calibration, ReferenceSize, ResolvedRoi, RoiAnchor, RoiGeometry, ScaleAxis,
@@ -34,7 +39,7 @@ pub use template_classifier::{TemplateClassifier, TemplateMatchCandidate};
 const SLOT_SIDE_LOGICAL: f64 = 78.0;
 const CORE_INSET_LOGICAL: f64 = 4.0;
 pub(crate) const HOME_ICON_SIZE_LOGICAL: f32 = 70.0;
-const LIST_ICON_SIZE_LOGICAL: f32 = 51.0;
+pub(crate) const LIST_ICON_SIZE_LOGICAL: f32 = 51.0;
 
 const LIST_COLS: [i32; 4] = [58, 143, 228, 313];
 const HOME_COLS: [i32; 4] = [8, 93, 178, 263];
@@ -143,6 +148,7 @@ pub struct SampleGeometry {
     pub physical_size: f32,
 }
 
+#[derive(Clone)]
 pub struct ImageSample {
     pub image: RgbaImage,
     pub geometry: SampleGeometry,
@@ -162,7 +168,7 @@ pub struct Classification {
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum ItemAvailability {
     Available,
-    Unavailable { brightness_ratio: f32 },
+    Unavailable { yellow_luma: f32 },
 }
 
 pub fn detect_slot_layout(
@@ -176,7 +182,7 @@ pub fn detect_slot_layout(
     let slots = geometry::detect(&image, geometry, expected_layout)?;
     let scrollbar = match expected_layout {
         SlotLayout::Home => None,
-        SlotLayout::List(_) => scrollbar::detect(&image, geometry),
+        SlotLayout::List(_) => scrollbar::detect(&image, geometry, scrollbar::Track::STRATAGEMS),
     };
     Ok(RoiObservation {
         image,

@@ -1,7 +1,7 @@
 //! Closed-loop equipment actions on the session's latest observation.
 use super::{
     EQUIP_TIMEOUT, EquipmentItem, INPUT_HOLD_MS, INPUT_RELEASE_INTERVAL, InputAction,
-    NAME_MATCH_THRESHOLD, NAVIGATION_RETRY_AFTER, NAVIGATION_TIMEOUT, Navigation,
+    NAME_MATCH_THRESHOLD, NAVIGATION_RETRY_AFTER, NAVIGATION_TIMEOUT, Navigation, NavigationWait,
     PAGE_STABLE_INTERVAL, Session, evidence,
 };
 use crate::{
@@ -168,7 +168,11 @@ impl Session<'_> {
         }
     }
 
-    pub fn navigate(&mut self, action: InputAction) -> Result<Navigation> {
+    pub(super) fn navigate(
+        &mut self,
+        action: InputAction,
+        wait: NavigationWait,
+    ) -> Result<Navigation> {
         self.wait_for_release()?;
         ensure!(
             self.page.ready(),
@@ -184,7 +188,7 @@ impl Session<'_> {
         };
         let before = self.page.clone();
         let (started, input_ms) = self.press(action, point)?;
-        self.wait_for_input(action, &before, started, input_ms)
+        self.wait_for_input(action, &before, started, input_ms, wait)
     }
 
     fn hover_column(&mut self, col: usize) -> Result<(u32, u32)> {
@@ -235,6 +239,7 @@ impl Session<'_> {
         before: &EquipmentObservation,
         started: Instant,
         input_ms: f64,
+        wait: NavigationWait,
     ) -> Result<Navigation> {
         let (mut list_moved, mut responded, mut retried) = (false, false, false);
         let mut settling: Option<(EquipmentObservation, Instant)> = None;
@@ -262,7 +267,8 @@ impl Session<'_> {
             {
                 settling = None;
                 false
-            } else if list_moved
+            } else if matches!(wait, NavigationWait::Settled)
+                || list_moved
                 || !change.name_changed
                 || settling.is_some()
                 || matches!(action, InputAction::Key(Key::Z | Key::C))
@@ -411,7 +417,13 @@ impl Session<'_> {
             let before = self.page.clone();
             let action = InputAction::Key(Key::Space);
             let (started, input_ms) = self.press(action, None)?;
-            self.wait_for_input(action, &before, started, input_ms)?;
+            self.wait_for_input(
+                action,
+                &before,
+                started,
+                input_ms,
+                NavigationWait::Responsive,
+            )?;
             self.wait_for_release()?;
         }
         self.sync_category()?;

@@ -1,14 +1,13 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
-use std::cmp::Reverse;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 
-use super::{load_template_image, storage, stratagems};
+use super::{LocalTemplate, storage, stratagems};
 use crate::{
-    item::EquipmentKind,
-    vision::{equipment::EquipmentText, text::TextSample},
+    item::{EquipmentKind, ItemKind},
+    vision::{IconSample, equipment::EquipmentText, render_icon, text::TextTemplate},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -42,7 +41,7 @@ pub struct PresetPreview {
 pub(crate) struct LoadedPreview {
     pub preview: PresetPreview,
     /// Saved names retain their kinds even when the preset contains only some items.
-    pub equipment_names: Vec<(EquipmentKind, TextSample)>,
+    pub equipment_names: Vec<(EquipmentKind, TextTemplate)>,
 }
 
 pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPreview)> + '_> {
@@ -69,9 +68,13 @@ pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPr
                         .map(|item| (PreviewRole::FallbackBooster, item)),
                 )
                 .map(|(role, item)| {
+                    let kind = match role {
+                        PreviewRole::Stratagem(_) => ItemKind::Stratagem,
+                        PreviewRole::Booster | PreviewRole::FallbackBooster => ItemKind::Booster,
+                    };
                     Ok(PreviewImage {
                         role,
-                        image: load_template_image(path, &item.path)?,
+                        image: icon_preview(path, item, kind)?,
                     })
                 })
                 .collect()
@@ -129,6 +132,29 @@ pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<
     )
 }
 
+pub fn stratagem_icon(path: &Path, preset: &str, item: &str) -> Result<RgbaImage> {
+    let preset = stratagems::load(path, preset)?;
+    let (kind, template) = preset
+        .stratagems
+        .iter()
+        .map(|template| (ItemKind::Stratagem, template))
+        .chain(
+            preset
+                .booster
+                .iter()
+                .chain(preset.fallback_booster.iter())
+                .map(|template| (ItemKind::Booster, template)),
+        )
+        .find(|(_, template)| template.path == item)
+        .context("icon template was not found in this preset")?;
+    icon_preview(path, template, kind)
+}
+
+fn icon_preview(path: &Path, template: &LocalTemplate, kind: ItemKind) -> Result<RgbaImage> {
+    let sample = IconSample::extract(kind, stratagems::load_template_sample(path, template)?)?;
+    render_icon(&sample)
+}
+
 fn load_name(path: &Path, name: &str, client_size: (u32, u32)) -> Result<RgbaImage> {
     Ok(name_preview(&super::equipment::load_text(
         path,
@@ -146,48 +172,6 @@ fn content(result: Option<Result<Vec<PreviewImage>>>) -> PreviewContent<Vec<Prev
     }
 }
 
-fn name_preview(sample: &TextSample) -> RgbaImage {
-    let foreground = sample.foreground();
-    let (width, height) = foreground.dimensions();
-    // Keep the captured extent; presentation scales by height and clips overflow.
-    // Use response as alpha only, so strokes are not dimmed twice.
-    RgbaImage::from_fn(width, height, |x, y| {
-        Rgba([255, 255, 255, foreground.get_pixel(x, y)[0]])
-    })
-}
-
-/// Display-only crop of a centered heading. Identity keeps the complete text region.
-pub(crate) fn equipment_category(sample: &TextSample) -> RgbaImage {
-    let image = name_preview(sample);
-    let (width, height) = image.dimensions();
-    let mut projection = vec![0u32; width as usize];
-    for (x, _, pixel) in image.enumerate_pixels() {
-        projection[x as usize] += pixel[3] as u32;
-    }
-    let threshold = projection.iter().copied().max().unwrap_or(0) as f32 * 0.03;
-    let columns = projection
-        .iter()
-        .enumerate()
-        .filter_map(|(x, &value)| (value as f32 > threshold).then_some(x))
-        .collect::<Vec<_>>();
-    let gap = (height as f32 * 0.5).round_ties_even() as usize;
-    let center = (width / 2) as usize;
-    let group = columns
-        .chunk_by(|a, b| b - a - 1 <= gap)
-        .min_by_key(|group| {
-            let distance = group[0]
-                .saturating_sub(center)
-                .max(center.saturating_sub(group[group.len() - 1]));
-            (
-                distance,
-                Reverse(group.iter().map(|&x| projection[x]).sum::<u32>()),
-            )
-        });
-    let Some(group) = group else {
-        return RgbaImage::new(0, 0);
-    };
-    let padding = (height as f32 * 0.1).round_ties_even().max(2.0) as u32;
-    let left = (group[0] as u32).saturating_sub(padding);
-    let right = (group[group.len() - 1] as u32 + 1 + padding).min(width);
-    image::imageops::crop_imm(&image, left, 0, right - left, height).to_image()
-}
+pub(crate) use crate::vision::text::{
+    render_category as equipment_category, render_text as name_preview,
+};

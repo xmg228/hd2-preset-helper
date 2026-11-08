@@ -10,6 +10,18 @@ use slint::{ComponentHandle, Model, VecModel};
 use super::{ActionStatus, StatusItem, StatusTone, place_top_right};
 use crate::app_events::{AppEvent, PresetCompletion};
 use crate::preset::PresetMetadata;
+use crate::scan::{ScanKind, ScanProgress, ScanSummary};
+
+fn scan_progress_content(
+    kind: ScanKind,
+    category: Option<&image::RgbaImage>,
+    items: usize,
+) -> (String, slint::Image) {
+    (
+        format!("Scanning {} · {items} items", kind.label()),
+        category.map(super::image).unwrap_or_default(),
+    )
+}
 
 pub(super) struct Status {
     window: ActionStatus,
@@ -37,6 +49,7 @@ impl Status {
     }
 
     pub fn update(&mut self, event: AppEvent, preset_info: &[PresetMetadata]) {
+        self.window.set_item_scan(false);
         use StatusTone::{Error, Success, Warning, Working};
         if let AppEvent::PresetStarted { preset }
         | AppEvent::HotkeyReleaseRequested { preset }
@@ -58,9 +71,9 @@ impl Status {
         if !matches!(
             &event,
             AppEvent::StratagemsProgress { .. }
+                | AppEvent::ItemCaching { .. }
                 | AppEvent::BoosterProgress { .. }
                 | AppEvent::EquipmentProgress { .. }
-                | AppEvent::EquipmentCaching { .. }
                 | AppEvent::PresetDone { .. }
         ) {
             self.window.set_stratagems(Default::default());
@@ -75,10 +88,10 @@ impl Status {
             AppEvent::EquipmentActionStarted { saving } => {
                 (if saving { "Saving equipment" } else { "Applying equipment" }.into(), Working, None)
             }
-            AppEvent::EquipmentCaching { category, repairing } => {
-                self.window.set_picture(super::image(&category));
-                (if repairing { "Updating equipment cache" } else { "Building equipment cache" }.into(),
-                    Working, None)
+            AppEvent::ItemCaching { kind, category, items } => {
+                let (message, picture) = scan_progress_content(kind, category.as_ref(), items);
+                self.window.set_picture(picture);
+                (message, Working, None)
             }
             AppEvent::StratagemsApplyStarted { stratagems, booster, booster_confirmed } => {
                 let icons = stratagems.iter().map(|id| self.icon(id)).collect::<Vec<_>>();
@@ -122,13 +135,13 @@ impl Status {
                 (format!("Applying equipment · {completed}/{total}"), Working, None)
             }
             AppEvent::FallbackBoosterRequested { .. } => (
-                "Saved Booster is already in use. Select another to save as your fallback, or return to cancel.".into(),
+                "Saved Booster is unavailable. Select another to save as your fallback, or return to cancel.".into(),
                 Warning, None),
             AppEvent::PresetDone { completion, .. } => match completion {
                 PresetCompletion::Complete => ("Done".into(), Success, Some(2)),
                 PresetCompletion::Saved => ("Saved".into(), Success, Some(2)),
                 PresetCompletion::EquipmentApplied => ("Equipment applied".into(), Success, Some(2)),
-                PresetCompletion::BoosterUnavailable => ("Booster already in use".into(), Warning, Some(5)),
+                PresetCompletion::BoosterUnavailable => ("Booster unavailable".into(), Warning, Some(5)),
                 PresetCompletion::FallbackBoosterSaved => ("Fallback Booster saved".into(), Success, Some(2)),
                 PresetCompletion::FallbackBoosterNotSaved => ("Fallback Booster not saved".into(), Warning, Some(5)),
             },
@@ -140,16 +153,68 @@ impl Status {
         self.hide_at = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     }
 
+    fn scan_feedback(&mut self, message: String, tone: StatusTone, seconds: Option<u64>) {
+        self.preset.clear();
+        self.window.set_item_scan(true);
+        self.window.set_stratagems(Default::default());
+        self.window.set_booster(StatusItem::default());
+        self.window.set_picture(slint::Image::default());
+        self.window.set_message(message.into());
+        self.window.set_tone(tone);
+        self.hide_at = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
+    }
+
+    pub fn scan_waiting(&mut self) {
+        self.scan_feedback(
+            "Release the keys and mouse button to continue".into(),
+            StatusTone::Working,
+            None,
+        );
+    }
+
+    pub fn scan_progress(&mut self, progress: ScanProgress) {
+        let (message, picture) =
+            scan_progress_content(progress.kind, progress.category.as_ref(), progress.items);
+        self.scan_feedback(message, StatusTone::Working, None);
+        self.window.set_picture(picture);
+    }
+
+    pub fn scan_finished(
+        &mut self,
+        result: &std::result::Result<ScanSummary, String>,
+        cancelled: bool,
+    ) {
+        let (message, tone, seconds) = match result {
+            Ok(summary) => (
+                format!(
+                    "Collected {} items · {} types",
+                    summary.items,
+                    summary.completed.len()
+                ),
+                StatusTone::Success,
+                3,
+            ),
+            Err(_) if cancelled => ("Scan stopped".into(), StatusTone::Warning, 3),
+            Err(error) => (
+                format!("Failed: {}", error.lines().next().unwrap_or(error).trim()),
+                StatusTone::Error,
+                5,
+            ),
+        };
+        self.scan_feedback(message, tone, Some(seconds));
+    }
+
     /// Load only at the start or when switching to the fallback Booster.
     fn icon(&self, item_id: &str) -> StatusItem {
-        let picture = match crate::preset::load_template_image(&self.presets, item_id) {
-            Ok(image) => super::image(&image),
-            Err(error) => {
-                tracing::warn!(preset = %self.preset, item_id,
+        let picture =
+            match crate::preset::preview::stratagem_icon(&self.presets, &self.preset, item_id) {
+                Ok(image) => super::image(&image),
+                Err(error) => {
+                    tracing::warn!(preset = %self.preset, item_id,
                     error = %format!("{error:#}"), "could not load status preview");
-                slint::Image::default()
-            }
-        };
+                    slint::Image::default()
+                }
+            };
         StatusItem {
             item_id: item_id.into(),
             picture,

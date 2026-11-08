@@ -7,7 +7,8 @@ use super::{ImageSample, Slot, crop_slot_sample};
 
 pub(super) const INTERIOR_HALF_WIDTH: f32 = 0.425;
 pub(super) const MATCH_THRESHOLD: f64 = 0.35;
-pub(super) const AVAILABLE_BRIGHTNESS_RATIO: f32 = 0.80;
+// Normalized yellow luma is about 0.51 when dimmed and 0.82 when available.
+pub(super) const MIN_AVAILABLE_YELLOW_LUMA: f32 = 0.66;
 const REGULAR_HEX_HALF_HEIGHT_RATIO: f32 = 0.866_025_4;
 const PALETTE_SEED_FRACTION: usize = 10;
 const PALETTE_ITERATIONS: usize = 4;

@@ -1,9 +1,14 @@
+mod cache_check;
 mod click_plan;
 mod home_activation;
 mod hover;
 mod list_map;
 mod page_navigation;
+mod scan;
 
+pub(crate) use scan::scan_icon_list;
+
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -13,14 +18,20 @@ use tracing::{debug, debug_span, info, info_span, trace, warn};
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
-use crate::preset::{LocalTemplate, StratagemPreset, stratagems::load_template_sample};
+use crate::item_cache::ItemCache;
+use crate::preset::{
+    LocalTemplate, StratagemPreset,
+    stratagems::{load_icon_template, load_template_sample},
+};
+use crate::scan::ScanCancellation;
 use crate::vision::{
-    ImageSample, ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind,
+    IconTemplate, ImageSample, ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind,
     TemplateClassifier,
 };
 
 use super::home::{find_home_row, home_booster_slot, wait_for_filled_home};
 
+use self::cache_check::CacheCheck;
 use self::click_plan::{DirectClickTarget, find_visible_target, next_visible_target};
 use self::home_activation::{HomeOpenTarget, home_booster_target, open_slot_list};
 use self::hover::{HoverSample, HoverVerifier};
@@ -40,6 +51,96 @@ const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(600);
 pub enum BoosterApplyOutcome {
     Applied,
     Unavailable,
+}
+
+pub(crate) struct IconApplyContext<'a> {
+    events: &'a AppEventSink,
+    cache: &'a mut ItemCache,
+    refresh_attempted: HashSet<ItemKind>,
+}
+
+impl<'a> IconApplyContext<'a> {
+    pub(crate) fn new(events: &'a AppEventSink, cache: &'a mut ItemCache) -> Self {
+        Self {
+            events,
+            cache,
+            refresh_attempted: HashSet::new(),
+        }
+    }
+
+    fn refresh_open_list(
+        &mut self,
+        navigator: &PageNavigator,
+        automation: &mut AutomationSession<'_>,
+        map: &mut ListMap,
+        page: &mut PageSnapshot,
+        selected: &[ImageSample],
+        check: &mut CacheCheck,
+    ) -> Result<bool> {
+        let kind = navigator.item_kind();
+        if self.refresh_attempted.contains(&kind) {
+            return Ok(false);
+        }
+        let catalog = match kind {
+            ItemKind::Stratagem => &self.cache.stratagems,
+            ItemKind::Booster => &self.cache.boosters,
+        };
+        let Some(catalog) = catalog else {
+            return Ok(false);
+        };
+        let assessment = match check.inspect(kind, catalog, map, page) {
+            Ok(assessment) => assessment,
+            Err(error) => {
+                debug!(item_kind = kind.label(), error = %format!("{error:#}"), "could not assess icon cache layout");
+                return Ok(false);
+            }
+        };
+        debug!(
+            item_kind = kind.label(),
+            changed = assessment.changed,
+            reason = assessment.reason,
+            "icon cache layout checked"
+        );
+        if !assessment.changed {
+            return Ok(false);
+        }
+        info!(
+            item_kind = kind.label(),
+            "refreshing icon cache from the open list"
+        );
+        automation.evidence().record(
+            "icon-cache-refresh",
+            Some(&page.roi.image),
+            serde_json::json!({"kind":kind,"mapped_items":map.scan_count(),"assessment":assessment}),
+        );
+        scan::complete_open_list(
+            navigator,
+            automation,
+            map,
+            page,
+            &mut |progress| {
+                self.events.emit(AppEvent::ItemCaching {
+                    kind: progress.kind,
+                    category: progress.category,
+                    items: progress.items,
+                })
+            },
+            &ScanCancellation::default(),
+        )
+        .with_context(|| {
+            format!(
+                "failed to refresh {} cache from the open list",
+                kind.label()
+            )
+        })?;
+        self.refresh_attempted.insert(kind);
+        match scan::materialize_icons(kind, map, selected) {
+            Ok(icons) => self.cache.set_icons(kind, icons),
+            Err(error) => warn!(item_kind = kind.label(), error = %format!("{error:#}"),
+                "could not materialize refreshed icons; keeping the previous cache"),
+        }
+        Ok(true)
+    }
 }
 
 enum ListSelectionOutcome {
@@ -75,10 +176,10 @@ impl ScrollDirection {
     }
 }
 
-pub fn apply_stratagem_preset_from_home(
+pub(crate) fn apply_stratagem_preset_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
-    events: &AppEventSink,
+    context: &mut IconApplyContext<'_>,
     mut home: RoiObservation,
     presets_path: &Path,
     preset: &StratagemPreset,
@@ -89,7 +190,7 @@ pub fn apply_stratagem_preset_from_home(
         for template in std::iter::once(preferred).chain(preset.fallback_booster.as_ref()) {
             booster_sources.push((
                 template.path.clone(),
-                load_template_sample(presets_path, template)
+                load_icon_template(presets_path, template, ItemKind::Booster)
                     .context("failed to load booster template")?,
             ));
         }
@@ -98,7 +199,7 @@ pub fn apply_stratagem_preset_from_home(
     if let Some((preferred, _)) = booster_sources.first()
         && home_booster_slot(&home).is_some_and(|slot| slot.kind == SlotKind::HomeBooster)
     {
-        TemplateClassifier::new(
+        TemplateClassifier::from_templates(
             ItemKind::Booster,
             &booster_sources,
             recognizer.ui_scale(),
@@ -118,7 +219,7 @@ pub fn apply_stratagem_preset_from_home(
             booster_confirmed = true;
         }
     }
-    events.emit(AppEvent::StratagemsApplyStarted {
+    context.events.emit(AppEvent::StratagemsApplyStarted {
         stratagems: preset
             .stratagems
             .iter()
@@ -130,7 +231,7 @@ pub fn apply_stratagem_preset_from_home(
     let home = apply_stratagems_from_home(
         recognizer,
         automation,
-        events,
+        context,
         home,
         presets_path,
         &preset.stratagems,
@@ -144,7 +245,7 @@ pub fn apply_stratagem_preset_from_home(
     } else if booster_confirmed {
         Ok(Some(BoosterApplyOutcome::Applied))
     } else {
-        apply_booster_from_home(recognizer, automation, events, home, &booster_sources)
+        apply_booster_from_home(recognizer, automation, context, home, &booster_sources)
             .map(Some)
             .context("failed to apply booster from home")
     }
@@ -153,7 +254,7 @@ pub fn apply_stratagem_preset_from_home(
 fn apply_stratagems_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
-    events: &AppEventSink,
+    context: &mut IconApplyContext<'_>,
     mut home: RoiObservation,
     presets_path: &Path,
     templates: &[LocalTemplate],
@@ -216,7 +317,7 @@ fn apply_stratagems_from_home(
             .filter(|(id, _)| !equipped.contains(&id.as_str()))
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
-        events.emit(AppEvent::StratagemsProgress {
+        context.events.emit(AppEvent::StratagemsProgress {
             remaining: missing.clone(),
         });
         if missing.is_empty() {
@@ -248,6 +349,7 @@ fn apply_stratagems_from_home(
             selections_until_full = count,
             "applying missing Stratagems"
         );
+        let selected = scan::home_samples(ItemKind::Stratagem, recognizer, &home)?;
         let opened_list = open_slot_list(
             automation,
             recognizer,
@@ -265,13 +367,14 @@ fn apply_stratagems_from_home(
         home = match select_items_from_open_list(
             PageNavigator::new(recognizer, ItemKind::Stratagem, classifier),
             automation,
-            events,
+            context,
             &missing,
             opened_list,
             ListSelectionMode::Stratagems {
                 count,
                 in_saved_order: apply_in_saved_order && empty_count == 4,
             },
+            &selected,
         )? {
             ListSelectionOutcome::Applied(home) => home,
             ListSelectionOutcome::Unavailable => {
@@ -287,17 +390,18 @@ fn apply_stratagems_from_home(
 fn apply_booster_from_home(
     recognizer: RecognizerSession,
     automation: &mut AutomationSession<'_>,
-    events: &AppEventSink,
+    context: &mut IconApplyContext<'_>,
     home: RoiObservation,
-    sources: &[(String, ImageSample)],
+    sources: &[(String, IconTemplate)],
 ) -> Result<BoosterApplyOutcome> {
-    events.emit(AppEvent::BoosterProgress {
+    context.events.emit(AppEvent::BoosterProgress {
         item_id: sources[0].0.clone(),
         confirmed: false,
     });
     let target = home_booster_target(&home)?;
+    let selected = scan::home_samples(ItemKind::Booster, recognizer, &home)?;
     let opened_list = open_slot_list(automation, recognizer, target)?;
-    let classifier = TemplateClassifier::new(
+    let classifier = TemplateClassifier::from_templates(
         ItemKind::Booster,
         sources,
         recognizer.ui_scale(),
@@ -307,10 +411,11 @@ fn apply_booster_from_home(
     match select_items_from_open_list(
         PageNavigator::new(recognizer, ItemKind::Booster, classifier),
         automation,
-        events,
+        context,
         &item_ids,
         opened_list,
         ListSelectionMode::FirstAvailable,
+        &selected,
     )? {
         ListSelectionOutcome::Applied(_) => Ok(BoosterApplyOutcome::Applied),
         ListSelectionOutcome::Unavailable => Ok(BoosterApplyOutcome::Unavailable),
@@ -320,10 +425,11 @@ fn apply_booster_from_home(
 fn select_items_from_open_list(
     navigator: PageNavigator,
     automation: &mut AutomationSession<'_>,
-    events: &AppEventSink,
+    context: &mut IconApplyContext<'_>,
     items: &[String],
     initial_observation: RoiObservation,
     mode: ListSelectionMode,
+    selected: &[ImageSample],
 ) -> Result<ListSelectionOutcome> {
     let item_kind = navigator.item_kind();
     let requested_items = match mode {
@@ -345,8 +451,8 @@ fn select_items_from_open_list(
     let mut selections_left = requested_items;
     let mut wheel_attempts = 0u32;
     let mut retry_direction = None;
-    let mut top_reached = false;
-    let mut bottom_reached = false;
+    let mut check_cache = true;
+    let mut cache_check = CacheCheck::default();
     let mut current_page = {
         let span = debug_span!("scan_page", wheel_attempts);
         let _guard = span.enter();
@@ -362,11 +468,26 @@ fn select_items_from_open_list(
             ?retry_direction
         );
         let _page_guard = page_span.enter();
-        // Only accepted pages contribute boundary evidence; unplaced turn frames
-        // must still recover through the map before they can complete a scan.
-        if let Some(scrollbar) = current_page.roi.scrollbar {
-            top_reached |= scrollbar.at_top;
-            bottom_reached |= scrollbar.at_bottom;
+        if std::mem::take(&mut check_cache)
+            && context.refresh_open_list(
+                &navigator,
+                automation,
+                &mut list_map,
+                &mut current_page,
+                selected,
+                &mut cache_check,
+            )?
+        {
+            context.events.emit(match item_kind {
+                ItemKind::Stratagem => AppEvent::StratagemsProgress {
+                    remaining: remaining.clone(),
+                },
+                ItemKind::Booster => AppEvent::BoosterProgress {
+                    item_id: remaining[0].clone(),
+                    confirmed: false,
+                },
+            });
+            continue;
         }
         let target = if matches!(
             mode,
@@ -414,15 +535,15 @@ fn select_items_from_open_list(
                 &mut current_page,
                 final_requested_item,
             )?;
-            if let TargetSelectionOutcome::Unavailable { brightness_ratio } = outcome {
+            if let TargetSelectionOutcome::Unavailable { yellow_luma } = outcome {
                 info!(
                     item_id = %selected_item_id,
-                    brightness_ratio,
-                    "booster target is already in use"
+                    yellow_luma,
+                    "booster target is dimmed and unavailable"
                 );
                 if matches!(mode, ListSelectionMode::FirstAvailable) && remaining.len() > 1 {
                     remaining.remove(0);
-                    events.emit(AppEvent::BoosterProgress {
+                    context.events.emit(AppEvent::BoosterProgress {
                         item_id: remaining[0].clone(),
                         confirmed: false,
                     });
@@ -438,7 +559,7 @@ fn select_items_from_open_list(
             }
             selections_left -= 1;
             remaining.retain(|item_id| item_id != &selected_item_id);
-            events.emit(match item_kind {
+            context.events.emit(match item_kind {
                 ItemKind::Stratagem => AppEvent::StratagemsProgress {
                     remaining: remaining.clone(),
                 },
@@ -453,6 +574,7 @@ fn select_items_from_open_list(
                     let vertical_shift = placement.vertical_shift;
                     list_map.commit(&page, placement, "post-click", automation.evidence());
                     current_page = page;
+                    check_cache = vertical_shift.abs() > 2.0;
                     wheel_attempts = 0;
                     retry_direction = None;
                     debug!(
@@ -485,8 +607,7 @@ fn select_items_from_open_list(
                 item_kind.label()
             )
         })?;
-        if top_reached
-            && bottom_reached
+        if list_map.boundaries() == (true, true)
             && !list_map.contains_item(item_id)
             && let Some(score) = list_map.activate_best_candidate(item_id)
         {
@@ -507,7 +628,7 @@ fn select_items_from_open_list(
         let hint = list_map.navigation_hint(item_id);
         let direction = match hint {
             NavigationHint::Unmapped => {
-                if bottom_reached {
+                if list_map.boundaries().1 {
                     ScrollDirection::Up
                 } else {
                     ScrollDirection::Down
@@ -561,6 +682,7 @@ fn select_items_from_open_list(
                 );
             }
         }
+        check_cache = true;
     }
 }
 
@@ -572,7 +694,7 @@ enum TargetSelectionOutcome {
     },
     Home(RoiObservation),
     Unavailable {
-        brightness_ratio: f32,
+        yellow_luma: f32,
     },
 }
 
@@ -587,10 +709,10 @@ fn select_preset_target(
 ) -> Result<TargetSelectionOutcome> {
     let item_kind = navigator.item_kind();
     let item_id = initial_target.item_id.clone();
-    if let ItemAvailability::Unavailable { brightness_ratio } =
-        navigator.item_availability(&current_page.roi.image, &initial_target.slot, &item_id)?
+    if let ItemAvailability::Unavailable { yellow_luma } =
+        navigator.item_availability(&current_page.roi.image, &initial_target.slot)?
     {
-        return Ok(TargetSelectionOutcome::Unavailable { brightness_ratio });
+        return Ok(TargetSelectionOutcome::Unavailable { yellow_luma });
     }
     let prepared = relocate_and_wait_hover(
         automation,
@@ -600,8 +722,8 @@ fn select_preset_target(
         initial_target,
         current_page,
     )?;
-    if let ItemAvailability::Unavailable { brightness_ratio } = prepared.availability {
-        return Ok(TargetSelectionOutcome::Unavailable { brightness_ratio });
+    if let ItemAvailability::Unavailable { yellow_luma } = prepared.availability {
+        return Ok(TargetSelectionOutcome::Unavailable { yellow_luma });
     }
     let mut target = prepared.target;
     let before = prepared.sample;
@@ -887,7 +1009,7 @@ fn relocate_and_wait_hover(
             &target.slot,
         ) {
             Ok((sample, image)) => {
-                let availability = navigator.item_availability(&image, &target.slot, &item_id)?;
+                let availability = navigator.item_availability(&image, &target.slot)?;
                 automation
                     .evidence()
                     .record("target-availability", Some(&image), availability);

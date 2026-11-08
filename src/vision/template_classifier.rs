@@ -8,24 +8,23 @@ use tracing::{debug, trace};
 use crate::item::{ItemKind, StratagemCategory};
 
 use super::booster;
+use super::icon::{IconTemplate, crop_icon_sample};
 use super::matcher::{
-    MATCH_THRESHOLD, MatchDomain, PreparedTemplate, SemanticImage, compare, prepare_template,
-    render_to_raster,
+    MATCH_THRESHOLD, MatchDomain, PreparedTemplate, SemanticImage, compare, compare_scanned,
+    prepare_template, render_to_raster,
 };
-use super::semantic_extractor::{
-    SemanticExtraction, SemanticSource, crop_slot_sample, stratagem_foreground_response,
-};
+use super::semantic_extractor::{SemanticExtraction, SemanticSource};
 use super::{
     Classification, HOME_ICON_SIZE_LOGICAL, ImageSample, ItemAvailability, LIST_ICON_SIZE_LOGICAL,
     RoiObservation, Slot, SlotKind, SlotLayout,
 };
 const ENV_PHASES: [f32; 5] = [-0.45, -0.225, 0.0, 0.225, 0.45];
+const SCAN_MATCH_MARGIN: f64 = 0.04;
 
 struct PreparedTemplateEntry {
     item_id: String,
     category: Option<StratagemCategory>,
     prepared: PreparedTemplate,
-    reference_yellow_luma: Option<f32>,
 }
 
 struct TemplateSource {
@@ -33,7 +32,6 @@ struct TemplateSource {
     category: Option<StratagemCategory>,
     semantic: SemanticImage,
     physical_size: f32,
-    reference_yellow_luma: Option<f32>,
 }
 
 /// Classifies home or list slots against templates captured with a preset.
@@ -68,7 +66,33 @@ impl TemplateClassifier {
         current_ui_scale: f32,
         initial_page: &RoiObservation,
     ) -> Result<Self> {
+        let sources = sources
+            .iter()
+            .map(|(item_id, sample)| {
+                Ok((
+                    item_id.clone(),
+                    IconTemplate::extract(item_kind, sample)
+                        .with_context(|| format!("failed to extract local template {item_id}"))?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Self::from_templates(item_kind, &sources, current_ui_scale, initial_page)
+    }
+
+    pub(crate) fn from_templates(
+        item_kind: ItemKind,
+        sources: &[(String, IconTemplate)],
+        current_ui_scale: f32,
+        initial_page: &RoiObservation,
+    ) -> Result<Self> {
         ensure!(!sources.is_empty(), "no local templates were provided");
+        ensure!(
+            sources.iter().all(|(_, source)| match item_kind {
+                ItemKind::Stratagem => source.category.is_some(),
+                ItemKind::Booster => source.category.is_none(),
+            }),
+            "local template semantics do not match the requested item kind"
+        );
         ensure!(
             current_ui_scale.is_finite() && current_ui_scale > 0.0,
             "current UI scale must be positive"
@@ -83,38 +107,13 @@ impl TemplateClassifier {
         let load_start = Instant::now();
         let sources = sources
             .iter()
-            .map(|(item_id, sample)| {
-                let (category, semantic, reference_yellow_luma) = match item_kind {
-                    ItemKind::Stratagem => {
-                        let source = SemanticSource::prepare(sample).with_context(|| {
-                            format!("failed to prepare local template {item_id}")
-                        })?;
-                        let category = source
-                            .infer_category()
-                            .with_context(|| format!("failed to infer category for {item_id}"))?;
-                        let semantic = source
-                            .extract(category)
-                            .with_context(|| format!("failed to extract local template {item_id}"))?
-                            .image;
-                        (Some(category), semantic, None)
-                    }
-                    ItemKind::Booster => {
-                        let extraction = booster::extract(sample).with_context(|| {
-                            format!("failed to extract local template {item_id}")
-                        })?;
-                        let reference_yellow_luma = booster::yellow_luma(&extraction);
-                        (None, extraction.image, Some(reference_yellow_luma))
-                    }
-                };
-                Ok(TemplateSource {
-                    item_id: item_id.clone(),
-                    category,
-                    semantic,
-                    physical_size: sample.geometry.physical_size,
-                    reference_yellow_luma,
-                })
+            .map(|(item_id, sample)| TemplateSource {
+                item_id: item_id.clone(),
+                category: sample.category,
+                semantic: sample.semantic.clone(),
+                physical_size: sample.geometry.physical_size,
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
         let categories = sources.iter().fold(Vec::new(), |mut categories, source| {
             if let Some(category) = source.category
                 && !categories.contains(&category)
@@ -133,59 +132,28 @@ impl TemplateClassifier {
             SlotLayout::Home => HOME_ICON_SIZE_LOGICAL,
             SlotLayout::List(_) => LIST_ICON_SIZE_LOGICAL,
         } * current_ui_scale;
-        let candidate_geometry = crop_sample(
+        let candidate_geometry = crop_icon_sample(
             item_kind,
             &initial_page.image,
             sample_slot,
             candidate_physical_size,
         )?;
-        let domain = match item_kind {
-            ItemKind::Stratagem => MatchDomain::Full,
-            ItemKind::Booster => MatchDomain::InsetHex {
-                half_width: booster::INTERIOR_HALF_WIDTH,
-            },
-        };
-        let match_threshold = match item_kind {
-            ItemKind::Stratagem => MATCH_THRESHOLD,
-            ItemKind::Booster => booster::MATCH_THRESHOLD,
-        };
+        let match_threshold = match_threshold(item_kind);
 
         let prepared = sources
             .into_par_iter()
             .map(|source| {
-                let mut env_candidates = Vec::with_capacity(25);
-                for phase_y in ENV_PHASES {
-                    for phase_x in ENV_PHASES {
-                        env_candidates.push(render_to_raster(
-                            &source.semantic,
-                            source.physical_size,
-                            (
-                                candidate_geometry.image.width() as usize,
-                                candidate_geometry.image.height() as usize,
-                            ),
-                            (
-                                candidate_geometry.geometry.center_x,
-                                candidate_geometry.geometry.center_y,
-                            ),
-                            candidate_physical_size,
-                            (phase_x, phase_y),
-                        ));
-                    }
-                }
-                let prepared = prepare_template(
+                let prepared = prepare_icon_template(
+                    item_kind,
                     &source.semantic,
                     source.physical_size,
-                    &env_candidates,
-                    candidate_physical_size,
-                    domain,
-                    item_kind == ItemKind::Stratagem,
+                    &candidate_geometry,
                 )
                 .with_context(|| format!("failed to prepare local template {}", source.item_id))?;
                 Ok(PreparedTemplateEntry {
                     item_id: source.item_id,
                     category: source.category,
                     prepared,
-                    reference_yellow_luma: source.reference_yellow_luma,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -221,54 +189,119 @@ impl TemplateClassifier {
         })
     }
 
-    pub(crate) fn alignment_response(
-        &self,
-        screenshot: &RgbaImage,
-        slot: &Slot,
-    ) -> Result<Vec<u8>> {
-        let sample = crop_sample(
-            self.item_kind,
-            screenshot,
-            slot,
-            self.candidate_physical_size,
+    pub(crate) fn same_item(
+        kind: ItemKind,
+        left: &ImageSample,
+        right: &ImageSample,
+    ) -> Result<bool> {
+        let template = IconTemplate::extract(kind, left)?;
+        let candidate = match template.category {
+            Some(category) => SemanticSource::prepare(right)?.extract(category)?,
+            None => booster::extract(right)?,
+        };
+        let prepared = prepare_icon_template(
+            kind,
+            &template.semantic,
+            template.geometry.physical_size,
+            right,
         )?;
-        match self.item_kind {
-            ItemKind::Stratagem => Ok(sample
-                .image
-                .pixels()
-                .map(|pixel| stratagem_foreground_response(pixel[0], pixel[1], pixel[2]))
-                .collect()),
-            ItemKind::Booster => booster::glyph_response(&sample),
-        }
+        let result = compare(&prepared, &candidate.image, right.geometry.physical_size)?;
+        Ok(result.score < match_threshold(kind))
     }
 
     pub(crate) fn item_availability(
         &self,
         screenshot: &RgbaImage,
         slot: &Slot,
-        item_id: &str,
     ) -> Result<ItemAvailability> {
         if self.item_kind != ItemKind::Booster {
             return Ok(ItemAvailability::Available);
         }
-        let reference = self
-            .templates
-            .iter()
-            .find(|template| template.item_id == item_id)
-            .and_then(|template| template.reference_yellow_luma)
-            .context("booster template is absent from the classifier")?;
-        let sample = crop_sample(
+        let sample = crop_icon_sample(
             self.item_kind,
             screenshot,
             slot,
             self.candidate_physical_size,
         )?;
-        let brightness_ratio = booster::yellow_luma(&booster::extract(&sample)?) / reference;
-        Ok(if brightness_ratio >= booster::AVAILABLE_BRIGHTNESS_RATIO {
+        let yellow_luma = booster::yellow_luma(&booster::extract(&sample)?);
+        Ok(if yellow_luma >= booster::MIN_AVAILABLE_YELLOW_LUMA {
             ItemAvailability::Available
         } else {
-            ItemAvailability::Unavailable { brightness_ratio }
+            ItemAvailability::Unavailable { yellow_luma }
         })
+    }
+
+    pub(crate) fn match_scanned(
+        kind: ItemKind,
+        selected: &[ImageSample],
+        scanned: &[ImageSample],
+    ) -> Result<Vec<usize>> {
+        if selected.is_empty() {
+            return Ok(Vec::new());
+        }
+        let first = scanned.first().context("the scanned icon list is empty")?;
+        let scores = selected
+            .par_iter()
+            .map(|source| {
+                let template = IconTemplate::extract(kind, source)?;
+                let prepared = prepare_icon_template(
+                    kind,
+                    &template.semantic,
+                    template.geometry.physical_size,
+                    first,
+                )?;
+                scanned
+                    .iter()
+                    .map(|sample| {
+                        let candidate = match template.category {
+                            Some(category) => SemanticSource::prepare(sample)?.extract(category)?,
+                            None => booster::extract(sample)?,
+                        };
+                        let result = match kind {
+                            ItemKind::Stratagem => compare_scanned(
+                                &prepared,
+                                &candidate.image,
+                                sample.geometry.physical_size,
+                            ),
+                            ItemKind::Booster => {
+                                compare(&prepared, &candidate.image, sample.geometry.physical_size)
+                            }
+                        }?;
+                        Ok(result.score)
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut positions = Vec::with_capacity(selected.len());
+        for (index, row) in scores.iter().enumerate() {
+            let mut ranked = row.iter().copied().enumerate().collect::<Vec<_>>();
+            ranked.sort_unstable_by(|left, right| left.1.total_cmp(&right.1));
+            let (position, score) = ranked[0];
+            let margin = ranked
+                .get(1)
+                .map_or(f64::INFINITY, |(_, next)| next - score);
+            let reverse_margin = scores
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .map(|(_, scores)| scores[position] - score)
+                .min_by(f64::total_cmp)
+                .unwrap_or(f64::INFINITY);
+            debug!(
+                item_kind = %kind.label(), home_sample = index, position,
+                score, margin, reverse_margin, "scanned selection match evaluated"
+            );
+            ensure!(
+                score < match_threshold(kind)
+                    && margin >= SCAN_MATCH_MARGIN
+                    && reverse_margin >= SCAN_MATCH_MARGIN
+                    && !positions.contains(&position),
+                "an equipped {} could not be uniquely located in the scanned list",
+                kind.label(),
+            );
+            positions.push(position);
+        }
+        Ok(positions)
     }
 
     pub fn classify_batch(&self, page: &mut RoiObservation) -> Result<Vec<TemplateMatchCandidate>> {
@@ -323,7 +356,7 @@ impl TemplateClassifier {
     }
 
     fn classify_slot(&self, screenshot: &RgbaImage, slot: &mut Slot) -> Result<SlotMatchOutcome> {
-        let sample = crop_sample(
+        let sample = crop_icon_sample(
             self.item_kind,
             screenshot,
             slot,
@@ -413,6 +446,51 @@ impl TemplateClassifier {
     }
 }
 
+fn match_threshold(kind: ItemKind) -> f64 {
+    match kind {
+        ItemKind::Stratagem => MATCH_THRESHOLD,
+        ItemKind::Booster => booster::MATCH_THRESHOLD,
+    }
+}
+
+fn prepare_icon_template(
+    kind: ItemKind,
+    semantic: &SemanticImage,
+    physical_size: f32,
+    candidate: &ImageSample,
+) -> Result<PreparedTemplate> {
+    let mut env_candidates = Vec::with_capacity(25);
+    for phase_y in ENV_PHASES {
+        for phase_x in ENV_PHASES {
+            env_candidates.push(render_to_raster(
+                semantic,
+                physical_size,
+                (
+                    candidate.image.width() as usize,
+                    candidate.image.height() as usize,
+                ),
+                (candidate.geometry.center_x, candidate.geometry.center_y),
+                candidate.geometry.physical_size,
+                (phase_x, phase_y),
+            ));
+        }
+    }
+    let domain = match kind {
+        ItemKind::Stratagem => MatchDomain::Full,
+        ItemKind::Booster => MatchDomain::InsetHex {
+            half_width: booster::INTERIOR_HALF_WIDTH,
+        },
+    };
+    prepare_template(
+        semantic,
+        physical_size,
+        &env_candidates,
+        candidate.geometry.physical_size,
+        domain,
+        kind == ItemKind::Stratagem,
+    )
+}
+
 fn is_candidate_slot(slot: &Slot, item_kind: ItemKind) -> bool {
     slot.kind.is_selectable_item_for(item_kind)
         || (item_kind == ItemKind::Booster && slot.kind == SlotKind::HomeBooster)
@@ -460,16 +538,4 @@ fn trace_match(
         secondary_mass = extraction.secondary_mass,
         "template match evaluated"
     );
-}
-
-fn crop_sample(
-    item_kind: ItemKind,
-    image: &RgbaImage,
-    slot: &Slot,
-    physical_size: f32,
-) -> Result<ImageSample> {
-    match item_kind {
-        ItemKind::Stratagem => crop_slot_sample(image, slot, physical_size),
-        ItemKind::Booster => booster::crop_sample(image, slot, physical_size),
-    }
 }

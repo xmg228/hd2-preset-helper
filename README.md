@@ -29,9 +29,9 @@ then exit the app and delete its folder, including any saved presets.
 ## Quick start
 
 1. Equip the loadout you want to save.
-2. Press `Ctrl+Shift+Space` to open the panel, select a preset and click **Save preset**.
+2. Press `Ctrl+Shift+Space` to open the panel, select a preset and click **Capture from game**.
 3. To apply it later, open the panel from either loadout page and choose
-   **Apply preset**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
+   **Apply to game**, or use a preset shortcut (`Ctrl+Shift+F7` through `Ctrl+Shift+F12`
    for presets 1–6 by default).
 
 Release all keys and mouse buttons after triggering a save or apply action.
@@ -50,6 +50,10 @@ Choose what to save or apply, including individual equipment items. Saving
 overwrites only selected content; applying skips unsaved items. Preset shortcuts
 use the same selection.
 
+Choose **Edit loadout** to replace items in a preset. **Scan missing items**
+collects any missing item lists from the game.
+Preset shortcuts pause until you save or cancel your edits; hiding the panel keeps the draft.
+
 ### Usage notes
 
 - Switching between loadout pages uses the game's default `R` key.
@@ -59,8 +63,8 @@ use the same selection.
   weapon attachments or separate appearances of items with the same name.
 - Equipment templates work across resolutions, but need to be re-saved if the game
   language changes.
-- The first equipment search may take longer while the list order is learned.
-  Later searches reuse the cache.
+- The app asks before scanning missing item lists on first use.
+  Later applications reuse these lists.
 
 ## Compatibility
 

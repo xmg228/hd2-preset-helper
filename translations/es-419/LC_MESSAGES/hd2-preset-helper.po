@@ -335,6 +335,75 @@ msgstr "Instala las actualizaciones manualmente en esta compilación."
 msgid "Check for updates automatically"
 msgstr "Buscar actualizaciones automáticamente"
 
+# Item scanning.
+msgid "Item cache"
+msgstr "Caché de objetos"
+
+msgid "All items"
+msgstr "Todos los objetos"
+
+msgid "Stratagems"
+msgstr "Estratagemas"
+
+msgid "Scan"
+msgstr "Escanear"
+
+msgid "Item scan"
+msgstr "Escaneo de objetos"
+
+msgid "Open the panel to stop scanning."
+msgstr "Abre el panel para detener el escaneo."
+
+# Item editing.
+msgid "Edit loadout"
+msgstr "Editar equipamiento"
+
+msgid "Randomize Stratagems & Booster"
+msgstr "Elegir estratagemas y potenciador al azar"
+
+msgid "Offensive"
+msgstr "Ofensivas"
+
+msgid "Supply"
+msgstr "Suministros"
+
+msgid "Defensive"
+msgstr "Defensivas"
+
+msgid "Clear"
+msgstr "Quitar"
+
+msgid "Loading…"
+msgstr "Cargando…"
+
+msgid "No items available."
+msgstr "No hay objetos disponibles."
+
+msgid "Save changes"
+msgstr "Guardar cambios"
+
+msgid "Randomize equipment"
+msgstr "Elegir equipo al azar"
+
+msgid "Scan missing items"
+msgstr "Completar listas de objetos"
+
+msgid "Capture from game"
+msgstr "Guardar desde el juego"
+
+msgid "Apply to game"
+msgstr "Aplicar al juego"
+
+msgid "Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets."
+msgstr "El primer uso requiere analizar {} listas de objetos y crear una caché, lo que puede tardar. Las próximas aplicaciones reutilizarán la caché, sin analizar cada vez."
+
+# Item-list confirmation.
+msgid "Build item cache"
+msgstr "Crear caché de objetos"
+
+msgid "Build cache and apply"
+msgstr "Crear caché y aplicar"
+
 # Tray.
 msgid "Exit"
 msgstr "Salir"

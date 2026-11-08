@@ -1,45 +1,32 @@
-//! Complete category orders. Live scans/repairs belong to `survey`, not this cache.
-mod storage;
-
-use super::{InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation};
+//! Read-only identities and routes over a complete equipment catalog.
+use super::{InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD};
 use crate::{
     input::Key,
     item::EquipmentKind,
+    item_cache::{EquipmentCatalog, EquipmentCategory as Category, ItemCache},
     vision::{
         equipment::EquipmentObservation,
-        text::{TextSample, TextSignature},
+        text::{TextSample, TextSignature, TextTemplate},
     },
 };
-use anyhow::{Context, Result};
-use std::collections::BTreeMap;
+use serde::Serialize;
 
 pub(super) type Name = usize;
 const NAME_MATCH_MARGIN: f32 = 0.04;
-const CATEGORY_IDENTITY_THRESHOLD: f32 = 0.97;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub(super) struct Position {
+    pub category: usize,
+    pub row: usize,
+    pub col: usize,
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Target {
-    pub category: usize,
-    pub name: Name,
-    pub score: f32,
+    category: usize,
+    name: Name,
 }
 
-#[derive(Default)]
-pub(crate) struct EquipmentCache {
-    scales: BTreeMap<String, [Vec<Category>; 6]>,
-    dirty: bool,
-}
-
-struct Category {
-    title: TextSignature,
-    names: Vec<TextSignature>,
-    order: Vec<Name>,
-    previous: Option<usize>,
-    next: Option<usize>,
-    circular: bool,
-}
-
-/// Shared evidence; callers choose the strength required by their own decision.
 struct NameRanking<T> {
     best: T,
     score: f32,
@@ -47,12 +34,8 @@ struct NameRanking<T> {
 }
 
 impl<T> NameRanking<T> {
-    fn margin(&self) -> f32 {
-        self.score - self.runner_up.unwrap_or(0.0)
-    }
-
     fn accepts(&self, threshold: f32) -> bool {
-        self.score >= threshold && self.margin() >= NAME_MATCH_MARGIN
+        self.score >= threshold && self.score - self.runner_up.unwrap_or(0.0) >= NAME_MATCH_MARGIN
     }
 }
 
@@ -73,374 +56,272 @@ fn rank_names<'a, T>(
     })
 }
 
-fn rank_targets(
-    categories: &[Category],
-    indices: impl IntoIterator<Item = usize>,
-    target: &TextSignature,
-) -> Option<NameRanking<(usize, Name)>> {
-    // Rank distinct names in the complete order, not occurrences or abandoned scans.
+fn rank_targets(catalog: &EquipmentCatalog, target: &TextSignature) -> Option<NameRanking<Target>> {
     rank_names(
         target,
-        indices.into_iter().flat_map(|category| {
-            let entry = &categories[category];
-            entry
-                .names
-                .iter()
-                .enumerate()
-                .filter(|(name, _)| entry.order.contains(name))
-                .map(move |(name, signature)| ((category, name), signature))
-        }),
+        catalog
+            .categories
+            .iter()
+            .enumerate()
+            .flat_map(|(category, entry)| {
+                entry
+                    .names
+                    .iter()
+                    .enumerate()
+                    .filter(|(name, _)| entry.order.contains(name))
+                    .map(move |(name, sample)| (Target { category, name }, sample.signature()))
+            }),
     )
 }
 
 impl Category {
-    /// Name IDs are local to a search; retain only identities in the completed order.
-    fn compact(&mut self) {
-        let mut indices = vec![None; self.names.len()];
-        for &name in &self.order {
-            indices[name] = Some(0);
-        }
-        if indices.iter().all(Option::is_some) {
-            return;
-        }
-        let mut index = 0;
-        let mut retained = 0;
-        self.names.retain(|_| {
-            let keep = indices[index].is_some();
-            if keep {
-                indices[index] = Some(retained);
-                retained += 1;
-            }
-            index += 1;
-            keep
-        });
-        for name in &mut self.order {
-            *name = indices[*name].unwrap();
-        }
-    }
-
-    fn identify(&mut self, name: &TextSignature) -> Option<Name> {
-        if let Some(ranking) = rank_names(name, self.names.iter().enumerate())
-            .filter(|ranking| ranking.score >= NAME_IDENTITY_THRESHOLD)
+    /// Intern names only while materializing a completed scan.
+    pub(super) fn identify(&mut self, name: &TextSample) -> Option<Name> {
+        if let Some(ranking) = rank_names(
+            name.signature(),
+            self.names
+                .iter()
+                .enumerate()
+                .map(|(index, sample)| (index, sample.signature())),
+        )
+        .filter(|ranking| ranking.score >= NAME_IDENTITY_THRESHOLD)
         {
-            let margin = ranking.margin();
-            if margin < NAME_MATCH_MARGIN {
-                tracing::debug!(
-                    best_name = ranking.best,
-                    best_cosine = ranking.score,
-                    runner_up_cosine = ranking.runner_up,
-                    margin,
-                    required_margin = NAME_MATCH_MARGIN,
-                    "equipment cache identity is ambiguous"
-                );
-            }
-            return (margin >= NAME_MATCH_MARGIN).then_some(ranking.best);
+            return ranking
+                .accepts(NAME_IDENTITY_THRESHOLD)
+                .then_some(ranking.best);
         }
-        // A moderately similar name may be a different item. Keep its own evidence.
         self.names.push(name.clone());
         Some(self.names.len() - 1)
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct Location {
-    pub category: usize,
-    pub name: Name,
-    pub col: usize,
-    pub width: usize,
-    /// Verified occurrence, including the distance of the last input.
-    pub position: Option<usize>,
-    /// Unique old occurrence, even when its column/distance no longer agrees.
-    pub known: Option<usize>,
-    pub previous: Option<usize>,
-    pub head: bool,
-    pub boundary: Option<Key>,
-}
-
-pub(super) struct SearchCache<'a> {
-    categories: &'a mut Vec<Category>,
-    dirty: &'a mut bool,
-    pub kind: EquipmentKind,
-    current: Option<Location>,
-}
-
-impl Drop for SearchCache<'_> {
-    fn drop(&mut self) {
-        // No Survey/Target can use these IDs once this search releases the cache.
-        // Pruning unsaved observations does not change the persistent map.
-        for category in self.categories.iter_mut() {
-            category.compact();
-        }
+impl ItemCache {
+    pub(crate) fn has_strong_match(&self, kind: EquipmentKind, target: &TextSignature) -> bool {
+        self.equipment[kind.index()]
+            .as_ref()
+            .and_then(|catalog| rank_targets(catalog, target))
+            .is_some_and(|ranking| ranking.accepts(NAME_IDENTITY_THRESHOLD))
     }
 }
 
-impl EquipmentCache {
-    /// A strong candidate in a complete, same-scale map; never a live-position guarantee.
-    pub(crate) fn has_strong_match(
-        &self,
-        kind: EquipmentKind,
-        scale: f64,
-        target: &TextSignature,
-    ) -> bool {
-        self.scales.get(&scale.to_string()).is_some_and(|kinds| {
-            let categories = &kinds[kind.index()];
-            rank_targets(categories, 0..categories.len(), target)
-                .is_some_and(|ranking| ranking.accepts(NAME_IDENTITY_THRESHOLD))
+pub(super) struct CachedList<'a> {
+    kind: EquipmentKind,
+    catalog: &'a EquipmentCatalog,
+}
+
+impl<'a> CachedList<'a> {
+    pub fn new(kind: EquipmentKind, catalog: &'a EquipmentCatalog) -> Self {
+        Self { kind, catalog }
+    }
+
+    pub fn target(&self, name: &TextSignature) -> Option<Target> {
+        rank_targets(self.catalog, name)
+            .filter(|ranking| ranking.accepts(NAME_MATCH_THRESHOLD))
+            .map(|ranking| ranking.best)
+    }
+
+    fn rows(&self, category: usize) -> usize {
+        self.catalog.categories[category]
+            .order
+            .len()
+            .div_ceil(self.kind.list_columns())
+    }
+
+    fn neighbor(&self, category: usize, forward: bool) -> usize {
+        let count = self.catalog.categories.len();
+        if forward {
+            (category + 1) % count
+        } else {
+            (category + count - 1) % count
+        }
+    }
+
+    fn row_names(&self, category: usize, row: usize) -> Option<&[Name]> {
+        let columns = self.kind.list_columns();
+        let order = &self.catalog.categories.get(category)?.order;
+        let start = row.checked_mul(columns)?;
+        order
+            .get(start..(start + columns).min(order.len()))
+            .filter(|row| !row.is_empty())
+    }
+
+    fn category_matches(&self, category: usize, title: &TextTemplate) -> bool {
+        !self.kind.has_categories()
+            || self.catalog.categories[category].title.cosine(title) >= NAME_MATCH_THRESHOLD
+    }
+
+    pub fn matches(&self, position: Position, page: &EquipmentObservation) -> bool {
+        let Some(focus) = page.focus.and_then(|index| page.slots.get(index)) else {
+            return false;
+        };
+        let Some(row) = self.row_names(position.category, position.row) else {
+            return false;
+        };
+        let width = page
+            .slots
+            .iter()
+            .filter(|slot| slot.row == focus.row)
+            .count();
+        if position.col != focus.col
+            || row.len() != width
+            || !self.category_matches(position.category, &page.category)
+        {
+            return false;
+        }
+        let category = &self.catalog.categories[position.category];
+        rank_names(
+            page.name.signature(),
+            category
+                .names
+                .iter()
+                .enumerate()
+                .map(|(id, name)| (id, name.signature())),
+        )
+        .is_some_and(|ranking| {
+            ranking.accepts(NAME_IDENTITY_THRESHOLD) && row.get(position.col) == Some(&ranking.best)
         })
     }
 
-    pub(super) fn search(&mut self, kind: EquipmentKind, scale: f64) -> SearchCache<'_> {
-        SearchCache {
-            // Decimal keys retain the exact UI scale, including in the JSON cache.
-            categories: &mut self.scales.entry(scale.to_string()).or_default()[kind.index()],
-            dirty: &mut self.dirty,
-            kind,
-            current: None,
+    pub fn locate(&self, page: &EquipmentObservation) -> Option<Position> {
+        let focus = page.slots.get(page.focus?)?;
+        let ranking = rank_targets(self.catalog, page.name.signature())?;
+        if !ranking.accepts(NAME_IDENTITY_THRESHOLD)
+            || !self.category_matches(ranking.best.category, &page.category)
+        {
+            return None;
         }
-    }
-}
-
-impl SearchCache<'_> {
-    pub fn category_indices(&self) -> std::ops::Range<usize> {
-        0..self.categories.len()
-    }
-
-    pub fn observe(
-        &mut self,
-        page: &EquipmentObservation,
-        navigation: Option<Navigation>,
-    ) -> Result<Location> {
-        let focus = &page.slots[page.focus.context("equipment focus missing")?];
-        let title = page.category.signature();
         let columns = self.kind.list_columns();
-        // Single-category lists also need a visual language check on their first visit.
-        if !self.kind.has_categories()
-            && self.current.is_none()
-            && self
-                .categories
-                .first()
-                .is_some_and(|entry| entry.title.cosine(title) < CATEGORY_IDENTITY_THRESHOLD)
-        {
-            tracing::debug!(
-                heading_cosine = self.categories[0].title.cosine(title),
-                identity_threshold = CATEGORY_IDENTITY_THRESHOLD,
-                "equipment cache heading rejected"
-            );
-            self.categories.clear();
-            *self.dirty = true;
-            tracing::info!("equipment heading changed; rebuilding this cache");
-        }
-        // Only a strong, same-scale heading match can reuse a map identity.
-        let category = if self.kind.has_categories() {
-            self.match_category(title, CATEGORY_IDENTITY_THRESHOLD)
-        } else {
-            (!self.categories.is_empty()).then_some(0)
-        }
-        .unwrap_or_else(|| {
-            self.categories.push(Category {
-                title: title.clone(),
-                names: Vec::new(),
-                order: Vec::new(),
-                previous: None,
-                next: None,
-                circular: false,
-            });
-            self.categories.len() - 1
-        });
-        let col = focus.col;
-        let width = page.slots.iter().filter(|s| s.row == focus.row).count();
-        let name = self.categories[category]
-            .identify(page.name.signature())
-            .with_context(|| format!("equipment name matches multiple cached identities in category {category}; search stopped"))?;
-        let key = navigation.and_then(|n| match n.action {
-            InputAction::Key(k) => Some(k),
-            _ => None,
-        });
-        let continuous = navigation.is_some_and(|n| !n.retried);
-        let changed = self.current.is_some_and(|c| c.category != category);
-        let boundary = key.filter(|k| {
-            continuous
-                && matches!(k, Key::Up | Key::Down)
-                && (changed
-                    || navigation.is_some_and(|n| n.wrapped)
-                    || self.current.is_some_and(|c| match k {
-                        Key::Down => c.width < columns,
-                        Key::Up => width < columns,
-                        _ => false,
-                    }))
-        });
-        if continuous
-            && changed
-            && let Some(current) = self.current
-            && let Some(key) = key
-        {
-            self.connect_categories(current.category, category, key);
-        } else if boundary.is_some() && !changed && !self.categories[category].circular {
-            self.categories[category].circular = true;
-            *self.dirty = true;
-        }
-        let head = matches!(key, Some(Key::Z | Key::C)) || boundary == Some(Key::Down);
-        let order = &self.categories[category].order;
-        let mut occurrences = order
+        let category = &self.catalog.categories[ranking.best.category];
+        let width = page
+            .slots
+            .iter()
+            .filter(|slot| slot.row == focus.row)
+            .count();
+        let mut positions = category
+            .order
             .iter()
             .enumerate()
-            .filter_map(|(p, &n)| (n == name).then_some(p));
-        let known = occurrences.next().filter(|_| occurrences.next().is_none());
-        let previous = self.current.filter(|_| !changed).and_then(|c| c.position);
-        let expected = if head {
-            Some(col)
-        } else if boundary == Some(Key::Up) {
-            order
-                .len()
-                .checked_sub(1)
-                .map(|last| last / columns * columns + col)
-        } else if let Some(before) = self.current.filter(|_| !changed && continuous) {
-            before.position.and_then(|p| {
-                let row = p / columns;
-                match key {
-                    Some(Key::Down) => Some((row + 1) * columns + col),
-                    Some(Key::Up) => row.checked_sub(1).map(|r| r * columns + col),
-                    _ => Some(row * columns + col),
-                }
+            .filter(|(index, name)| {
+                **name == ranking.best.name
+                    && index % columns == focus.col
+                    && category
+                        .order
+                        .len()
+                        .saturating_sub(index - focus.col)
+                        .min(columns)
+                        == width
             })
-        } else {
-            known
-        };
-        // Whole-row additions preserve columns, but change old travel distances/endpoints.
-        let boundary_agrees = !continuous
-            || changed
-            || self.current.is_none_or(|c| {
-                c.position.is_none_or(|p| match key {
-                    Some(Key::Down) => {
-                        boundary.is_some() == (p / columns + 1 == order.len().div_ceil(columns))
-                    }
-                    Some(Key::Up) => boundary.is_some() == (p / columns == 0),
-                    _ => true,
-                })
+            .map(|(index, _)| Position {
+                category: ranking.best.category,
+                row: index / columns,
+                col: focus.col,
             });
-        let position = expected.filter(|&p| {
-            boundary_agrees
-                && p % columns == col
-                && order.get(p) == Some(&name)
-                && order.len().saturating_sub(p - col).min(columns) == width
-        });
-        let location = Location {
-            category,
-            name,
-            col,
-            width,
-            position,
-            known,
-            previous,
-            head,
-            boundary,
-        };
-        self.current = Some(location);
-        Ok(location)
+        let first = positions.next()?;
+        positions.next().is_none().then_some(first)
     }
 
-    fn connect_categories(&mut self, mut from: usize, mut to: usize, key: Key) {
-        match key {
-            Key::C | Key::Down => {}
-            Key::Z | Key::Up => std::mem::swap(&mut from, &mut to),
-            _ => return,
-        }
-        if self.categories[from].next != Some(to) {
-            if let Some(old) = self.categories[from].next {
-                self.categories[old].previous = None;
+    pub fn locate_row(
+        &self,
+        title: &TextTemplate,
+        names: &[TextTemplate],
+        col: usize,
+    ) -> Vec<Position> {
+        let mut positions = Vec::new();
+        for (category, entry) in self.catalog.categories.iter().enumerate() {
+            if !self.category_matches(category, title) {
+                continue;
             }
-            if let Some(old) = self.categories[to].previous {
-                self.categories[old].next = None;
-            }
-            self.categories[from].next = Some(to);
-            self.categories[to].previous = Some(from);
-            *self.dirty = true;
-        }
-        *self.dirty |= self.categories[from].circular || self.categories[to].circular;
-        self.categories[from].circular = false;
-        self.categories[to].circular = false;
-    }
-
-    /// A saved heading may come from another resolution; it only guides navigation.
-    pub fn category_hint(&self, target: &TextSample) -> Option<usize> {
-        self.match_category(target.signature(), NAME_MATCH_THRESHOLD)
-    }
-
-    fn match_category(&self, target: &TextSignature, threshold: f32) -> Option<usize> {
-        self.categories
-            .iter()
-            .enumerate()
-            .map(|(category, entry)| (category, entry.title.cosine(target)))
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .filter(|(_, score)| *score >= threshold)
-            .map(|(category, _)| category)
-    }
-
-    pub fn category_key(&self, target: usize) -> Option<Key> {
-        let from = self.current?.category;
-        if from == target {
-            return None;
-        }
-        self.category_route(target).map(|(_, key)| key)
-    }
-
-    /// Z/C reaches a category's first row, regardless of the starting row.
-    fn category_route(&self, target: usize) -> Option<(usize, Key)> {
-        if !self.kind.has_categories() {
-            return None;
-        }
-        let from = self.current?.category;
-        if from == target {
-            // Leave and return to reset this category to its first row.
-            for (key, neighbor) in [
-                (Key::C, self.categories[from].next),
-                (Key::Z, self.categories[from].previous),
-            ] {
-                if let Some(at) = neighbor.filter(|&at| at != from)
-                    && match key {
-                        Key::C => self.categories[at].previous == Some(from),
-                        _ => self.categories[at].next == Some(from),
-                    }
+            for (row, old) in entry.order.chunks(self.kind.list_columns()).enumerate() {
+                if old.len() == names.len()
+                    && old
+                        .iter()
+                        .zip(names)
+                        .all(|(&id, name)| entry.names[id].cosine(name) >= NAME_IDENTITY_THRESHOLD)
                 {
-                    return Some((2, key));
+                    positions.push(Position { category, row, col });
                 }
             }
-            return None;
         }
-        let distance = |forward: bool| {
-            let mut at = from;
-            for steps in 1..=self.categories.len() {
-                at = if forward {
-                    self.categories[at].next?
+        positions
+    }
+
+    pub fn is_target(&self, position: Position, target: Target) -> bool {
+        position.category == target.category
+            && self
+                .row_names(position.category, position.row)
+                .and_then(|row| row.get(position.col))
+                == Some(&target.name)
+    }
+
+    pub fn predict(&self, mut position: Position, action: InputAction) -> Option<Position> {
+        self.row_names(position.category, position.row)?;
+        match action {
+            InputAction::ClickColumn(col) => position.col = col,
+            InputAction::Key(Key::Down) => {
+                if position.row + 1 < self.rows(position.category) {
+                    position.row += 1;
                 } else {
-                    self.categories[at].previous?
-                };
-                if at == target {
-                    return Some(steps);
+                    position.category = self.neighbor(position.category, true);
+                    position.row = 0;
                 }
             }
-            None
-        };
-        match (distance(false), distance(true)) {
-            (Some(back), Some(ahead)) if back < ahead => Some((back, Key::Z)),
-            (_, Some(ahead)) => Some((ahead, Key::C)),
-            (Some(back), None) => Some((back, Key::Z)),
-            _ => None,
+            InputAction::Key(Key::Up) => {
+                if position.row > 0 {
+                    position.row -= 1;
+                } else {
+                    position.category = self.neighbor(position.category, false);
+                    position.row = self.rows(position.category).checked_sub(1)?;
+                }
+            }
+            InputAction::Key(key @ (Key::Z | Key::C)) => {
+                if !self.kind.has_categories() {
+                    return None;
+                }
+                position.category = self.neighbor(position.category, key == Key::C);
+                position.row = 0;
+            }
+            _ => return None,
+        }
+        let width = self.row_names(position.category, position.row)?.len();
+        if matches!(action, InputAction::ClickColumn(_)) {
+            (position.col < width).then_some(position)
+        } else {
+            position.col = position.col.min(width - 1);
+            Some(position)
         }
     }
 
-    /// Vertical travel requires complete row counts along the connected path.
-    fn row_distance(&self, target: usize, target_row: usize, forward: bool) -> Option<usize> {
-        let columns = self.kind.list_columns();
-        let current = self.current?;
-        let (mut at, mut row, mut steps) = (current.category, current.position? / columns, 0);
-        for _ in 0..=self.categories.len() {
-            let category = &self.categories[at];
-            let rows = category.order.len().div_ceil(columns);
+    fn category_route(&self, from: Position, target: usize) -> Option<(usize, Key)> {
+        let count = self.catalog.categories.len();
+        if !self.kind.has_categories() || count < 2 {
+            return None;
+        }
+        if from.category == target {
+            return Some((2, Key::C));
+        }
+        let forward = (target + count - from.category) % count;
+        let backward = (from.category + count - target) % count;
+        Some(if backward < forward {
+            (backward, Key::Z)
+        } else {
+            (forward, Key::C)
+        })
+    }
+
+    fn row_distance(
+        &self,
+        current: Position,
+        target: usize,
+        target_row: usize,
+        forward: bool,
+    ) -> Option<usize> {
+        let (mut category, mut row, mut steps) = (current.category, current.row, 0);
+        for _ in 0..=self.catalog.categories.len() {
+            let rows = self.rows(category);
             if rows == 0 {
                 return None;
             }
-            if at == target
+            if category == target
                 && if forward {
                     target_row >= row
                 } else {
@@ -450,150 +331,53 @@ impl SearchCache<'_> {
                 return Some(steps + target_row.abs_diff(row));
             }
             steps += if forward { rows - row } else { row + 1 };
-            at = if category.circular {
-                at
-            } else if forward {
-                category.next?
-            } else {
-                category.previous?
-            };
+            category = self.neighbor(category, forward);
             row = if forward {
                 0
             } else {
-                self.categories[at]
-                    .order
-                    .len()
-                    .div_ceil(columns)
-                    .checked_sub(1)?
+                self.rows(category).checked_sub(1)?
             };
         }
         None
     }
 
-    pub fn is_complete(&self, category: usize) -> bool {
-        !self.categories[category].order.is_empty()
-    }
-
-    pub fn is_circular(&self, category: usize) -> bool {
-        self.categories[category].circular
-    }
-
-    pub fn target(
-        &self,
-        categories: impl IntoIterator<Item = usize>,
-        target: &TextSignature,
-    ) -> Option<Target> {
-        let ranking = rank_targets(self.categories, categories, target)?;
-        let (category, name) = ranking.best;
-        let margin = ranking.margin();
-        let accepted = ranking.accepts(NAME_MATCH_THRESHOLD);
-        if !accepted {
-            tracing::debug!(
-                category,
-                best_name = name,
-                best_cosine = ranking.score,
-                runner_up_cosine = ranking.runner_up,
-                margin,
-                match_threshold = NAME_MATCH_THRESHOLD,
-                required_margin = NAME_MATCH_MARGIN,
-                "equipment cache target rejected"
-            );
-        }
-        accepted.then_some(Target {
-            category,
-            name,
-            score: ranking.score,
-        })
-    }
-
-    pub fn take_order(&mut self, category: usize) -> Vec<Name> {
-        *self.dirty |= !self.categories[category].order.is_empty();
-        std::mem::take(&mut self.categories[category].order)
-    }
-
-    pub fn replace(
-        &mut self,
-        category: usize,
-        order: Vec<Name>,
-        position: Option<usize>,
-    ) -> Location {
+    pub fn next(&self, current: Position, target: Target) -> Option<InputAction> {
         let columns = self.kind.list_columns();
-        tracing::info!(
-            category,
-            slots = order.len(),
-            "complete equipment category cached"
-        );
-        self.categories[category].order = order;
-        *self.dirty = true;
-        if let Some(current) = &mut self.current
-            && current.category == category
-        {
-            let order = &self.categories[category].order;
-            current.position = position.filter(|&p| {
-                order.get(p) == Some(&current.name)
-                    && p % columns == current.col
-                    && order.len().saturating_sub(p - current.col).min(columns) == current.width
-            });
-            let mut occurrences = order
-                .iter()
-                .enumerate()
-                .filter_map(|(p, &n)| (n == current.name).then_some(p));
-            current.known = occurrences.next().filter(|_| occurrences.next().is_none());
-            current.previous = None;
-        }
-        self.current.unwrap()
-    }
-
-    pub fn next(&self, target: Target) -> Option<InputAction> {
-        let columns = self.kind.list_columns();
-        let current = self.current?;
-        // An unverified target-category position must be repaired, not routed.
-        // Other categories can still use Z/C or their observed real head.
-        if current.category == target.category && current.position.is_none() {
-            return None;
-        }
-        let category = &self.categories[target.category];
-        let last_row = category.order.len().div_ceil(columns).checked_sub(1)?;
-        let head = self.category_route(target.category);
-        // The real next-category head is enough to enter the target tail;
-        // its own old map may be absent or stale. Include that Up in the cost.
-        let tail = category.next.and_then(|next| {
-            if current.category == next && current.head {
-                Some((1, Key::Up))
-            } else {
-                self.category_route(next)
-                    .map(|(steps, key)| (steps + 1, key))
-            }
-        });
+        let category = self.catalog.categories.get(target.category)?;
+        let last_row = self.rows(target.category).checked_sub(1)?;
+        let head = self.category_route(current, target.category);
+        let after = self.neighbor(target.category, true);
+        let tail = if current.category == after && current.row == 0 {
+            Some((1, Key::Up))
+        } else {
+            self.category_route(current, after)
+                .map(|(steps, key)| (steps + 1, key))
+        };
         let mut best: Option<(usize, InputAction)> = None;
         let mut consider = |cost, action| {
-            if best.is_none_or(|(old_cost, _)| cost < old_cost) {
+            if best.is_none_or(|(old, _)| cost < old) {
                 best = Some((cost, action));
             }
         };
-        for (p, &name) in category.order.iter().enumerate() {
+        for (index, &name) in category.order.iter().enumerate() {
             if name != target.name {
                 continue;
             }
-            let (row, col) = (p / columns, p % columns);
-            // Prefer direct travel on ties. Only click after reaching the target row.
+            let (row, col) = (index / columns, index % columns);
+            // Prefer direct travel on ties and delay the final column click.
             for (forward, key) in [(true, Key::Down), (false, Key::Up)] {
-                if let Some(steps) = self.row_distance(target.category, row, forward) {
+                if let Some(steps) = self.row_distance(current, target.category, row, forward) {
                     if steps == 0 {
                         if col != current.col {
                             consider(1, InputAction::ClickColumn(col));
                         }
                     } else {
                         let direct = current.category == target.category
-                            && current.position.is_some_and(|p| {
-                                if forward {
-                                    row > p / columns
-                                } else {
-                                    row < p / columns
-                                }
-                            });
-                        // Crossing a short tail may reset the column. Budget one
-                        // final click; the real landing column is observed later.
+                            && if forward {
+                                row > current.row
+                            } else {
+                                row < current.row
+                            };
                         let click = usize::from(!direct || col != current.col);
                         consider(steps + click, InputAction::Key(key));
                     }
@@ -606,17 +390,6 @@ impl SearchCache<'_> {
                 consider(steps + last_row - row + 1, InputAction::Key(key));
             }
         }
-        let (cost, action) = best?;
-        tracing::debug!(
-            action = action.name(),
-            column = action.column(),
-            category = current.category,
-            observed_position = current.position,
-            target_category = target.category,
-            target_name = target.name,
-            estimated_inputs = cost,
-            "using cached equipment route"
-        );
-        Some(action)
+        best.map(|(_, action)| action)
     }
 }

@@ -194,6 +194,7 @@ export component PanelButton inherits Rectangle {
 
 export component IconButton inherits Rectangle {
     in property <string> label;
+    in property <string> tooltip: root.label;
     in property <string> icon;
     in property <bool> outlined;
     in property <bool> checkable;
@@ -240,7 +241,7 @@ export component IconButton inherits Rectangle {
         // Disabled icons still consume clicks over a clickable parent.
         mouse-cursor: root.enabled ? pointer : default;
         clicked => { if (root.enabled) { keys.focus(); root.clicked(); } }
-        Tooltip { text: @markdown("\{root.label}"); }
+        Tooltip { text: @markdown("\{root.tooltip}"); }
     }
 }
 
@@ -370,6 +371,58 @@ export component DeletePresetDialog inherits Rectangle {
                 spacing: 10px;
                 cancel-button := PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled; clicked => { root.cancel(); } }
                 PanelButton { min-width: 86px; text: @tr("Delete"); accent: true; enabled: root.enabled; clicked => { root.confirm(root.skip-confirmation); } }
+            }
+        }
+    }
+}
+
+export component ScanConfirmationDialog inherits Rectangle {
+    in property <int> count;
+    in property <bool> enabled;
+    callback confirm();
+    callback cancel();
+    forward-focus: keys;
+    public function focus-dialog() { cancel-button.focus(); }
+    background: Theme.surface;
+    border-color: Theme.border-strong;
+    border-width: 1px;
+    border-radius: 8px;
+    TouchArea { }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.cancel(); return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            padding: 22px;
+            spacing: 16px;
+            Text { text: @tr("Build item cache"); color: Theme.text; font-size: 21px; }
+            Text {
+                text: @tr("Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets.", root.count);
+                color: Theme.text-secondary;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-stretch: 0;
+            }
+            HorizontalLayout {
+                height: 32px;
+                alignment: end;
+                spacing: 10px;
+                cancel-button := PanelButton {
+                    min-width: 86px;
+                    text: @tr("Cancel");
+                    filled: true;
+                    enabled: root.enabled;
+                    clicked => { root.cancel(); }
+                }
+                PanelButton {
+                    min-width: 110px;
+                    text: @tr("Build cache and apply");
+                    accent: true;
+                    enabled: root.enabled;
+                    clicked => { root.confirm(); }
+                }
             }
         }
     }

@@ -335,6 +335,75 @@ msgstr "В этой сборке устанавливайте обновлени
 msgid "Check for updates automatically"
 msgstr "Автоматически проверять обновления"
 
+# Item scanning.
+msgid "Item cache"
+msgstr "Кэш предметов"
+
+msgid "All items"
+msgstr "Все предметы"
+
+msgid "Stratagems"
+msgstr "Стратагемы"
+
+msgid "Scan"
+msgstr "Сканировать"
+
+msgid "Item scan"
+msgstr "Сканирование предметов"
+
+msgid "Open the panel to stop scanning."
+msgstr "Откройте панель, чтобы остановить сканирование."
+
+# Item editing.
+msgid "Edit loadout"
+msgstr "Изменить комплект"
+
+msgid "Randomize Stratagems & Booster"
+msgstr "Выбрать стратагемы и усилитель случайно"
+
+msgid "Offensive"
+msgstr "Атакующая"
+
+msgid "Supply"
+msgstr "Снабжения"
+
+msgid "Defensive"
+msgstr "Защитная"
+
+msgid "Clear"
+msgstr "Очистить"
+
+msgid "Loading…"
+msgstr "Загрузка…"
+
+msgid "No items available."
+msgstr "Нет доступных предметов."
+
+msgid "Save changes"
+msgstr "Сохранить изменения"
+
+msgid "Randomize equipment"
+msgstr "Выбрать снаряжение случайно"
+
+msgid "Scan missing items"
+msgstr "Дополнить списки предметов"
+
+msgid "Capture from game"
+msgstr "Сохранить из игры"
+
+msgid "Apply to game"
+msgstr "Применить в игре"
+
+msgid "Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets."
+msgstr "При первом использовании нужные списки предметов ({}) будут просканированы и сохранены в кэш. Это может занять время; при последующих применениях сканирование не потребуется."
+
+# Item-list confirmation.
+msgid "Build item cache"
+msgstr "Создать кэш предметов"
+
+msgid "Build cache and apply"
+msgstr "Создать кэш и применить"
+
 # Tray.
 msgid "Exit"
 msgstr "Выход"

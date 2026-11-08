@@ -63,6 +63,10 @@ impl SemanticImage {
         (self.center_x, self.center_y)
     }
 
+    pub(super) fn pixels(&self) -> &[[f32; 2]] {
+        &self.pixels
+    }
+
     pub(crate) fn secondary_response_u8(&self) -> Vec<u8> {
         self.pixels
             .iter()
@@ -118,7 +122,15 @@ pub fn prepare_template(
     let domain = CanonicalDomain::new(domain);
     let basis = TemplateBasis::new(template, template_physical_size);
     let mut residuals = env_candidates.iter().map(|candidate| {
-        register(&basis, &domain, candidate, candidate_physical_size, false).residual
+        register(
+            &basis,
+            &domain,
+            candidate,
+            candidate_physical_size,
+            false,
+            false,
+        )
+        .residual
     });
     let first = residuals
         .next()
@@ -141,6 +153,24 @@ pub fn compare(
     candidate: &SemanticImage,
     candidate_physical_size: f32,
 ) -> Result<MatchResult> {
+    compare_profile(template, candidate, candidate_physical_size, false)
+}
+
+/// Associate selected list icons with their brighter home samples during scanning.
+pub(super) fn compare_scanned(
+    template: &PreparedTemplate,
+    candidate: &SemanticImage,
+    candidate_physical_size: f32,
+) -> Result<MatchResult> {
+    compare_profile(template, candidate, candidate_physical_size, true)
+}
+
+fn compare_profile(
+    template: &PreparedTemplate,
+    candidate: &SemanticImage,
+    candidate_physical_size: f32,
+    normalize_brightness: bool,
+) -> Result<MatchResult> {
     ensure!(
         candidate_physical_size > 0.0,
         "candidate physical icon size must be positive"
@@ -151,6 +181,7 @@ pub fn compare(
         candidate,
         candidate_physical_size,
         template.absorb_cw_difference,
+        normalize_brightness,
     );
     let verification = verify(&registration.residual, &template.envelope, &template.domain);
     let white_evidence = registration.residual.white.evidence();
@@ -377,8 +408,15 @@ fn register(
     candidate: &SemanticImage,
     candidate_physical_size: f32,
     absorb_cw_difference: bool,
+    normalize_brightness: bool,
 ) -> Registration {
-    let mut search = AlignmentSearch::new(template, domain, candidate, candidate_physical_size);
+    let mut search = AlignmentSearch::new(
+        template,
+        domain,
+        candidate,
+        candidate_physical_size,
+        normalize_brightness,
+    );
     let stage1 = search_grid(&mut search, 0.0, 0.0, 0.9, None);
     let stage2 = search_grid(&mut search, stage1.qx, stage1.qy, 0.45, Some(stage1));
     let (best3, samples) = search_third_stage(&mut search, stage2.qx, stage2.qy);
@@ -397,7 +435,7 @@ fn register(
 
     let actual = search.actual_coordinate(selected.qx, selected.qy);
     let mut remapped = remap(candidate, candidate_physical_size, actual.0, actual.1);
-    let gains = if absorb_cw_difference {
+    let gains = if absorb_cw_difference || normalize_brightness {
         let expected_native = render_to_raster(
             &template.source,
             template.source_physical_size,
@@ -412,7 +450,11 @@ fn register(
             actual.0,
             actual.1,
         );
-        absorb_cw_difference_gain(&expected, &mut remapped)
+        if normalize_brightness {
+            fit_common_brightness(&expected, &mut remapped)
+        } else {
+            absorb_cw_difference_gain(&expected, &mut remapped)
+        }
     } else {
         SemanticGains::IDENTITY
     };
@@ -445,6 +487,7 @@ struct AlignmentSearch<'a> {
     domain: &'a CanonicalDomain,
     candidate: &'a SemanticImage,
     candidate_physical_size: f32,
+    normalize_brightness: bool,
     cache: Vec<CacheEntry>,
 }
 
@@ -454,12 +497,14 @@ impl<'a> AlignmentSearch<'a> {
         domain: &'a CanonicalDomain,
         candidate: &'a SemanticImage,
         candidate_physical_size: f32,
+        normalize_brightness: bool,
     ) -> Self {
         Self {
             template,
             domain,
             candidate,
             candidate_physical_size,
+            normalize_brightness,
             cache: Vec::with_capacity(26),
         }
     }
@@ -472,7 +517,10 @@ impl<'a> AlignmentSearch<'a> {
             return entry.objective;
         }
 
-        let remapped = remap(self.candidate, self.candidate_physical_size, qx, qy);
+        let mut remapped = remap(self.candidate, self.candidate_physical_size, qx, qy);
+        if self.normalize_brightness {
+            fit_common_brightness(&self.template.image, &mut remapped);
+        }
         let objective = global_residual(
             &self.template.image.white,
             &remapped.white,
@@ -675,6 +723,33 @@ pub(super) fn render_to_raster(
         center_x: target_center_x,
         center_y: target_center_y,
         pixels,
+    }
+}
+
+fn fit_common_brightness(
+    expected: &CanonicalImage,
+    observed: &mut CanonicalImage,
+) -> SemanticGains {
+    let (cross, energy) = expected
+        .class
+        .iter()
+        .chain(&expected.white)
+        .zip(observed.class.iter().chain(&observed.white))
+        .fold((0.0, 0.0), |(cross, energy), (&expected, &observed)| {
+            let expected = expected as f64;
+            (
+                cross + expected * observed as f64,
+                energy + expected * expected,
+            )
+        });
+    let gain = cross / energy.max(COLOR_GAIN_EPS);
+    let gain = if gain > COLOR_GAIN_EPS { gain } else { 1.0 };
+    for value in observed.class.iter_mut().chain(&mut observed.white) {
+        *value = (*value as f64 / gain).clamp(0.0, 1.0) as f32;
+    }
+    SemanticGains {
+        white: gain,
+        class: gain,
     }
 }
 

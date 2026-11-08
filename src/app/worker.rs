@@ -5,31 +5,43 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use tracing::{debug, error, info_span};
+use tracing::{debug, error, info_span, warn};
 
+use super::GameAction;
 use super::failure::save_failure_report;
+#[cfg(feature = "diagnostics")]
+use super::failure::save_scan_diagnostics;
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::app_paths::AppPaths;
 use crate::capture::CaptureSessionManager;
-use crate::item::EquipmentKind;
-use crate::loadout::equipment::EquipmentCache;
-use crate::preset::preview::{self, PresetPreview};
-use crate::preset_action::{
-    PresetActionContext, PresetActionOptions, PresetActionOutcome, PresetCommand, execute_preset,
+use crate::item_cache::{
+    CachedChoices, ItemCache,
+    preview::{ItemCandidates, item_candidates},
 };
-use crate::vision::{RecognizerRuntime, equipment::EquipmentObserver};
+use crate::preset::{
+    PresetScope,
+    preview::{self, PresetPreview},
+};
+use crate::preset_action::{PresetActionContext, PresetActionOutcome, execute_preset};
+use crate::scan::{self, ScanProgress, ScanSummary};
+use crate::vision::RecognizerRuntime;
 use crate::window::{WindowIdentity, WindowTarget};
 
 pub(super) enum Work {
     Prepare(WindowIdentity),
     Discard,
-    LoadPreviews {
-        client_size: Option<(u32, u32)>,
+    LoadPreviews,
+    CheckPreset {
+        preset: String,
+        scope: PresetScope,
+    },
+    LoadItemCandidates,
+    SaveItemChoices {
+        preset: String,
+        choices: Box<CachedChoices>,
     },
     Run {
-        preset: String,
-        command: PresetCommand,
-        settings: PresetActionOptions,
+        action: GameAction,
         target: WindowIdentity,
     },
     Shutdown,
@@ -37,8 +49,21 @@ pub(super) enum Work {
 
 pub(super) enum WorkerEvent {
     Progress(AppEvent),
-    Finished { saved: bool },
+    ScanProgress(ScanProgress),
+    Finished(WorkCompletion),
     PreviewsLoaded(std::result::Result<BTreeMap<String, PresetPreview>, String>),
+    PresetChecked(std::result::Result<usize, String>),
+    ItemCandidatesLoaded(std::result::Result<ItemCandidates, String>),
+    ItemChoicesSaved {
+        preset: String,
+        result: std::result::Result<(), String>,
+    },
+}
+
+pub(super) enum WorkCompletion {
+    Preset(std::result::Result<PresetActionOutcome, String>),
+    Scan(std::result::Result<ScanSummary, String>),
+    ScanCancelled,
 }
 
 pub(super) struct ActionWorker {
@@ -68,11 +93,11 @@ impl ActionWorker {
                     let _ = progress.send(WorkerEvent::Progress(event));
                 });
                 let mut capture_session = CaptureSessionManager::new();
-                let cache_path = paths.presets.with_file_name("equipment-cache.json");
-                let mut equipment_cache = EquipmentCache::load(&cache_path);
+                let cache_path = paths.presets.with_file_name("item-cache.json");
+                let mut item_cache = ItemCache::load(&cache_path);
                 while let Ok(mut command) = receiver.recv() {
-                    // Only the latest pending preparation hint matters. A Run or
-                    // Shutdown command is a boundary and is never coalesced away.
+                    // Only the latest pending preparation hint matters. Other
+                    // commands are boundaries and are never coalesced away.
                     while matches!(command, Work::Prepare(_) | Work::Discard) {
                         match receiver.try_recv() {
                             Ok(next) => command = next,
@@ -82,38 +107,91 @@ impl ActionWorker {
                     match command {
                         Work::Prepare(target) => prepare_capture(&mut capture_session, target),
                         Work::Discard => capture_session.cancel_prepare(),
-                        Work::LoadPreviews { client_size } => {
-                            let previews = load_previews(&paths.presets, &equipment_cache, client_size)
+                        Work::LoadPreviews => {
+                            let previews = load_previews(&paths.presets, &item_cache)
                                 .map_err(|error| format!("{error:#}"));
                             if event_tx.send(WorkerEvent::PreviewsLoaded(previews)).is_err() { break; }
                         }
+                        Work::LoadItemCandidates => {
+                            let result = item_candidates(&item_cache)
+                                .map_err(|error| format!("{error:#}"));
+                            if event_tx.send(WorkerEvent::ItemCandidatesLoaded(result)).is_err() { break; }
+                        }
+                        Work::CheckPreset { preset, scope } => {
+                            let result = crate::preset::uncached_type_count(&paths.presets, &preset, scope, &item_cache)
+                                .map_err(|error| format!("{error:#}"));
+                            if event_tx.send(WorkerEvent::PresetChecked(result)).is_err() { break; }
+                        }
+                        Work::SaveItemChoices { preset, choices } => {
+                            let result = crate::preset::save_cached(
+                                &paths.presets, &preset, &item_cache, &choices,
+                            ).map_err(|error| format!("{error:#}"));
+                            if let Err(error) = &result {
+                                warn!(%preset, %error, "could not save selected items");
+                            }
+                            if event_tx.send(WorkerEvent::ItemChoicesSaved { preset, result }).is_err() { break; }
+                        }
                         Work::Shutdown => break,
-                        Work::Run { preset, command, settings, target } => {
-                            let span = info_span!("preset_action", %preset, ?command);
+                        Work::Run { action, target } => {
+                            let span = info_span!("game_action", ?action);
                             let _guard = span.enter();
                             let evidence = crate::evidence::OperationEvidence::new();
-                            let mut context = PresetActionContext {
-                                presets: &paths.presets,
-                                options: settings,
-                                events: &sink,
-                                equipment_cache: &mut equipment_cache,
-                                evidence: &evidence,
-                            };
                             let start = Instant::now();
-                            let outcome = execute_preset(&runtime, &mut context, &preset, command, &mut capture_session, target);
-                            if let Err(error) = &outcome {
-                                let message = format!("{error:#}");
-                                error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
-                                sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message });
-                            }
+                            let completion = match &action {
+                                GameAction::Preset { preset, command, options } => {
+                                    let mut context = PresetActionContext {
+                                        presets: &paths.presets,
+                                        options: *options,
+                                        events: &sink,
+                                        item_cache: &mut item_cache,
+                                        evidence: &evidence,
+                                    };
+                                    let outcome = execute_preset(&runtime, &mut context, preset, *command, &mut capture_session, target);
+                                    if let Err(error) = &outcome {
+                                        let message = format!("{error:#}");
+                                        error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
+                                        sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message });
+                                        save_failure_report(&paths.last_failure, &action, error, Some(&evidence));
+                                    }
+                                    if let Err(error) = item_cache.save_if_changed(&cache_path) {
+                                        warn!(error = %format!("{error:#}"), "could not save learned item cache");
+                                    }
+                                    WorkCompletion::Preset(outcome.map_err(|error| format!("{error:#}")))
+                                }
+                                GameAction::Scan { scope, cancel } => {
+                                    let progress = event_tx.clone();
+                                    #[cfg(feature = "diagnostics")]
+                                    let mut diagnostics = crate::loadout::equipment::ScanDiagnostics::default();
+                                    let result = scan::execute(
+                                        &runtime, &mut item_cache, &cache_path, &mut capture_session,
+                                        target, *scope, cancel,
+                                        move |event| { let _ = progress.send(WorkerEvent::ScanProgress(event)); },
+                                        &evidence,
+                                        #[cfg(feature = "diagnostics")]
+                                        &mut diagnostics,
+                                    );
+                                    let cancelled = result.is_err() && cancel.is_cancelled();
+                                    if !cancelled && let Err(error) = &result {
+                                        error!(elapsed_s = start.elapsed().as_secs_f64(), error = %format!("{error:#}"), "item scan failed");
+                                        save_failure_report(&paths.last_failure, &action, error, Some(&evidence));
+                                    }
+                                    #[cfg(feature = "diagnostics")]
+                                    if !diagnostics.is_empty() {
+                                        save_scan_diagnostics(
+                                            &paths.last_failure.with_file_name("last_scan.zip"),
+                                            &action, result.as_ref().err(), &evidence, &diagnostics,
+                                        );
+                                    }
+                                    if cancelled {
+                                        WorkCompletion::ScanCancelled
+                                    } else {
+                                        WorkCompletion::Scan(result.map_err(|error| format!("{error:#}")))
+                                    }
+                                }
+                            };
                             capture_session.finish_action();
-                            if let Err(error) = &outcome {
-                                save_failure_report(&paths.last_failure, &preset, command, error, Some(&evidence));
-                            }
-                            equipment_cache.save_if_changed(&cache_path);
-                            let saved = matches!(&outcome, Ok(PresetActionOutcome::Saved));
                             // Completion follows all progress on the same FIFO channel.
-                            if event_tx.send(WorkerEvent::Finished { saved }).is_err() { break; }
+                            if event_tx.send(WorkerEvent::Finished(completion)).is_err() { break; }
                         }
                     }
                 }
@@ -150,24 +228,15 @@ impl Drop for ActionWorker {
     }
 }
 
-fn load_previews(
-    path: &Path,
-    cache: &EquipmentCache,
-    client_size: Option<(u32, u32)>,
-) -> Result<BTreeMap<String, PresetPreview>> {
-    let scale = client_size
-        .and_then(|(w, h)| EquipmentObserver::resolve(w, h, EquipmentKind::Helmet).ok())
-        .map(|(_, roi)| roi.geometry.scale);
+fn load_previews(path: &Path, cache: &ItemCache) -> Result<BTreeMap<String, PresetPreview>> {
     Ok(preview::load(path)?
         .map(|(name, mut loaded)| {
             if !loaded.equipment_names.is_empty() {
-                loaded.preview.equipment_cache_matches = scale.map(|scale| {
+                loaded.preview.equipment_cache_matches = Some({
                     loaded
                         .equipment_names
                         .iter()
-                        .filter(|(kind, sample)| {
-                            cache.has_strong_match(*kind, scale, sample.signature())
-                        })
+                        .filter(|(kind, sample)| cache.has_strong_match(*kind, sample.signature()))
                         .count()
                 });
             }

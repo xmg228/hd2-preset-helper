@@ -6,16 +6,13 @@ mod stratagems;
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail};
 use tracing::{debug, info};
 
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::capture::CaptureSessionManager;
-use crate::game_settings::read_color_settings;
-use crate::game_window::wait_for_foreground_game_window;
 use crate::item::EquipmentSelection;
 use crate::loadout::pages::{Page, show_page};
-use crate::permissions;
 use crate::preset::PresetScope;
 use crate::vision::RecognizerRuntime;
 
@@ -47,7 +44,7 @@ pub(crate) struct PresetActionContext<'a> {
     pub presets: &'a Path,
     pub options: PresetActionOptions,
     pub events: &'a AppEventSink,
-    pub equipment_cache: &'a mut crate::loadout::equipment::EquipmentCache,
+    pub item_cache: &'a mut crate::item_cache::ItemCache,
     pub evidence: &'a crate::evidence::OperationEvidence,
 }
 
@@ -84,26 +81,16 @@ pub fn execute_preset(
     };
     debug!(resolved_command = ?command, "preset action scope resolved");
 
-    let game_window =
-        wait_for_foreground_game_window().context("failed to locate Helldivers window")?;
-    ensure!(
-        expected_window == game_window.identity(),
-        "the game window changed before the action started; try again"
-    );
-    permissions::ensure_input_access()?;
-    let (client_w, client_h) = game_window.client_size();
-    debug!(client_w, client_h, "game window ready");
-
     let capture_start = Instant::now();
-    let capture = capture_session
-        .acquire(&game_window)
-        .context("failed to get capture session")?;
+    let prepared = crate::automation::prepare_game(capture_session, expected_window)?;
+    let game_window = prepared.target;
+    let capture = prepared.source;
+    let game_color_settings = prepared.colors;
+    let (client_w, client_h) = game_window.client_size();
     debug!(
         elapsed_s = capture_start.elapsed().as_secs_f64(),
         "capture session ready"
     );
-    let game_color_settings =
-        read_color_settings().context("failed to read Helldivers color settings")?;
     context.evidence.record(
         "action-context",
         None,
@@ -130,6 +117,7 @@ pub fn execute_preset(
                 game_color_settings,
                 Page::Stratagems,
                 context.evidence,
+                None,
             )?;
             stratagems::execute(
                 runtime,
@@ -149,6 +137,7 @@ pub fn execute_preset(
                 game_color_settings,
                 Page::Equipment,
                 context.evidence,
+                None,
             )?;
             equipment::execute(
                 capture,

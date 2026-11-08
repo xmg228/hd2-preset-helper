@@ -1,13 +1,25 @@
-//! Scrollbar evidence for the shared Stratagem/Booster ROI, independent of navigation.
+//! Scrollbar evidence, independent of navigation.
 use image::RgbaImage;
 use serde::Serialize;
 
 use super::RoiGeometry;
 
-// Reference ROI coordinates. Sample inside the 7 px wide thumb, not its edges.
-const CENTER_X: f64 = 413.5;
-const TRACK_TOP: f64 = 87.0;
-const TRACK_BOTTOM: f64 = 615.0;
+/// Reference ROI coordinates of the track center and yellow cap endpoints.
+#[derive(Clone, Copy)]
+pub(super) struct Track {
+    pub center_x: f64,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+impl Track {
+    pub const STRATAGEMS: Self = Self {
+        center_x: 413.5,
+        top: 87.0,
+        bottom: 615.0,
+    };
+}
+
 const CAP_HEIGHT: f64 = 2.0;
 const YELLOW_NOISE_FLOOR: f64 = 16.0;
 const CAP_RESPONSE_THRESHOLD: f64 = 40.0;
@@ -36,15 +48,20 @@ struct Cap {
 }
 
 /// Missing or ambiguous evidence is unknown, including lists with no scrollbar.
-pub(super) fn detect(image: &RgbaImage, geometry: RoiGeometry) -> Option<ScrollbarObservation> {
+pub(super) fn detect(
+    image: &RgbaImage,
+    geometry: RoiGeometry,
+    track: Track,
+) -> Option<ScrollbarObservation> {
     let scale = geometry.scale;
     if !scale.is_finite() || scale <= 0.0 {
         return None;
     }
-    let left = (geometry.logical_origin_x + (CENTER_X - 1.5) * scale).floor();
-    let right = (geometry.logical_origin_x + (CENTER_X + 1.5) * scale).ceil();
-    let top = geometry.logical_origin_y + TRACK_TOP * scale;
-    let bottom = geometry.logical_origin_y + TRACK_BOTTOM * scale;
+    // Sample inside the 7 px wide thumb, not its edges.
+    let left = (geometry.logical_origin_x + (track.center_x - 1.5) * scale).floor();
+    let right = (geometry.logical_origin_x + (track.center_x + 1.5) * scale).ceil();
+    let top = geometry.logical_origin_y + track.top * scale;
+    let bottom = geometry.logical_origin_y + track.bottom * scale;
     let first = (top - 3.0 * scale).floor();
     let last = (bottom + 3.0 * scale).ceil();
     if left < 0.0 || first < 0.0 || right > image.width() as f64 || last > image.height() as f64 {
@@ -118,7 +135,7 @@ pub(super) fn detect(image: &RgbaImage, geometry: RoiGeometry) -> Option<Scrollb
         upper_y: upper.center as f32,
         lower_y: lower.center as f32,
         length_ratio: ((lower.center - upper.center + CAP_HEIGHT * scale)
-            / ((TRACK_BOTTOM - TRACK_TOP + CAP_HEIGHT) * scale))
+            / ((track.bottom - track.top + CAP_HEIGHT) * scale))
             .min(1.0) as f32,
         at_top: (upper.center - top).abs() <= ENDPOINT_TOLERANCE_PX,
         at_bottom: (lower.center - bottom).abs() <= ENDPOINT_TOLERANCE_PX,

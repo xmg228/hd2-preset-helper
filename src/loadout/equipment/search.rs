@@ -1,23 +1,28 @@
-//! Search policy: complete cold scan, verified cached routing, bounded local repair.
-use anyhow::{Context, Result, ensure};
+//! Verify cached routes; uncertain observations get a bounded refresh or row probe.
+use anyhow::{Result, ensure};
 use serde::Serialize;
 
 use super::{
     EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation,
-    cache::{Location, SearchCache, Target},
-    survey::{Step, Survey},
+    cache::{CachedList, Position, Target},
+    row::{RowScan, RowStep},
 };
-use crate::{input::Key, vision::equipment::EquipmentObservation};
+use crate::{
+    input::Key,
+    item::EquipmentKind,
+    item_cache::EquipmentCatalog,
+    vision::{equipment::EquipmentObservation, text::TextTemplate},
+};
 
 const MAX_VISITS: usize = 1024;
+const MAX_REOBSERVATIONS: usize = 2;
+const MAX_PROBE_ROWS: usize = 3;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Phase {
-    Category,
-    Scan,
     Cached,
-    Repair,
+    Locating,
 }
 
 #[derive(Clone, Serialize)]
@@ -32,57 +37,52 @@ pub(super) struct Visit {
 }
 
 pub(super) enum Next {
+    Observe,
     Input(InputAction),
     Found,
-    NotFound,
+    Rebuild,
 }
 
-enum CategorySearch {
-    Preferred,
-    All { searched: Vec<usize> },
-    Target(Target),
+#[derive(Default)]
+struct RowProbe {
+    row: Option<(usize, RowScan<TextTemplate>)>,
+    candidates: Option<Vec<Position>>,
+    completed: usize,
+    resampled: bool,
 }
 
 pub(super) struct Search<'a> {
     target: &'a EquipmentItem,
-    cache: SearchCache<'a>,
-    category_search: CategorySearch,
-    category_origin: Option<usize>,
-    survey: Option<Survey>,
-    phase: Phase,
-    expected_col: Option<usize>,
+    list: CachedList<'a>,
+    selected: Option<Target>,
+    position: Option<Position>,
+    expected: Option<Position>,
+    probe: Option<RowProbe>,
+    reobservations: usize,
     visits: usize,
 }
 
 impl<'a> Search<'a> {
-    pub fn new(target: &'a EquipmentItem, cache: SearchCache<'a>) -> Self {
-        let prefer_category = cache.kind.has_categories() && target.category.is_some();
+    pub fn new(
+        kind: EquipmentKind,
+        target: &'a EquipmentItem,
+        catalog: &'a EquipmentCatalog,
+        position: Option<Position>,
+    ) -> Self {
+        let list = CachedList::new(kind, catalog);
+        let selected = list.target(target.name.signature());
         Self {
             target,
-            cache,
-            category_search: if prefer_category {
-                CategorySearch::Preferred
-            } else {
-                CategorySearch::All {
-                    searched: Vec::new(),
-                }
-            },
-            category_origin: None,
-            survey: None,
-            phase: Phase::Cached,
-            expected_col: None,
+            list,
+            selected,
+            position: None,
+            expected: position,
+            probe: None,
+            reobservations: 0,
             visits: 0,
         }
     }
 
-    /// Active cache work, keyed by category so presentation changes only on transitions.
-    pub fn caching(&self) -> Option<(usize, bool)> {
-        self.survey
-            .as_ref()
-            .map(|survey| (survey.category, matches!(self.phase, Phase::Repair)))
-    }
-
-    /// Once per confirmed navigation, not per capture frame. Category hover is synchronized by the caller.
     pub fn advance(
         &mut self,
         page: &EquipmentObservation,
@@ -90,265 +90,182 @@ impl<'a> Search<'a> {
     ) -> Result<(Visit, Next)> {
         ensure!(
             self.visits < MAX_VISITS,
-            "search exceeded {MAX_VISITS} observations without finding the target or completing all categories"
+            "cached equipment navigation exceeded {MAX_VISITS} observations"
         );
-        ensure!(page.ready(), "search requires a visible focus and name");
-        let focus = &page.slots[page.focus.context("search focus missing")?];
-        if let Some(expected) = self.expected_col.take() {
-            ensure!(
-                focus.col == expected,
-                "search expected column {expected}, observed {}; traversal stopped",
-                focus.col
-            );
-        }
-        let location = self.cache.observe(page, navigation)?;
         self.visits += 1;
-        let score = page.name.cosine(&self.target.name);
-        let category_cosine = self
-            .target
-            .category
-            .as_ref()
-            .map(|title| title.cosine(&page.category));
-        let same_category = self
-            .target
-            .category
-            .as_ref()
-            .is_none_or(|title| self.cache.category_hint(title) == Some(location.category));
-        let next = self.next(navigation, location, score, same_category)?;
-        if let Next::Input(InputAction::ClickColumn(col)) = next {
-            self.expected_col = Some(col);
+        if let Some(input) = navigation {
+            self.reobservations = 0;
+            if input.retried {
+                self.position = None;
+                self.expected = None;
+                self.probe = None;
+            } else if self.probe.is_none() {
+                self.expected = self
+                    .position
+                    .and_then(|position| self.list.predict(position, input.action));
+                self.position = None;
+            }
         }
+        ensure!(
+            page.ready() || self.reobservations < MAX_REOBSERVATIONS,
+            "equipment page remained unreadable while locating the cached focus"
+        );
+        let score = page.name.cosine(&self.target.name);
+        let next = self.next(page, score);
+        let focus = page.focus.and_then(|index| page.slots.get(index));
+        let visit = Visit {
+            index: self.visits,
+            phase: if self.probe.is_some() || self.position.is_none() {
+                Phase::Locating
+            } else {
+                Phase::Cached
+            },
+            row: focus.map_or(0, |slot| slot.row),
+            col: focus.map_or(0, |slot| slot.col),
+            columns: focus.map_or(0, |focus| {
+                page.slots
+                    .iter()
+                    .filter(|slot| slot.row == focus.row)
+                    .count()
+            }),
+            target_cosine: score,
+            category_cosine: self
+                .target
+                .category
+                .as_ref()
+                .map(|title| page.category.cosine(title)),
+        };
         tracing::debug!(
             visit = self.visits,
-            phase = ?self.phase,
-            category = location.category,
-            row = focus.row,
-            col = focus.col,
-            observed_position = location.position,
+            phase = ?visit.phase,
+            position = ?self.position,
             target_cosine = score,
-            category_cosine,
-            next = match next {
-                Next::Input(action) => action.name(),
-                Next::Found => "found",
-                Next::NotFound => "not_found",
-            },
-            column = match next { Next::Input(action) => action.column(), _ => None },
-            "equipment search observation"
+            next = match next { Next::Observe => "observe", Next::Input(action) => action.name(), Next::Found => "found", Next::Rebuild => "rebuild" },
+            "cached equipment observation"
         );
-        Ok((
-            Visit {
-                index: self.visits,
-                phase: self.phase,
-                row: focus.row,
-                col: focus.col,
-                columns: location.width,
-                target_cosine: score,
-                category_cosine,
-            },
-            next,
-        ))
+        Ok((visit, next))
     }
 
-    fn next(
-        &mut self,
-        mut navigation: Option<Navigation>,
-        mut location: Location,
-        score: f32,
-        same_category: bool,
-    ) -> Result<Next> {
-        // A strong name match can override a stale category hint immediately.
-        if self.visits == 1
-            && score >= NAME_IDENTITY_THRESHOLD
-            && (!self.cache.is_complete(location.category)
-                || self
-                    .cache
-                    .target([location.category], self.target.name.signature())
-                    .is_some_and(|target| target.name == location.name))
-        {
-            return Ok(Next::Found);
+    fn next(&mut self, page: &EquipmentObservation, score: f32) -> Next {
+        if !page.ready() {
+            return self.reobserve().unwrap_or(Next::Rebuild);
         }
-        if self.visits == 1 {
-            // A reliable cached identity outranks the saved category hint.
-            self.select_target(self.cache.category_indices(), false);
+        // An already focused strong live match needs no cache navigation.
+        if self.visits == 1 && score >= NAME_IDENTITY_THRESHOLD {
+            return Next::Found;
         }
-        loop {
-            if let Some(survey) = &mut self.survey {
-                let category = survey.category;
-                let step = survey.advance(location, navigation.take());
-                match step {
-                    Step::Input(action) => return Ok(Next::Input(action)),
-                    Step::Complete { order, position } => {
-                        location = self.cache.replace(category, order, position);
-                        self.survey = None;
-                        let single_category =
-                            !self.cache.kind.has_categories() || self.cache.is_circular(category);
-                        let accept_weak = single_category
-                            || matches!(self.category_search, CategorySearch::Target(_));
-                        if !self.select_target([category], accept_weak) {
-                            if single_category {
-                                return Ok(Next::NotFound);
-                            }
-                            self.search_all_categories();
-                            if let CategorySearch::All { searched } = &mut self.category_search {
-                                searched.push(category);
-                            }
-                            // A completed scan may already have crossed into the next category.
-                            if location.category == category {
-                                self.phase = Phase::Category;
-                                return Ok(Next::Input(InputAction::Key(Key::C)));
-                            }
-                        }
-                    }
-                    Step::Rebuild => {
-                        self.survey = None;
-                        self.cache.take_order(category);
-                        // Crossing during a retry can leave this category incomplete.
-                        // Start a fresh pass rather than treating a later revisit as closure.
-                        if location.category != category
-                            && let CategorySearch::All { searched } = &mut self.category_search
-                        {
-                            searched.clear();
-                        }
-                        tracing::info!(
-                            category,
-                            "equipment continuity lost; restarting category scan"
-                        );
-                    }
-                }
-                continue;
-            }
-            match &mut self.category_search {
-                CategorySearch::Preferred if !same_category => {
-                    if self.category_origin == Some(location.category) {
-                        self.search_all_categories();
-                        continue;
-                    }
-                    self.category_origin.get_or_insert(location.category);
-                    let key = self
-                        .target
-                        .category
-                        .as_ref()
-                        .and_then(|title| self.cache.category_hint(title))
-                        .and_then(|category| self.cache.category_key(category));
-                    self.phase = Phase::Category;
-                    return Ok(Next::Input(InputAction::Key(key.unwrap_or(Key::C))));
-                }
-                CategorySearch::All { searched } if searched.contains(&location.category) => {
-                    // Weak matches are compared across the whole pass, never first-come-first-served.
-                    let categories = searched.clone();
-                    if !self.select_target(categories, true) {
-                        return Ok(Next::NotFound);
-                    }
-                    continue;
-                }
-                CategorySearch::Target(target) if target.category != location.category => {
-                    if navigation.is_none_or(|n| !n.retried)
-                        && let Some(action) = self.cache.next(*target)
-                    {
-                        // Cached travel can stay in or revisit a category.
-                        // The category-loop guard only belongs to blind Z/C exploration.
-                        self.category_origin = None;
-                        self.phase = Phase::Cached;
-                        return Ok(Next::Input(action));
-                    }
-                    if self.category_origin == Some(location.category) {
-                        // Cached category navigation looped; fall back to live exploration.
-                        self.cache.take_order(target.category);
-                        self.search_all_categories();
-                        continue;
-                    }
-                    self.category_origin.get_or_insert(location.category);
-                    self.phase = Phase::Category;
-                    let key = self.cache.category_key(target.category).unwrap_or(Key::C);
-                    return Ok(Next::Input(InputAction::Key(key)));
-                }
-                _ => self.category_origin = None,
-            }
-            if let CategorySearch::Target(target) = self.category_search {
-                if location.position.is_some() && navigation.is_none_or(|n| !n.retried) {
-                    return self.route(location, target, score);
-                }
-            } else if self.select_target([location.category], !self.cache.kind.has_categories()) {
-                continue;
-            }
-            let old = self.cache.take_order(location.category);
-            self.survey = Some(
-                if matches!(self.category_search, CategorySearch::Target(_))
-                    && !old.is_empty()
-                    && navigation.is_none_or(|n| !n.retried)
-                {
-                    self.phase = Phase::Repair;
-                    tracing::info!(
-                        category = location.category,
-                        mode = "repair",
-                        known_slots = old.len(),
-                        "equipment category survey started"
-                    );
-                    Survey::repair(location, self.cache.kind.list_columns(), old)
-                } else {
-                    self.phase = Phase::Scan;
-                    tracing::info!(
-                        category = location.category,
-                        mode = "build",
-                        "equipment category survey started"
-                    );
-                    Survey::build(location, self.cache.kind.list_columns())
-                },
-            );
-            navigation = None;
+        if self.selected.is_none() {
+            return Next::Rebuild;
         }
-    }
-
-    /// Weak candidates need a completed comparison, or a target already chosen before repair.
-    fn select_target(
-        &mut self,
-        categories: impl IntoIterator<Item = usize>,
-        accept_weak: bool,
-    ) -> bool {
-        let Some(target) = self
-            .cache
-            .target(categories, self.target.name.signature())
-            .filter(|target| accept_weak || target.score >= NAME_IDENTITY_THRESHOLD)
-        else {
-            return false;
+        if self.probe.is_some() {
+            return self.probe_row(page, score);
+        }
+        let located = match self.expected.or(self.position) {
+            Some(position) => self.list.matches(position, page).then_some(position),
+            None => self.list.locate(page),
         };
-        self.category_search = CategorySearch::Target(target);
-        self.category_origin = None;
-        true
-    }
-
-    fn search_all_categories(&mut self) {
-        if !matches!(self.category_search, CategorySearch::All { .. }) {
-            tracing::info!("equipment category hint was insufficient; searching all categories");
-            self.category_search = CategorySearch::All {
-                searched: Vec::new(),
-            };
-            self.category_origin = None;
+        if let Some(position) = located {
+            self.position = Some(position);
+            self.expected = None;
+            return self.route(score);
         }
+        if let Some(next) = self.reobserve() {
+            return next;
+        }
+        self.probe = Some(RowProbe::default());
+        self.probe_row(page, score)
     }
 
-    fn route(&mut self, location: Location, target: Target, score: f32) -> Result<Next> {
-        self.phase = Phase::Cached;
-        if location.name == target.name {
-            if score < NAME_MATCH_THRESHOLD {
-                tracing::debug!(
-                    category = location.category,
-                    name = location.name,
-                    position = location.position,
-                    target_cosine = score,
-                    match_threshold = NAME_MATCH_THRESHOLD,
-                    "mapped equipment target rejected"
-                );
+    fn reobserve(&mut self) -> Option<Next> {
+        if self.reobservations >= MAX_REOBSERVATIONS {
+            return None;
+        }
+        self.reobservations += 1;
+        Some(Next::Observe)
+    }
+
+    fn probe_row(&mut self, page: &EquipmentObservation, score: f32) -> Next {
+        let focus = &page.slots[page.focus.unwrap()];
+        let col = focus.col;
+        let width = page
+            .slots
+            .iter()
+            .filter(|slot| slot.row == focus.row)
+            .count();
+        let probe = self.probe.as_mut().unwrap();
+        let (landing_col, sampling) = probe
+            .row
+            .get_or_insert_with(|| (col, RowScan::new(width, col)));
+        let names = match sampling.advance(width, col, page.name.to_template()) {
+            Ok(RowStep::Column(col)) => return Next::Input(InputAction::ClickColumn(col)),
+            Ok(RowStep::Complete(names)) => names,
+            Err(()) => return Next::Rebuild,
+        };
+        let mut positions = self.list.locate_row(&page.category, &names, col);
+        if let Some(candidates) = &probe.candidates {
+            positions.retain(|position| {
+                candidates.iter().any(|candidate| {
+                    candidate.category == position.category && candidate.row == position.row
+                })
+            });
+        }
+        if positions.len() == 1 {
+            let position = positions[0];
+            if self.expected.is_some_and(|expected| {
+                expected.category != position.category || expected.row != position.row
+            }) {
+                return Next::Rebuild;
             }
-            ensure!(
-                score >= NAME_MATCH_THRESHOLD,
-                "mapped equipment target did not match its saved name"
-            );
-            return Ok(Next::Found);
+            self.position = Some(position);
+            self.expected = None;
+            self.probe = None;
+            self.reobservations = 0;
+            return self.route(score);
         }
-        self.cache
-            .next(target)
-            .map(Next::Input)
-            .context("equipment map could not locate the confirmed focus")
+        // The landing observation triggered this probe and may be its only stale
+        // sample. Re-read it once after the other columns, before rebuilding.
+        if positions.is_empty() && !probe.resampled {
+            probe.resampled = true;
+            return if col == *landing_col {
+                Next::Observe
+            } else {
+                Next::Input(InputAction::ClickColumn(*landing_col))
+            };
+        }
+        probe.completed += 1;
+        if positions.is_empty() || probe.completed >= MAX_PROBE_ROWS {
+            return Next::Rebuild;
+        }
+        let action = InputAction::Key(Key::Down);
+        probe.candidates = Some(
+            positions
+                .into_iter()
+                .filter_map(|position| self.list.predict(position, action))
+                .collect(),
+        );
+        probe.row = None;
+        probe.resampled = false;
+        self.expected = self.expected.and_then(|mut position| {
+            position.col = col;
+            self.list.predict(position, action)
+        });
+        Next::Input(action)
+    }
+
+    fn route(&mut self, score: f32) -> Next {
+        let position = self.position.unwrap();
+        let target = self.selected.unwrap();
+        if self.list.is_target(position, target) {
+            if score >= NAME_MATCH_THRESHOLD {
+                Next::Found
+            } else {
+                self.reobserve().unwrap_or(Next::Rebuild)
+            }
+        } else {
+            self.list
+                .next(position, target)
+                .map(Next::Input)
+                .unwrap_or(Next::Rebuild)
+        }
     }
 }

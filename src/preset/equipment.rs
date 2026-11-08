@@ -2,63 +2,101 @@
 use std::path::Path;
 
 use super::{
+    Preset,
+    images::NewImages,
     load_template_image,
     model::{SavedEquipment, SavedItem},
     storage,
 };
 use crate::{
     item::{EquipmentKind, EquipmentSelection},
+    item_cache::{EquipmentChoice, EquipmentItem, EquipmentSet, ItemCache},
     vision::{
-        equipment::{EquipmentObserver, EquipmentText},
-        text::TextSample,
+        equipment::{
+            CapturedEquipmentItem, CapturedEquipmentSet, EquipmentObserver, EquipmentText,
+        },
+        text::{TextSample, TextTemplate},
     },
 };
 use anyhow::{Context, Result, ensure};
 
-pub(crate) struct EquipmentItem {
-    pub name: TextSample,
-    pub category: Option<TextSample>,
-    pub client_size: (u32, u32),
+pub(crate) fn save(path: &Path, name: &str, items: &CapturedEquipmentSet) -> Result<()> {
+    super::validate_id(name)?;
+    storage::edit_images(path, name, "equipment", |record, images| {
+        write_items(record, images, items)
+    })
 }
 
-pub(crate) type EquipmentSet = [Option<EquipmentItem>; 6];
-
-pub(crate) fn save(path: &Path, name: &str, items: &EquipmentSet) -> Result<()> {
-    super::validate_id(name)?;
+fn write_items(
+    record: &mut Preset,
+    images: &mut NewImages,
+    items: &CapturedEquipmentSet,
+) -> Result<()> {
     let client_size = items
         .iter()
         .flatten()
         .next()
         .context("no equipment items were sampled")?
         .client_size;
-    storage::edit_images(path, name, "equipment", |record, images| {
-        let saved = record.equipment.get_or_insert_with(|| SavedEquipment {
-            client_size,
-            items: std::array::from_fn(|_| None),
+    let saved = record.equipment.get_or_insert_with(|| SavedEquipment {
+        client_size,
+        items: std::array::from_fn(|_| None),
+    });
+    if items.iter().all(Option::is_some) {
+        saved.client_size = client_size;
+    }
+    for (index, item) in items.iter().enumerate() {
+        let Some(item) = item else {
+            continue;
+        };
+        saved.items[index] = Some(SavedItem {
+            name: images.save(&format!("{}-name", index + 1), &item.name.image)?,
+            name_client_size: (item.client_size != saved.client_size).then_some(item.client_size),
+            category: item
+                .category
+                .as_ref()
+                .map(|category| images.save(&format!("{}-category", index + 1), &category.image))
+                .transpose()?,
+            category_client_size: None,
         });
-        if items.iter().all(Option::is_some) {
-            saved.client_size = client_size;
-        }
-        for (index, item) in items.iter().enumerate() {
-            let Some(item) = item else {
-                continue;
-            };
-            saved.items[index] = Some(SavedItem {
-                name: images.save(&format!("{}-name", index + 1), &item.name.image)?,
-                name_client_size: (item.client_size != saved.client_size)
-                    .then_some(item.client_size),
-                category: item
-                    .category
-                    .as_ref()
-                    .map(|category| {
-                        images.save(&format!("{}-category", index + 1), &category.image)
-                    })
-                    .transpose()?,
-                category_client_size: None,
-            });
-        }
-        Ok(())
-    })
+    }
+    Ok(())
+}
+
+/// Copy selected catalog samples into a preset, keeping all other items unchanged.
+pub(super) fn write_cached(
+    record: &mut Preset,
+    images: &mut NewImages,
+    cache: &ItemCache,
+    choices: &[Option<EquipmentChoice>; 6],
+) -> Result<()> {
+    let mut items: CapturedEquipmentSet = std::array::from_fn(|_| None);
+    for kind in EquipmentKind::ALL {
+        let Some(choice) = choices[kind.index()] else {
+            continue;
+        };
+        let catalog = cache.equipment[kind.index()]
+            .as_ref()
+            .with_context(|| format!("{} catalog is not available", kind.label()))?;
+        let category = catalog
+            .categories
+            .get(choice.category)
+            .context("selected equipment category is not available")?;
+        let sample = category
+            .names
+            .get(choice.name)
+            .filter(|_| category.order.contains(&choice.name))
+            .context("selected equipment item is not available")?;
+        items[kind.index()] = Some(CapturedEquipmentItem {
+            name: sample.clone(),
+            category: Some(category.title.clone()),
+            client_size: catalog.client_size,
+        });
+    }
+    if items.iter().all(Option::is_none) {
+        return Ok(());
+    }
+    write_items(record, images, &items)
 }
 
 /// Repair only the category hint of a successfully applied item; keep its name template.
@@ -89,9 +127,11 @@ pub(crate) fn update_category(
 
 pub(crate) fn load(path: &Path, name: &str, selection: EquipmentSelection) -> Result<EquipmentSet> {
     let file = storage::load(path)?;
-    let saved = file.get(name)?.equipment.as_ref().with_context(|| {
-        format!("equipment preset {name} has not been saved; use Save preset in the panel first")
-    })?;
+    let saved = file
+        .get(name)?
+        .equipment
+        .as_ref()
+        .with_context(|| format!("equipment preset {name} has not been saved"))?;
     let mut items = std::array::from_fn(|_| None);
     for kind in selection.iter() {
         let Some(source) = &saved.items[kind.index()] else {
@@ -123,7 +163,7 @@ pub(super) fn load_text(
     relative: &str,
     client_size: (u32, u32),
     field: EquipmentText,
-) -> Result<TextSample> {
+) -> Result<TextTemplate> {
     let (observer, _) =
         EquipmentObserver::resolve(client_size.0, client_size.1, EquipmentKind::Helmet)?;
     let (rect, geometry) = observer.text_region(field);
@@ -132,5 +172,5 @@ pub(super) fn load_text(
         image.dimensions() == (rect.w, rect.h),
         "equipment template {relative} does not match its saved capture geometry; save it again"
     );
-    Ok(TextSample::extract(image, geometry))
+    Ok(TextSample::extract(image, geometry).into_template())
 }

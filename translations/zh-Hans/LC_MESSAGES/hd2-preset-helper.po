@@ -335,6 +335,75 @@ msgstr "此构建请手动安装更新。"
 msgid "Check for updates automatically"
 msgstr "自动检查更新"
 
+# Item scanning.
+msgid "Item cache"
+msgstr "物品缓存"
+
+msgid "All items"
+msgstr "全部物品"
+
+msgid "Stratagems"
+msgstr "战略配备"
+
+msgid "Scan"
+msgstr "扫描"
+
+msgid "Item scan"
+msgstr "物品扫描"
+
+msgid "Open the panel to stop scanning."
+msgstr "打开面板可停止扫描。"
+
+# Item editing.
+msgid "Edit loadout"
+msgstr "编辑配装"
+
+msgid "Randomize Stratagems & Booster"
+msgstr "随机战略配备与强化资源"
+
+msgid "Offensive"
+msgstr "进攻"
+
+msgid "Supply"
+msgstr "补给"
+
+msgid "Defensive"
+msgstr "防御"
+
+msgid "Clear"
+msgstr "清除"
+
+msgid "Loading…"
+msgstr "正在加载…"
+
+msgid "No items available."
+msgstr "暂无可选物品。"
+
+msgid "Save changes"
+msgstr "保存更改"
+
+msgid "Randomize equipment"
+msgstr "随机装备"
+
+msgid "Scan missing items"
+msgstr "补齐物品列表"
+
+msgid "Capture from game"
+msgstr "记录游戏配装"
+
+msgid "Apply to game"
+msgstr "应用到游戏"
+
+msgid "Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets."
+msgstr "首次使用需扫描 {} 类物品并建立缓存，可能耗时较长。后续应用会复用缓存，无需每次扫描。"
+
+# Item-list confirmation.
+msgid "Build item cache"
+msgstr "建立物品缓存"
+
+msgid "Build cache and apply"
+msgstr "建立缓存并应用"
+
 # Tray.
 msgid "Exit"
 msgstr "退出"

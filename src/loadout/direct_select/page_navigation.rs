@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -7,8 +8,9 @@ use tracing::{debug, debug_span, trace, warn};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::vision::{
-    ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind, SlotLayout,
-    TemplateClassifier, TemplateMatchCandidate,
+    ImageSample, ItemAvailability, LIST_ICON_SIZE_LOGICAL, RecognizerSession, RoiObservation, Slot,
+    SlotKind, SlotLayout, TemplateClassifier, TemplateMatchCandidate, crop_icon_sample,
+    icon_alignment_response,
 };
 
 use super::ScrollDirection;
@@ -38,12 +40,13 @@ pub(super) struct SlotSample {
     pub(super) center_x: f32,
     pub(super) center_y: f32,
     pub(super) response: Vec<u8>,
+    pub(super) native: Option<Arc<ImageSample>>,
 }
 
 pub(super) struct PageNavigator {
     recognizer: RecognizerSession,
     item_kind: ItemKind,
-    classifier: TemplateClassifier,
+    classifier: Option<TemplateClassifier>,
 }
 
 pub(super) enum PageTurnResult {
@@ -54,6 +57,7 @@ pub(super) enum PageTurnResult {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum PageTurnInput {
     Full(ScrollDirection),
+    Scan(ScrollDirection),
     Retry(ScrollDirection),
     Recovery(ScrollDirection),
 }
@@ -61,7 +65,10 @@ pub(super) enum PageTurnInput {
 impl PageTurnInput {
     pub(super) const fn direction(self) -> ScrollDirection {
         match self {
-            Self::Full(direction) | Self::Retry(direction) | Self::Recovery(direction) => direction,
+            Self::Full(direction)
+            | Self::Scan(direction)
+            | Self::Retry(direction)
+            | Self::Recovery(direction) => direction,
         }
     }
 
@@ -72,6 +79,7 @@ impl PageTurnInput {
     fn scroll_notches(self) -> i32 {
         let magnitude = match self {
             Self::Full(_) => PAGE_SCROLL_NOTCHES,
+            Self::Scan(_) => 2,
             Self::Retry(_) => PAGE_RETRY_NOTCHES,
             Self::Recovery(_) => PAGE_ALIGNMENT_RECOVERY_NOTCHES,
         };
@@ -91,7 +99,15 @@ impl PageNavigator {
         Self {
             recognizer,
             item_kind,
-            classifier,
+            classifier: Some(classifier),
+        }
+    }
+
+    pub(super) fn for_scan(recognizer: RecognizerSession, item_kind: ItemKind) -> Self {
+        Self {
+            recognizer,
+            item_kind,
+            classifier: None,
         }
     }
 
@@ -107,9 +123,11 @@ impl PageNavigator {
         &self,
         image: &RgbaImage,
         slot: &Slot,
-        item_id: &str,
     ) -> Result<ItemAvailability> {
-        self.classifier.item_availability(image, slot, item_id)
+        self.classifier
+            .as_ref()
+            .context("item availability requires a target classifier")?
+            .item_availability(image, slot)
     }
 
     pub(super) fn turn_page(
@@ -269,23 +287,31 @@ impl PageNavigator {
         &self,
         image: crate::capture::CapturedFrame,
     ) -> Result<PageSnapshot> {
-        let mut roi = self
+        let roi = self
             .recognizer
             .detect(image, SlotLayout::List(self.item_kind))?;
+        self.prepare_page(roi)
+    }
+
+    pub(super) fn prepare_page(&self, mut roi: RoiObservation) -> Result<PageSnapshot> {
         if self.item_kind == ItemKind::Booster {
-            // Only the initially opened page is known to be at the top. Later
-            // pages let the temporary map identify the global no-booster cell.
             for slot in &mut roi.slots {
                 if slot.kind == SlotKind::NoBoosterOption {
                     slot.kind = SlotKind::Booster;
                 }
             }
+            if roi.scrollbar.is_none_or(|bar| bar.at_top)
+                && let Some(slot) = roi.slots.iter_mut().min_by_key(|slot| (slot.row, slot.col))
+                && slot.col == 0
+            {
+                slot.kind = SlotKind::NoBoosterOption;
+            }
         }
-        self.prepare_page(roi)
-    }
-
-    pub(super) fn prepare_page(&self, mut roi: RoiObservation) -> Result<PageSnapshot> {
-        let match_candidates = self.classifier.classify_batch(&mut roi)?;
+        let match_candidates = match &self.classifier {
+            Some(classifier) => classifier.classify_batch(&mut roi)?,
+            None => Vec::new(),
+        };
+        let physical_size = LIST_ICON_SIZE_LOGICAL * self.recognizer.ui_scale();
         let slot_samples = roi
             .slots
             .iter()
@@ -296,19 +322,20 @@ impl PageNavigator {
             })
             .map(|slot| -> Result<_> {
                 let core = slot.core_rect();
-                let response = if slot.kind == SlotKind::NoBoosterOption {
-                    vec![0; (core.w * core.h) as usize]
+                let (response, native) = if slot.kind == SlotKind::NoBoosterOption {
+                    (vec![0; (core.w * core.h) as usize], None)
                 } else {
-                    self.classifier
-                        .alignment_response(&roi.image, slot)
-                        .with_context(|| {
+                    let sample = crop_icon_sample(self.item_kind, &roi.image, slot, physical_size)?;
+                    let response =
+                        icon_alignment_response(self.item_kind, &sample).with_context(|| {
                             format!(
                                 "failed to sample {} slot row {} col {} for map alignment",
                                 self.item_kind.label(),
                                 slot.row,
                                 slot.col
                             )
-                        })?
+                        })?;
+                    (response, Some(Arc::new(sample)))
                 };
                 let (center_x, center_y) = slot.center_f32();
                 Ok(SlotSample {
@@ -320,6 +347,7 @@ impl PageNavigator {
                     center_x: center_x - core.x as f32,
                     center_y: center_y - core.y as f32,
                     response,
+                    native,
                 })
             })
             .collect::<Result<Vec<_>>>()?;

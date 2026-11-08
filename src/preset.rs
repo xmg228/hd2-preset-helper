@@ -7,6 +7,7 @@ pub(crate) mod preview;
 mod storage;
 pub(crate) mod stratagems;
 
+use crate::item_cache::{CachedChoices, IconChoice, ItemCache};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::{
@@ -95,6 +96,26 @@ pub(crate) fn validate_id(id: &str) -> Result<()> {
     model::validate_id(id, "preset_")
 }
 
+/// Commit an edited loadout and its images together, keeping untouched slots intact.
+pub(crate) fn save_cached(
+    path: &Path,
+    id: &str,
+    cache: &ItemCache,
+    choices: &CachedChoices,
+) -> Result<()> {
+    validate_id(id)?;
+    storage::edit_images(path, id, "", |record, images| {
+        if choices
+            .stratagems
+            .iter()
+            .any(|choice| *choice != IconChoice::Keep)
+        {
+            stratagems::write_cached(path, id, cache, &choices.stratagems, record, images)?;
+        }
+        equipment::write_cached(record, images, cache, &choices.equipment)
+    })
+}
+
 pub fn saved_sections(
     path: &Path,
     id: &str,
@@ -110,6 +131,36 @@ pub fn saved_sections(
                 .any(|kind| equipment.items[kind.index()].is_some())
         }),
     ))
+}
+
+/// Count selected, saved item types that do not yet have a complete list.
+pub(crate) fn uncached_type_count(
+    path: &Path,
+    id: &str,
+    scope: PresetScope,
+    cache: &ItemCache,
+) -> Result<usize> {
+    let library = storage::load(path)?;
+    let preset = library.get(id)?;
+    let mut count = 0;
+    if scope.stratagems
+        && let Some(stratagems) = &preset.stratagems
+    {
+        count += usize::from(cache.stratagems.is_none());
+        count += usize::from(stratagems.booster.is_some() && cache.boosters.is_none());
+    }
+    if scope.equipment
+        && let Some(equipment) = &preset.equipment
+    {
+        count += scope
+            .equipment_items
+            .iter()
+            .filter(|kind| {
+                equipment.items[kind.index()].is_some() && cache.equipment[kind.index()].is_none()
+            })
+            .count();
+    }
+    Ok(count)
 }
 
 pub(crate) fn add(path: &Path) -> Result<(String, LibraryMetadata)> {

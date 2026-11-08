@@ -335,6 +335,75 @@ msgstr "W tej kompilacji instaluj aktualizacje ręcznie."
 msgid "Check for updates automatically"
 msgstr "Automatycznie sprawdzaj aktualizacje"
 
+# Item scanning.
+msgid "Item cache"
+msgstr "Pamięć przedmiotów"
+
+msgid "All items"
+msgstr "Wszystkie przedmioty"
+
+msgid "Stratagems"
+msgstr "Manewry"
+
+msgid "Scan"
+msgstr "Skanuj"
+
+msgid "Item scan"
+msgstr "Skanowanie przedmiotów"
+
+msgid "Open the panel to stop scanning."
+msgstr "Otwórz panel, aby zatrzymać skanowanie."
+
+# Item editing.
+msgid "Edit loadout"
+msgstr "Edytuj zestaw"
+
+msgid "Randomize Stratagems & Booster"
+msgstr "Losuj fortele i dopalacz"
+
+msgid "Offensive"
+msgstr "Ofensywny"
+
+msgid "Supply"
+msgstr "Zaopatrzeniowy"
+
+msgid "Defensive"
+msgstr "Defensywny"
+
+msgid "Clear"
+msgstr "Wyczyść"
+
+msgid "Loading…"
+msgstr "Ładowanie…"
+
+msgid "No items available."
+msgstr "Brak dostępnych przedmiotów."
+
+msgid "Save changes"
+msgstr "Zapisz zmiany"
+
+msgid "Randomize equipment"
+msgstr "Losuj wyposażenie"
+
+msgid "Scan missing items"
+msgstr "Uzupełnij listy przedmiotów"
+
+msgid "Capture from game"
+msgstr "Zapisz z gry"
+
+msgid "Apply to game"
+msgstr "Zastosuj w grze"
+
+msgid "Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets."
+msgstr "Pierwsze użycie wymaga przeskanowania list przedmiotów ({}) i zapisania ich w pamięci podręcznej. Może to chwilę potrwać; kolejne zastosowania użyją zapisanych danych."
+
+# Item-list confirmation.
+msgid "Build item cache"
+msgstr "Utwórz pamięć podręczną"
+
+msgid "Build cache and apply"
+msgstr "Utwórz pamięć podręczną i zastosuj"
+
 # Tray.
 msgid "Exit"
 msgstr "Zakończ"

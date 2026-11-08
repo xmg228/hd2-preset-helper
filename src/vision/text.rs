@@ -1,16 +1,65 @@
+use std::ops::Deref;
 use std::sync::OnceLock;
 
 use fast_image_resize::{
     FilterType, ResizeAlg, ResizeOptions, Resizer, images::TypedImage, pixels::F32,
 };
-use image::{GrayImage, RgbaImage};
-use serde::Serialize;
+use image::{GrayImage, Rgba, RgbaImage};
+use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
+
+pub(crate) fn render_text(sample: &TextTemplate) -> RgbaImage {
+    let foreground = sample.foreground();
+    let (width, height) = foreground.dimensions();
+    // Keep the captured extent; presentation scales by height and clips overflow.
+    // Use response as alpha only, so strokes are not dimmed twice.
+    RgbaImage::from_fn(width, height, |x, y| {
+        Rgba([255, 255, 255, foreground.get_pixel(x, y)[0]])
+    })
+}
+
+/// Display-only crop of a centered heading. Identity keeps the complete text region.
+pub(crate) fn render_category(sample: &TextTemplate) -> RgbaImage {
+    let image = render_text(sample);
+    let (width, height) = image.dimensions();
+    let mut projection = vec![0u32; width as usize];
+    for (x, _, pixel) in image.enumerate_pixels() {
+        projection[x as usize] += pixel[3] as u32;
+    }
+    let threshold = projection.iter().copied().max().unwrap_or(0) as f32 * 0.03;
+    let columns = projection
+        .iter()
+        .enumerate()
+        .filter_map(|(x, &value)| (value as f32 > threshold).then_some(x))
+        .collect::<Vec<_>>();
+    let gap = (height as f32 * 0.5).round_ties_even() as usize;
+    let center = (width / 2) as usize;
+    let group = columns
+        .chunk_by(|a, b| b - a - 1 <= gap)
+        .min_by_key(|group| {
+            let distance = group[0]
+                .saturating_sub(center)
+                .max(center.saturating_sub(group[group.len() - 1]));
+            (
+                distance,
+                Reverse(group.iter().map(|&x| projection[x]).sum::<u32>()),
+            )
+        });
+    let Some(group) = group else {
+        return RgbaImage::new(0, 0);
+    };
+    let padding = (height as f32 * 0.1).round_ties_even().max(2.0) as u32;
+    let left = (group[0] as u32).saturating_sub(padding);
+    let right = (group[group.len() - 1] as u32 + 1 + padding).min(width);
+    image::imageops::crop_imm(&image, left, 0, right - left, height).to_image()
+}
 
 const WHITE_SEED_MIN: u8 = 200;
-const TEXT_CHROMA_MAX: u8 = 5;
+const WHITE_SEED_CHROMA_MAX: u8 = 5;
+const TEXT_CHROMA_MAX: u8 = 10;
 
 /// Continuous logical text region inside its integer native crop.
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub(crate) struct TextGeometry {
     pub logical_size: (u32, u32),
     pub crop_offset: [f64; 2],
@@ -21,9 +70,24 @@ pub(crate) struct TextGeometry {
 #[derive(Clone)]
 pub(crate) struct TextSample {
     pub image: RgbaImage,
+    template: TextTemplate,
+}
+
+/// Native foreground and its sampling geometry, shared by captures and stored templates.
+#[derive(Clone)]
+pub(crate) struct TextTemplate {
     pub response: Vec<f32>,
     pub geometry: TextGeometry,
+    size: (u32, u32),
     signature: OnceLock<TextSignature>,
+}
+
+impl Deref for TextSample {
+    type Target = TextTemplate;
+
+    fn deref(&self) -> &Self::Target {
+        &self.template
+    }
 }
 
 /// Foreground on the fixed logical grid, independent of capture resolution.
@@ -34,29 +98,6 @@ pub(crate) struct TextSignature {
 }
 
 impl TextSignature {
-    pub fn from_foreground(image: GrayImage) -> Self {
-        Self {
-            size: image.dimensions(),
-            response: image
-                .into_raw()
-                .into_iter()
-                .map(|p| p as f32 / 255.0)
-                .collect(),
-        }
-    }
-
-    pub fn foreground(&self) -> GrayImage {
-        GrayImage::from_raw(
-            self.size.0,
-            self.size.1,
-            self.response
-                .iter()
-                .map(|p| (p * 255.0).round() as u8)
-                .collect(),
-        )
-        .unwrap()
-    }
-
     pub fn cosine(&self, other: &Self) -> f32 {
         if self.size != other.size {
             return 0.0;
@@ -65,7 +106,7 @@ impl TextSignature {
     }
 }
 
-impl TextSample {
+impl TextTemplate {
     pub fn signature(&self) -> &TextSignature {
         self.signature.get_or_init(|| {
             let TextGeometry {
@@ -73,7 +114,7 @@ impl TextSample {
                 crop_offset: [x, y],
                 scale,
             } = self.geometry;
-            let (width, height) = self.image.dimensions();
+            let (width, height) = self.size;
             if size == (width, height) && scale == 1.0 && x == 0.0 && y == 0.0 {
                 return TextSignature {
                     size,
@@ -107,6 +148,70 @@ impl TextSample {
         })
     }
 
+    /// Item/category identity, including samples captured at other resolutions.
+    pub fn cosine(&self, other: &Self) -> f32 {
+        self.signature().cosine(other.signature())
+    }
+
+    pub fn native_cosine(&self, other: &Self) -> f32 {
+        if self.size != other.size {
+            return 0.0;
+        }
+        response_cosine(&self.response, &other.response)
+    }
+
+    pub fn foreground(&self) -> GrayImage {
+        GrayImage::from_raw(
+            self.size.0,
+            self.size.1,
+            self.response
+                .iter()
+                .map(|v| (v * 255.0).round() as u8)
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    pub fn has_text(&self) -> bool {
+        self.response.iter().any(|&v| v > 0.0)
+    }
+}
+
+impl TextSample {
+    pub fn from_image(image: RgbaImage, geometry: TextGeometry) -> anyhow::Result<Self> {
+        let size = image.dimensions();
+        anyhow::ensure!(
+            size.0 > 0
+                && size.1 > 0
+                && geometry.scale.is_finite()
+                && geometry.scale > 0.0
+                && geometry.logical_size.0 > 0
+                && geometry.logical_size.1 > 0
+                && geometry.logical_size.0 <= 4096
+                && geometry.logical_size.1 <= 512
+                && geometry
+                    .crop_offset
+                    .iter()
+                    .all(|v| v.is_finite() && *v >= 0.0)
+                && geometry.crop_offset[0] < size.0 as f64
+                && geometry.crop_offset[1] < size.1 as f64
+                && geometry.crop_offset[0] + geometry.logical_size.0 as f64 * geometry.scale
+                    <= size.0 as f64 + 1e-6
+                && geometry.crop_offset[1] + geometry.logical_size.1 as f64 * geometry.scale
+                    <= size.1 as f64 + 1e-6,
+            "text image contains invalid sampling geometry"
+        );
+        Ok(Self::extract(image, geometry))
+    }
+
+    pub fn to_template(&self) -> TextTemplate {
+        self.template.clone()
+    }
+
+    pub fn into_template(self) -> TextTemplate {
+        self.template
+    }
+
     pub fn extract(image: RgbaImage, geometry: TextGeometry) -> Self {
         let width = image.width() as i32;
         let height = image.height() as i32;
@@ -138,7 +243,8 @@ impl TextSample {
         for (index, pixel) in image.pixels().enumerate() {
             let low = pixel[0].min(pixel[1]).min(pixel[2]);
             let high = pixel[0].max(pixel[1]).max(pixel[2]);
-            if background[index] || low < 100 || high - low > TEXT_CHROMA_MAX {
+            let chroma = high - low;
+            if background[index] || low < 100 || chroma >= TEXT_CHROMA_MAX {
                 continue;
             }
             let (x, y) = (index as i32 % width, index as i32 / width);
@@ -155,8 +261,11 @@ impl TextSample {
                 })
             });
             allowed[index] = supported;
-            seeds[index] = bright[index] && low >= WHITE_SEED_MIN;
-            intensity[index] = (low as f32 - 100.0) / 155.0;
+            seeds[index] =
+                bright[index] && low >= WHITE_SEED_MIN && chroma <= WHITE_SEED_CHROMA_MAX;
+            // Small channel changes attenuate a stroke rather than removing it abruptly.
+            let neutrality = 1.0 - chroma as f32 / TEXT_CHROMA_MAX as f32;
+            intensity[index] = (low as f32 - 100.0) / 155.0 * neutrality;
         }
         let mut response = vec![0.0; luma.len()];
         for pixels in connected(&allowed, width as usize, true) {
@@ -167,40 +276,14 @@ impl TextSample {
             }
         }
         Self {
+            template: TextTemplate {
+                size: image.dimensions(),
+                response,
+                geometry,
+                signature: OnceLock::new(),
+            },
             image,
-            response,
-            geometry,
-            signature: OnceLock::new(),
         }
-    }
-
-    /// Item/category identity, including saved templates and caches from other resolutions.
-    pub fn cosine(&self, other: &Self) -> f32 {
-        self.signature().cosine(other.signature())
-    }
-
-    /// Frame-to-frame change at one resolution; no resampling needed.
-    pub fn native_cosine(&self, other: &Self) -> f32 {
-        if self.image.dimensions() != other.image.dimensions() {
-            return 0.0;
-        }
-        response_cosine(&self.response, &other.response)
-    }
-
-    pub fn foreground(&self) -> GrayImage {
-        GrayImage::from_raw(
-            self.image.width(),
-            self.image.height(),
-            self.response
-                .iter()
-                .map(|value| (value * 255.0).round() as u8)
-                .collect(),
-        )
-        .unwrap()
-    }
-
-    pub fn has_text(&self) -> bool {
-        self.response.iter().any(|&value| value > 0.0)
     }
 }
 

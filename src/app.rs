@@ -16,8 +16,9 @@ use crate::app_paths::AppPaths;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
 use crate::preset::PresetScope;
 use crate::preset_action::{PresetActionOptions, PresetCommand};
+use crate::scan::{ScanCancellation, ScanScope};
 use crate::{game_window, input, platform, ui};
-use worker::{ActionWorker, Work, WorkerEvent};
+use worker::{ActionWorker, Work, WorkCompletion, WorkerEvent};
 
 const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const ACTIVATION_CONFIRM_TIMEOUT: Duration = Duration::from_millis(200);
@@ -89,7 +90,7 @@ pub fn run() -> Result<Option<PathBuf>> {
         if loaded.legacy_hotkeys {
             platform::show_notice(
                 "HD2 Preset Helper - Configuration Updated",
-                &format!("Your preset shortcuts were preserved and now APPLY saved presets only.\r\n\r\nTo save, open the panel and use Save preset or Ctrl+S. Modifier keys alone no longer open the panel.\r\n\r\nPanel shortcut: {}\r\nYou can change or clear each shortcut in Settings > Shortcuts. Saved presets were not changed.",
+                &format!("Your preset shortcuts were preserved and now APPLY saved presets only.\r\n\r\nTo save, open the panel and use Capture from game. Modifier keys alone no longer open the panel.\r\n\r\nPanel shortcut: {}\r\nYou can change or clear each shortcut in Settings > Shortcuts. Saved presets were not changed.",
                     if config.ui.panel_shortcut.is_empty() { "Unassigned (use the tray)" } else { &config.ui.panel_shortcut }),
             );
         }
@@ -180,22 +181,72 @@ fn run_with_config(
     })
 }
 
-enum ActionState {
-    Idle,
-    Waiting {
-        target: crate::window::WindowIdentity,
-        hotkey_id: Option<i32>,
+#[derive(Clone)]
+pub(super) enum GameAction {
+    Preset {
         preset: String,
         command: PresetCommand,
+        options: PresetActionOptions,
+    },
+    Scan {
+        scope: ScanScope,
+        cancel: ScanCancellation,
+    },
+}
+
+impl std::fmt::Debug for GameAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preset {
+                preset, command, ..
+            } => f
+                .debug_struct("Preset")
+                .field("preset", preset)
+                .field("command", command)
+                .finish(),
+            Self::Scan { scope, .. } => f.debug_tuple("Scan").field(scope).finish(),
+        }
+    }
+}
+
+impl GameAction {
+    fn report(&self) -> serde_json::Value {
+        match self {
+            Self::Preset {
+                preset, command, ..
+            } => serde_json::json!({
+                "kind": "preset", "preset": preset, "command": format!("{command:?}"),
+            }),
+            Self::Scan { scope, .. } => serde_json::json!({
+                "kind": "scan", "scope": format!("{scope:?}"),
+            }),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct PendingAction {
+    action: GameAction,
+    target: crate::window::WindowIdentity,
+    hotkey_id: Option<i32>,
+    from_panel: bool,
+}
+
+enum ActionState {
+    Idle,
+    Checking(Option<PendingAction>),
+    Confirming(PendingAction),
+    Waiting {
+        request: PendingAction,
         deadline: Instant,
     },
     Activating {
-        target: crate::window::WindowIdentity,
-        preset: String,
-        command: PresetCommand,
+        request: PendingAction,
         started: Instant,
     },
-    Running,
+    Running {
+        scan_cancel: Option<ScanCancellation>,
+    },
 }
 
 struct AppController {
@@ -225,11 +276,16 @@ impl AppController {
         }
         let game_active = game_window::is_game_foreground();
         let panel_active = self.ui.is_panel_active();
-        let shortcuts_enabled = !self.exiting
+        let input_enabled = !self.exiting
             && !self.updates.installing()
             && !matches!(
                 self.state,
-                ActionState::Activating { .. } | ActionState::Running
+                ActionState::Activating { .. } | ActionState::Running { .. }
+            );
+        let shortcuts_enabled = input_enabled
+            && !matches!(
+                self.state,
+                ActionState::Checking(_) | ActionState::Confirming(_)
             )
             && !self.ui.shortcuts_blocked();
         self.hotkeys
@@ -245,7 +301,15 @@ impl AppController {
                 )
             })?;
         self.panel_hotkey.set_enabled_where(|key| {
-            shortcuts_enabled && (!panel_active || !ui::uses_shortcut(key))
+            !self.exiting
+                && ((input_enabled && !self.ui.panel_shortcut_blocked())
+                    || matches!(
+                        self.state,
+                        ActionState::Running {
+                            scan_cancel: Some(_)
+                        }
+                    ))
+                && (!panel_active || !ui::uses_shortcut(key))
         })?;
         self.ui.set_shortcut_warning(
             &self
@@ -261,7 +325,21 @@ impl AppController {
             self.handle_preset_hotkey(id)?;
         }
         while self.panel_hotkey.next_trigger().is_some() {
-            if matches!(self.state, ActionState::Idle) {
+            if let ActionState::Running {
+                scan_cancel: Some(cancel),
+            } = &self.state
+            {
+                cancel.cancel();
+            }
+            if matches!(
+                self.state,
+                ActionState::Checking(_) | ActionState::Confirming(_)
+            ) {
+                self.cancel_action_check()?;
+                if self.ui.is_panel_open() {
+                    self.close_panel()?;
+                }
+            } else if matches!(self.state, ActionState::Idle) {
                 if self.ui.is_panel_open() {
                     self.close_panel()?;
                 } else {
@@ -288,6 +366,15 @@ impl AppController {
                 })?;
             }
         }
+        let check_lost_focus = match &self.state {
+            ActionState::Checking(Some(request)) => !self.action_check_owns_focus(request),
+            ActionState::Confirming(_) => !self.ui.is_panel_active(),
+            _ => false,
+        };
+        if check_lost_focus {
+            self.cancel_action_check()?;
+            self.close_panel()?;
+        }
         // Hide idle browsing whenever focus leaves the panel, including to the game.
         // Waiting actions keep their separate focus/release handling below.
         if self.ui.is_panel_open()
@@ -310,14 +397,37 @@ impl AppController {
                         self.ui.preview_failed(&error);
                     }
                 },
-                Ok(WorkerEvent::Finished { saved }) => {
+                Ok(WorkerEvent::ItemCandidatesLoaded(result)) => {
+                    if let Err(error) = &result {
+                        warn!(%error, "could not load cached item choices");
+                    }
+                    self.ui.item_candidates_loaded(result);
+                }
+                Ok(WorkerEvent::ItemChoicesSaved { preset, result }) => {
+                    self.ui.item_choices_saved(&preset, &result);
+                    if result.is_ok() {
+                        self.worker.send(Work::LoadPreviews)?;
+                    }
+                }
+                Ok(WorkerEvent::PresetChecked(result)) => self.finish_action_check(result)?,
+                Ok(WorkerEvent::ScanProgress(progress)) => self.ui.scan_progress(progress)?,
+                Ok(WorkerEvent::Finished(completion)) => {
                     self.hotkeys.discard_pending();
                     self.panel_hotkey.discard_pending();
                     self.state = ActionState::Idle;
                     self.ui.set_pending(false);
                     self.ready_after = Instant::now() + ACTION_COOLDOWN;
-                    if saved {
-                        platform::notify_preset_saved();
+                    match completion {
+                        WorkCompletion::Preset(Ok(
+                            crate::preset_action::PresetActionOutcome::Saved,
+                        )) => {
+                            platform::notify_preset_saved();
+                        }
+                        WorkCompletion::Scan(result) => self.finish_scan(result, false)?,
+                        WorkCompletion::ScanCancelled => {
+                            self.finish_scan(Err("Scan stopped".into()), true)?
+                        }
+                        WorkCompletion::Preset(_) => {}
                     }
                 }
                 Err(TryRecvError::Empty) => break,
@@ -326,7 +436,9 @@ impl AppController {
                 }
             }
         }
-        if self.exiting && !matches!(self.state, ActionState::Running) && !self.updates.installing()
+        if self.exiting
+            && !matches!(self.state, ActionState::Running { .. })
+            && !self.updates.installing()
         {
             return Ok(ControlFlow::Break(None));
         }
@@ -356,6 +468,13 @@ impl AppController {
         self.exiting = true;
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
+        self.cancel_action_check()?;
+        if let ActionState::Running {
+            scan_cancel: Some(cancel),
+        } = &self.state
+        {
+            cancel.cancel();
+        }
         // Keep installation visible while replacement finishes; never exit
         // midway through replacing program files.
         if !self.updates.installing() {
@@ -374,6 +493,12 @@ impl AppController {
 
 impl Drop for AppController {
     fn drop(&mut self) {
+        if let ActionState::Running {
+            scan_cancel: Some(cancel),
+        } = &self.state
+        {
+            cancel.cancel();
+        }
         // Release shortcuts before waiting for an in-flight action to finish.
         let _ = self.hotkeys.set_enabled(false);
         let _ = self.panel_hotkey.set_enabled(false);

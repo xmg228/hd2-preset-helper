@@ -8,10 +8,11 @@ use super::borders::{
     FixedEdgeProfiles, RowCandidate, SamplingParams, SlotScratch, rgb_at, round_ties_even,
     score_slot_direct, select_rows, supported_columns, tangent_positions, vertical_tangent_offsets,
 };
+use super::scrollbar::{self, Track};
 use super::text::{TextGeometry, TextSample};
 use super::{
     Calibration, ReferenceSize, ResolvedRoi, RoiAnchor, RoiGeometry, ScaleAxis,
-    resolve_calibration_roi_for_size,
+    ScrollbarObservation, resolve_calibration_roi_for_size,
 };
 use crate::{image_rect::ImageRect, item::EquipmentKind};
 
@@ -23,11 +24,25 @@ const ROI: ImageRect = ImageRect {
     h: 810,
 };
 
+const SCROLLBAR_TRACK: Track = Track {
+    center_x: 771.5,
+    top: 57.0,
+    bottom: 795.0,
+};
+
 #[derive(Clone, Copy)]
 pub(crate) enum EquipmentText {
     Name,
     Category,
 }
+
+pub(crate) struct CapturedEquipmentItem {
+    pub name: TextSample,
+    pub category: Option<TextSample>,
+    pub client_size: (u32, u32),
+}
+
+pub(crate) type CapturedEquipmentSet = [Option<CapturedEquipmentItem>; 6];
 
 #[derive(Serialize)]
 pub struct EquipmentEntry {
@@ -79,6 +94,7 @@ pub struct EquipmentObservation {
     pub slots: Vec<EquipmentSlot>,
     pub focus: Option<usize>,
     pub hover: Option<usize>,
+    pub scrollbar: Option<ScrollbarObservation>,
     pub name: TextSample,
     /// Displayed heading, also changed by hover; not necessarily the focus's category.
     /// Present even for helmets and capes, which have no category navigation.
@@ -143,6 +159,13 @@ pub struct EquipmentObserver {
     geometry: RoiGeometry,
 }
 
+#[cfg(feature = "diagnostics")]
+pub(crate) struct ScrollbarDiagnostic {
+    pub(crate) region: ImageRect,
+    pub(crate) track_top: f64,
+    pub(crate) track_bottom: f64,
+}
+
 impl EquipmentObserver {
     pub fn kind(&self) -> EquipmentKind {
         self.kind
@@ -154,6 +177,49 @@ impl EquipmentObserver {
             kind,
             geometry: self.geometry,
         }
+    }
+
+    /// Distance between the track's cap centers in native ROI pixels.
+    pub(crate) fn scrollbar_span(&self) -> f64 {
+        (SCROLLBAR_TRACK.bottom - SCROLLBAR_TRACK.top) * self.geometry.scale
+    }
+
+    /// Same-category row spacing in reference pixels, before UI scaling.
+    pub(crate) fn row_pitch(&self) -> f64 {
+        match self.kind {
+            EquipmentKind::Primary | EquipmentKind::Secondary => 168.0,
+            _ => 200.0,
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn scrollbar_diagnostic(&self, image: &RgbaImage) -> Option<ScrollbarDiagnostic> {
+        let track = SCROLLBAR_TRACK;
+        let scale = self.geometry.scale;
+        if !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+        let center_x = self.geometry.logical_origin_x + track.center_x * scale;
+        let track_top = self.geometry.logical_origin_y + track.top * scale;
+        let track_bottom = self.geometry.logical_origin_y + track.bottom * scale;
+        let left = (center_x - 6.0 * scale).floor();
+        let right = (center_x + 6.0 * scale).ceil();
+        let top = (track_top - 4.0 * scale).floor();
+        let bottom = (track_bottom + 4.0 * scale).ceil();
+        if left < 0.0 || top < 0.0 || right > image.width() as f64 || bottom > image.height() as f64
+        {
+            return None;
+        }
+        Some(ScrollbarDiagnostic {
+            region: ImageRect {
+                x: left as u32,
+                y: top as u32,
+                w: (right - left) as u32,
+                h: (bottom - top) as u32,
+            },
+            track_top,
+            track_bottom,
+        })
     }
 
     pub fn resolve(width: u32, height: u32, kind: EquipmentKind) -> Result<(Self, ResolvedRoi)> {
@@ -198,9 +264,9 @@ impl EquipmentObserver {
     pub fn observe(&self, image: &RgbaImage) -> EquipmentObservation {
         let slots = match self.kind {
             EquipmentKind::Primary | EquipmentKind::Secondary => {
-                self.grid(image, [203.0, 503.0], 282.0, 150.0, 168.0)
+                self.grid(image, [203.0, 503.0], 282.0, 150.0, self.row_pitch())
             }
-            _ => self.grid(image, [203.0, 403.0, 603.0], 182.0, 182.0, 200.0),
+            _ => self.grid(image, [203.0, 403.0, 603.0], 182.0, 182.0, self.row_pitch()),
         };
         let hover = slots
             .iter()
@@ -235,6 +301,7 @@ impl EquipmentObserver {
             slots,
             focus,
             hover,
+            scrollbar: scrollbar::detect(image, self.geometry, SCROLLBAR_TRACK),
             name,
             category,
             scale: self.geometry.scale,

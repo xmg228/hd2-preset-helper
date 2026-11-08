@@ -1,17 +1,18 @@
 //! Connect equipment automation to persistent presets and application feedback.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 
 use super::{PresetActionContext, PresetActionOutcome, PresetCommand};
 use crate::{
     app_events::{AppEvent, PresetCompletion},
-    automation::AutomationSession,
     capture::CaptureSource,
     game_settings::GameColorSettings,
-    item::{EquipmentKind, EquipmentSelection},
-    loadout::equipment::{ApplyProgress, EquipmentSet, Session},
+    item::EquipmentSelection,
+    item_cache::EquipmentSet,
+    loadout::equipment::{ApplyProgress, with_session},
     preset::equipment as storage,
-    vision::equipment::EquipmentObserver,
+    scan::ScanKind,
+    vision::equipment::CapturedEquipmentSet,
     window::WindowTarget,
 };
 
@@ -48,11 +49,11 @@ pub(super) fn sample(
     colors: GameColorSettings,
     context: &mut PresetActionContext<'_>,
     selection: EquipmentSelection,
-) -> Result<EquipmentSet> {
+) -> Result<CapturedEquipmentSet> {
     context
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: true });
-    with_session(capture, target, colors, context.evidence, |session| {
+    with_session(capture, target, colors, context.evidence, None, |session| {
         session.sample(selection)
     })
 }
@@ -71,8 +72,8 @@ pub(super) fn apply(
     let client_size = capture.output_size();
     let total = items.iter().flatten().count();
     let mut completed = 0;
-    with_session(capture, target, colors, context.evidence, |session| {
-        session.apply(items, context.equipment_cache, |progress| {
+    with_session(capture, target, colors, context.evidence, None, |session| {
+        session.apply(items, context.item_cache, |progress| {
             let event = match progress {
                 ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
                     kind,
@@ -81,11 +82,13 @@ pub(super) fn apply(
                     total,
                 },
                 ApplyProgress::Caching {
+                    kind,
                     category,
-                    repairing,
-                } => AppEvent::EquipmentCaching {
-                    category: crate::preset::preview::equipment_category(category),
-                    repairing,
+                    items,
+                } => AppEvent::ItemCaching {
+                    kind: ScanKind::Equipment(kind),
+                    category: Some(crate::preset::preview::equipment_category(category)),
+                    items,
                 },
                 ApplyProgress::Selected {
                     kind,
@@ -118,23 +121,4 @@ pub(super) fn apply(
             context.events.emit(event);
         })
     })
-}
-
-fn with_session<T>(
-    capture: &mut CaptureSource,
-    target: WindowTarget,
-    colors: GameColorSettings,
-    evidence: &crate::evidence::OperationEvidence,
-    operation: impl FnOnce(&mut Session<'_>) -> Result<T>,
-) -> Result<T> {
-    let (width, height) = capture.output_size();
-    let (observer, resolved) = EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
-    let region = capture.region(resolved.rect, colors)?;
-    let automation = AutomationSession::new(region, target, evidence)?;
-    let mut session = Session::new(automation, observer, (width, height))?;
-    ensure!(
-        session.at_entry(),
-        "return to the six-card equipment entry before saving or applying equipment"
-    );
-    operation(&mut session)
 }

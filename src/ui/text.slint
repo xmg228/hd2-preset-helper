@@ -1,7 +1,13 @@
-import { PreviewRole, PreviewRow, PreviewSection } from "models.slint";
+import { CandidateGroupRole, PreviewRole, PreviewRow, PreviewSection } from "models.slint";
 
 // Shared labels remain bindings, so changing the language updates every use.
 export global UiText {
+    public pure function candidate-group-label(role: CandidateGroupRole) -> string {
+        if (role == CandidateGroupRole.offensive) { return @tr("Offensive"); }
+        if (role == CandidateGroupRole.supply) { return @tr("Supply"); }
+        if (role == CandidateGroupRole.defensive) { return @tr("Defensive"); }
+        return "";
+    }
     public pure function preset-title(label: string, number: string) -> string {
         return label != "" ? label : @tr("Preset {}", number);
     }

@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use tracing::debug;
 
 use crate::item::ItemKind;
+use crate::item_cache::IconPosition;
 use crate::vision::{RoiObservation, ScrollbarObservation, Slot, SlotKind, TemplateMatchCandidate};
 
 use super::ScrollDirection;
@@ -184,6 +186,8 @@ pub(super) struct ListMap {
     active_fallbacks: HashMap<String, MappedCandidate>,
     selected: HashSet<SlotId>,
     no_booster_option: Option<SlotId>,
+    top_reached: bool,
+    bottom_reached: bool,
 }
 
 impl ListMap {
@@ -207,15 +211,11 @@ impl ListMap {
             active_fallbacks: HashMap::new(),
             selected: HashSet::new(),
             no_booster_option: None,
+            top_reached: false,
+            bottom_reached: false,
         };
         let initial = map.placement_at_offset(page, 0.0, 1.0, page.slot_samples.len());
         map.commit_page(page, initial, "initial");
-        map.no_booster_option = page
-            .roi
-            .slots
-            .iter()
-            .find(|slot| slot.kind == SlotKind::NoBoosterOption)
-            .and_then(|slot| map.current_slot_id(slot));
         evidence::record_commit(evidence, &map, page, "initial");
         map
     }
@@ -567,6 +567,18 @@ impl ListMap {
 
         self.current = placement;
         self.scrollbar = page.roi.scrollbar;
+        if let Some(scrollbar) = self.scrollbar {
+            self.top_reached |= scrollbar.at_top;
+            self.bottom_reached |= scrollbar.at_bottom;
+        }
+        if self.no_booster_option.is_none() {
+            self.no_booster_option = page
+                .roi
+                .slots
+                .iter()
+                .find(|slot| slot.kind == SlotKind::NoBoosterOption)
+                .and_then(|slot| self.current_slot_id(slot));
+        }
         self.record_current(&page.roi);
         self.record_candidates(&page.match_candidates);
         debug!(
@@ -740,6 +752,84 @@ impl ListMap {
             .iter()
             .find(|placed| placed.local == local)
             .map(|placed| placed.id)
+    }
+
+    /// The same accepted, edge-clearance winners used for map alignment.
+    pub(super) fn scan_count(&self) -> usize {
+        self.slots.len() - usize::from(self.no_booster_option.is_some())
+    }
+
+    pub(super) fn boundaries(&self) -> (bool, bool) {
+        (self.top_reached, self.bottom_reached)
+    }
+
+    pub(super) fn confirm_single_page(&mut self) {
+        self.top_reached = true;
+        self.bottom_reached = true;
+    }
+
+    pub(super) fn content_y(&self, page_y: f32) -> f32 {
+        page_y + self.current.offset_y
+    }
+
+    pub(super) fn scan_samples(&self) -> Result<Vec<(IconPosition, &SlotSample)>> {
+        ensure!(
+            self.top_reached && self.bottom_reached,
+            "icon list has not been completely observed"
+        );
+        let mut slots = self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.no_booster_option != Some(SlotId(*index)))
+            .map(|(_, slot)| slot)
+            .collect::<Vec<_>>();
+        slots.sort_by(|a, b| a.content_y.total_cmp(&b.content_y));
+        let mut start = 0;
+        while start < slots.len() {
+            let y = slots[start].content_y;
+            let end = (start + 1..slots.len())
+                .find(|&index| slots[index].content_y - y > POSITION_TOLERANCE_PX)
+                .unwrap_or(slots.len());
+            slots[start..end].sort_by_key(|slot| slot.col);
+            let first_col = slots[start].col;
+            ensure!(
+                slots[start..end]
+                    .iter()
+                    .enumerate()
+                    .all(|(index, slot)| slot.col == first_col + index as u32),
+                "scanned icon row has an unobserved column"
+            );
+            ensure!(
+                first_col == 0
+                    || (start == 0 && self.no_booster_option.is_some() && first_col == 1),
+                "scanned icon row does not start at its first column"
+            );
+            start = end;
+        }
+        let origin = self
+            .slots
+            .iter()
+            .map(|slot| slot.content_y)
+            .min_by(f32::total_cmp)
+            .unwrap_or(0.0);
+        slots
+            .into_iter()
+            .map(|slot| {
+                let sample = slot
+                    .sample
+                    .native
+                    .as_ref()
+                    .context("scanned icon has no native sample")?;
+                Ok((
+                    IconPosition {
+                        col: slot.col,
+                        y: (slot.content_y - origin) / sample.geometry.physical_size,
+                    },
+                    &slot.sample,
+                ))
+            })
+            .collect()
     }
 }
 

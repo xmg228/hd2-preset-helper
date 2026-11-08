@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::item::EquipmentKind;
+use crate::scan::ScanKind;
 
 type AppEventHandler = dyn Fn(AppEvent) + Send + Sync;
 
@@ -65,9 +66,10 @@ pub enum AppEvent {
         completed: usize,
         total: usize,
     },
-    EquipmentCaching {
-        category: image::RgbaImage,
-        repairing: bool,
+    ItemCaching {
+        kind: ScanKind,
+        category: Option<image::RgbaImage>,
+        items: usize,
     },
     PresetDone {
         preset: String,

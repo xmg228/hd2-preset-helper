@@ -12,6 +12,7 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use super::{MonitorChoice, MonitorRole, PresetPanel, SettingsTarget, ShortcutRow, UiRequest};
 use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::input::Shortcut;
+use crate::scan::ScanScope;
 
 pub(super) fn connect(
     panel: &PresetPanel,
@@ -73,6 +74,12 @@ pub(super) fn connect(
     let install_send = send.clone();
     panel.on_install_update(move || {
         let _ = install_send.send(UiRequest::InstallUpdate);
+    });
+    let scan_send = send.clone();
+    panel.on_scan_items(move |index| {
+        if let Some(scope) = ScanScope::from_index(index) {
+            let _ = scan_send.send(UiRequest::Scan(scope));
+        }
     });
     let weak = panel.as_weak();
     panel.on_clear_shortcut(move |index| {

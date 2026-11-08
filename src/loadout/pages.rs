@@ -29,22 +29,46 @@ pub(crate) fn show_page(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
+    cancellation: Option<&crate::scan::ScanCancellation>,
 ) -> Result<Page> {
-    if page_visible(capture, runtime, target, colors, page, evidence)? {
+    if page_visible(
+        capture,
+        runtime,
+        target,
+        colors,
+        page,
+        evidence,
+        cancellation,
+    )? {
         return Ok(page);
     }
     let other = match page {
         Page::Stratagems => Page::Equipment,
         Page::Equipment => Page::Stratagems,
     };
-    let origin = if page_visible(capture, runtime, target, colors, other, evidence)? {
+    let origin = if page_visible(
+        capture,
+        runtime,
+        target,
+        colors,
+        other,
+        evidence,
+        cancellation,
+    )? {
         other
     } else {
         let mut origin = None;
         // Equipment's focus and text evidence take precedence over generic icon geometry.
         for candidate in [Page::Equipment, Page::Stratagems] {
-            let (mut region, detector) =
-                bind_page(capture, runtime, target, colors, candidate, evidence)?;
+            let (mut region, detector) = bind_page(
+                capture,
+                runtime,
+                target,
+                colors,
+                candidate,
+                evidence,
+                cancellation,
+            )?;
             let frame = region.capture()?;
             let confirmed = detector.list_visible(frame.clone())?;
             evidence.record(
@@ -64,16 +88,48 @@ pub(crate) fn show_page(
             key = "Escape",
             "returning from item list to loadout home"
         );
-        let (mut automation, _) = bind_page(capture, runtime, target, colors, origin, evidence)?;
+        let (mut automation, _) = bind_page(
+            capture,
+            runtime,
+            target,
+            colors,
+            origin,
+            evidence,
+            cancellation,
+        )?;
         automation.tap_key(Key::Escape, 45)?;
-        wait_for_page(capture, runtime, target, colors, origin, evidence)?;
+        wait_for_page(
+            capture,
+            runtime,
+            target,
+            colors,
+            origin,
+            evidence,
+            cancellation,
+        )?;
         origin
     };
     if origin != page {
         tracing::debug!(?origin, destination = ?page, key = "R", "switching loadout home");
-        let (mut automation, _) = bind_page(capture, runtime, target, colors, origin, evidence)?;
+        let (mut automation, _) = bind_page(
+            capture,
+            runtime,
+            target,
+            colors,
+            origin,
+            evidence,
+            cancellation,
+        )?;
         automation.tap_key(Key::R, 45)?;
-        wait_for_page(capture, runtime, target, colors, page, evidence)?;
+        wait_for_page(
+            capture,
+            runtime,
+            target,
+            colors,
+            page,
+            evidence,
+            cancellation,
+        )?;
     }
     Ok(origin)
 }
@@ -85,9 +141,18 @@ fn wait_for_page(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
+    cancellation: Option<&crate::scan::ScanCancellation>,
 ) -> Result<()> {
     let started = Instant::now();
-    let (mut region, detector) = bind_page(capture, runtime, target, colors, page, evidence)?;
+    let (mut region, detector) = bind_page(
+        capture,
+        runtime,
+        target,
+        colors,
+        page,
+        evidence,
+        cancellation,
+    )?;
     let mut confirmed = false;
     loop {
         target.ensure_input_target()?;
@@ -127,8 +192,17 @@ fn page_visible(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
+    cancellation: Option<&crate::scan::ScanCancellation>,
 ) -> Result<bool> {
-    let (mut region, detector) = bind_page(capture, runtime, target, colors, page, evidence)?;
+    let (mut region, detector) = bind_page(
+        capture,
+        runtime,
+        target,
+        colors,
+        page,
+        evidence,
+        cancellation,
+    )?;
     let frame = region.capture()?;
     let detection = detector.home(frame.clone())?;
     let visible = detection.confirmed();
@@ -174,27 +248,32 @@ fn bind_page<'a>(
     colors: GameColorSettings,
     page: Page,
     evidence: &'a OperationEvidence,
+    cancellation: Option<&crate::scan::ScanCancellation>,
 ) -> Result<(AutomationSession<'a>, PageDetector)> {
-    match page {
+    let (mut automation, detector) = match page {
         Page::Stratagems => {
             let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
             let detector = PageDetector::Stratagems(runtime.bind(bound.geometry));
-            Ok((
+            (
                 AutomationSession::new(bound.region, target.clone(), evidence)?,
                 detector,
-            ))
+            )
         }
         Page::Equipment => {
             let (width, height) = capture.output_size();
             let (observer, resolved) =
                 EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
             let region = capture.region(resolved.rect, colors)?;
-            Ok((
+            (
                 AutomationSession::new(region, target.clone(), evidence)?,
                 PageDetector::Equipment(observer),
-            ))
+            )
         }
+    };
+    if let Some(cancellation) = cancellation {
+        automation.set_cancellation(cancellation.clone());
     }
+    Ok((automation, detector))
 }
 
 impl PageDetector {

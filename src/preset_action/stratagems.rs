@@ -8,15 +8,17 @@ use super::{PresetActionContext, PresetActionOutcome, PresetCommand};
 use crate::app_events::{AppEvent, PresetCompletion};
 use crate::automation::AutomationSession;
 use crate::input;
+use crate::item::ItemKind;
 use crate::loadout::{
-    BoosterApplyOutcome, UiState, apply_stratagem_preset_from_home, bind_loadout_region,
-    collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,
-    wait_for_ui_state,
+    BoosterApplyOutcome, IconApplyContext, UiState, apply_stratagem_preset_from_home,
+    bind_loadout_region, collect_home_booster, collect_stratagem_preset, detect_ui_state,
+    scan_icon_list, scan_loadout_home, wait_for_ui_state,
 };
 use crate::preset::{
     StratagemPreset,
     stratagems::{self as storage, CapturedStratagemPreset},
 };
+use crate::scan::{ScanCancellation, ScanKind, ScanProgress};
 use crate::vision::{RecognizerRuntime, RecognizerSession};
 
 const READY_UP_HOLD_MS: u64 = 45;
@@ -62,11 +64,50 @@ pub(super) fn execute(
         PresetCommand::ApplyStratagems => {
             let preset = load(context, preset_name)?;
             log_preset_contents(&preset);
+            let mut home = initial_result;
+            for (kind, missing) in [
+                (ItemKind::Stratagem, context.item_cache.stratagems.is_none()),
+                (
+                    ItemKind::Booster,
+                    preset.booster.is_some() && context.item_cache.boosters.is_none(),
+                ),
+            ] {
+                if !missing {
+                    continue;
+                }
+                let mut progress = |progress: ScanProgress| {
+                    context.events.emit(AppEvent::ItemCaching {
+                        kind: progress.kind,
+                        category: progress.category,
+                        items: progress.items,
+                    });
+                };
+                progress(ScanProgress {
+                    kind: match kind {
+                        ItemKind::Stratagem => ScanKind::Stratagems,
+                        ItemKind::Booster => ScanKind::Booster,
+                    },
+                    category: None,
+                    items: 0,
+                });
+                let items = scan_icon_list(
+                    recognizer,
+                    &mut automation,
+                    kind,
+                    home,
+                    &mut progress,
+                    &ScanCancellation::default(),
+                )
+                .with_context(|| format!("failed to cache {} before application", kind.label()))?;
+                context.item_cache.set_icons(kind, items);
+                home = scan_loadout_home(&mut automation, recognizer)
+                    .context("failed to refresh loadout home after caching")?;
+            }
             let booster = apply_stratagem_preset_from_home(
                 recognizer,
                 &mut automation,
-                context.events,
-                initial_result,
+                &mut IconApplyContext::new(context.events, context.item_cache),
+                home,
                 context.presets,
                 &preset,
                 context.options.apply_in_saved_order,

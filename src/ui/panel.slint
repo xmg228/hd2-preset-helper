@@ -1,15 +1,18 @@
 import { Theme } from "theme.slint";
 import { Icon, Icons, DragHandle } from "icons.slint";
 import { ScrollView } from "std-widgets.slint";
-import { PanelButton, IconButton, DeletePresetDialog, NameImage, FailureNotice } from "controls.slint";
+import { PanelButton, IconButton, DeletePresetDialog, ScanConfirmationDialog, NameImage, FailureNotice } from "controls.slint";
 import { SettingsDialog } from "settings.slint";
+import { ItemEditor } from "editor.slint";
 import { UpdatePhase } from "updates.slint";
 export { UpdatePhase }
 import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
 import { UiText } from "text.slint";
 import { FolderHeader } from "library.slint";
 import { LibraryEntryRow, EntryDropTarget } from "models.slint";
+import { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole } from "models.slint";
 export { LibraryEntryRow, EntryDropTarget }
+export { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole }
 export { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
 export { ActionStatus, StatusItem, StatusTone } from "status.slint";
@@ -314,6 +317,7 @@ export component PresetPanel inherits Window {
     in property <string> status;
     in-out property <string> failure-details;
     in property <string> failure-label;
+    in property <bool> failure-scan;
     in property <string> failure-number;
     in property <string> shortcut-warning;
     in property <bool> pending;
@@ -322,6 +326,22 @@ export component PresetPanel inherits Window {
     in-out property <bool> settings-open;
     out property <bool> viewing-licenses: settings.viewing-licenses;
     in-out property <bool> delete-open;
+    in-out property <bool> scan-confirm-open;
+    in property <int> scan-confirm-count;
+    in-out property <bool> editor-open;
+    in-out property <bool> editor-busy;
+    in-out property <bool> editor-loading;
+    in-out property <bool> editor-dirty;
+    in-out property <bool> editor-can-save;
+    in property <bool> editor-can-randomize-stratagems;
+    in property <bool> editor-can-randomize-equipment;
+    in property <bool> editor-missing;
+    in-out property <string> editor-error;
+    in-out property <string> editor-preset;
+    in-out property <int> editor-slot;
+    in-out property <[CandidateCatalogRow]> editor-catalogs;
+    in-out property <[PreviewRow]> editor-draft;
+    in-out property <[CandidateRow]> editor-choices;
     in property <[ShortcutRow]> shortcut-rows;
     in property <[MonitorChoice]> monitor-choices;
     private property <[string]> monitor-labels: root.project-monitor-labels(
@@ -363,8 +383,6 @@ export component PresetPanel inherits Window {
     in property <[bool]> scope-equipment-items;
     in property <bool> equipment-items-selected: true;
     private property <PreviewState> equipment-state: root.selected-equipment-state(root.scope-equipment-items, current.equipment.items);
-    private property <bool> include-stratagems: scope-stratagems && current.stratagems.saved;
-    private property <bool> include-equipment: scope-equipment && equipment-state != PreviewState.missing;
     out property <bool> editing-name: editing-preset != "";
     out property <bool> editing-folder-name: editing-folder != "";
     out property <bool> reordering-entry: reorder-phase != ReorderPhase.idle;
@@ -372,8 +390,9 @@ export component PresetPanel inherits Window {
     out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
-    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && hovered-index >= 0 ? hovered-index : current-index];
-    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open && !update-installing
+    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && !editor-open && !scan-confirm-open && hovered-index >= 0 ? hovered-index : current-index];
+    private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open
+        && !scan-confirm-open && !editor-open && !editor-busy && !update-installing
         && reorder-phase != ReorderPhase.committing;
     private property <string> editing-preset;
     private property <string> name-draft;
@@ -412,6 +431,14 @@ export component PresetPanel inherits Window {
     callback request-action(bool, ActionScope);
     callback request-scope(ActionScope);
     callback request-equipment-item(int);
+    callback edit-items();
+    callback choose-item(int, int);
+    callback clear-item();
+    callback randomize-items(bool);
+    callback scan-missing-items();
+    callback confirm-scan();
+    callback cancel-scan();
+    callback save-items();
     pure callback selected-equipment-state([bool], [PreviewRow]) -> PreviewState;
     pure callback project-entries([PresetRow], [LibraryEntryRow], string, string, float) -> [LibraryEntryRow];
     pure callback visible-preset-indices([LibraryEntryRow]) -> [int];
@@ -437,6 +464,7 @@ export component PresetPanel inherits Window {
     callback download-update();
     callback install-update();
     callback view-project();
+    callback scan-items(int);
     callback license-text() -> string;
     callback clear-shortcut(int);
     callback add-preset();
@@ -445,7 +473,7 @@ export component PresetPanel inherits Window {
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() {
         root.finish-reorder();
-        if (!root.settings-open && !root.delete-open) { keyboard.focus(); }
+        if (!root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.editor-open) { keyboard.focus(); }
     }
     public function focus-search-results() {
         if (root.current-visible-index < 0 && root.visible-presets.length > 0) {
@@ -472,11 +500,45 @@ export component PresetPanel inherits Window {
         if (save) { root.request-folder-rename(name, root.folder-name-draft); }
     }
     public function focus-settings(show-about: bool) { root.hovered-index = -1; settings.focus-dialog(show-about); }
+    public function focus-item-editor() {
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        item-editor.focus-dialog();
+    }
+    public function focus-scan-confirm() {
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        scan-confirm-dialog.focus-dialog();
+    }
+    function cancel-scan-confirmation() {
+        if (root.scan-confirm-open) {
+            root.scan-confirm-open = false;
+            root.cancel-scan();
+        }
+    }
+    public function focus-current-view() {
+        if (root.scan-confirm-open) { root.focus-scan-confirm(); }
+        else if (root.settings-open) { settings.focus(); }
+        else if (root.editor-open) { root.focus-item-editor(); }
+        else { root.focus-list(); }
+    }
+    public function prepare-hide() {
+        root.cancel-scan-confirmation();
+        root.delete-open = false;
+        root.recording-shortcut = -1;
+        root.finish-reorder();
+    }
+    changed editor-open => { if (!root.editor-open) { item-editor.reset(); } }
     public function close-dialogs() {
+        root.cancel-scan-confirmation();
         if (root.settings-open) { settings.focus(); }
         if (root.delete-open) { delete-dialog.focus(); }
         root.settings-open = false;
         root.delete-open = false;
+        root.editor-open = false;
+        root.editor-catalogs = [];
+        root.editor-draft = [];
+        root.editor-choices = [];
         root.recording-shortcut = -1;
         root.focus-list();
     }
@@ -576,8 +638,17 @@ export component PresetPanel inherits Window {
             border-color: #ffffff20;
         }
         keyboard := FocusScope {
-            enabled: root.presented && !root.settings-open && !root.delete-open;
+            enabled: root.presented && !root.settings-open && !root.delete-open && !root.scan-confirm-open;
             key-pressed(event) => {
+                if (root.editor-open) {
+                    if (event.text == Key.Escape) { item-editor.back-or-cancel(); return accept; }
+                    if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
+                        && (event.text == "s" || event.text == "S")) {
+                        if (!event.repeat) { item-editor.save-changes(); }
+                        return accept;
+                    }
+                    return reject;
+                }
                 if (root.editing-name || root.editing-search || root.editing-folder-name) { return reject; }
                 if (event.text == Key.Escape) {
                     if (root.search-active) { root.search-query = ""; }
@@ -605,6 +676,7 @@ export component PresetPanel inherits Window {
                 return reject;
             }
             key-released(event) => {
+                if (root.editor-open) { return reject; }
                 if (event.text == Key.Return) {
                     // Editing may end on key-down; its key-up must not apply a preset.
                     let apply = root.apply-key-down;
@@ -860,7 +932,9 @@ export component PresetPanel inherits Window {
                                                 accessible-label: UiText.preset-title(self.item.label, self.item.number);
                                                 accessible-description: UiText.section-message(self.item.stratagems) + " " + UiText.section-message(self.item.equipment);
                                                 accessible-enabled: root.interactive && !root.reordering-entry;
-                                                accessible-action-default => { root.current-index = entry.preset-index; }
+                                                accessible-action-default => {
+                                                    if (root.interactive && !root.reordering-entry) { root.current-index = entry.preset-index; }
+                                                }
                                                 changed hovered => {
                                                     if (self.hovered) { root.hovered-index = entry.preset-index; }
                                                     else if (root.hovered-index == entry.preset-index) { root.hovered-index = -1; }
@@ -1023,204 +1097,293 @@ export component PresetPanel inherits Window {
                         }
                     }
                     Rectangle { width: 1px; background: Theme.border; }
-                    ScrollView {
+                    VerticalLayout {
                         min-width: 0px;
                         min-height: 0px;
                         horizontal-stretch: 1;
-                        content-width: max(360px, self.visible-width - 8px);
-                        VerticalLayout {
-                            padding-top: 6px;
-                            spacing: 16px;
-                            alignment: start;
-                            HorizontalLayout {
-                                height: 32px;
-                                padding-left: 8px;
-                                padding-right: 8px;
+                        padding-top: 6px;
+                        spacing: 16px;
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Rectangle {
+                                horizontal-stretch: 1;
                                 Rectangle {
-                                    horizontal-stretch: 1;
-                                    Rectangle {
-                                        x: -6px;
-                                        width: parent.width + 12px;
-                                        height: parent.height;
-                                        border-radius: 3px;
-                                        background: root.editing-name ? #222627 : transparent;
-                                        animate background { duration: 120ms; easing: ease-out; }
+                                    x: -6px;
+                                    width: parent.width + 12px;
+                                    height: parent.height;
+                                    border-radius: 3px;
+                                    background: root.editing-name ? #222627 : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                }
+                                Rectangle {
+                                    x: -6px;
+                                    y: parent.height - 1px;
+                                    width: parent.width + 12px;
+                                    height: 1px;
+                                    background: root.editing-name ? Theme.accent-soft : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                }
+                                name-title := Text {
+                                    x: 0px;
+                                    width: min(self.preferred-width, edit-button.x - rename-button.width - 16px);
+                                    height: parent.height;
+                                    visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
+                                    text: root.presets.length > 0
+                                        ? UiText.preset-title(root.editing-name ? "" : root.preview.label, root.preview.number)
+                                        : @tr("No presets");
+                                    color: root.editing-name ? Theme.text-disabled : Theme.text;
+                                    font-size: 21px;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                    TouchArea {
+                                        enabled: root.interactive && !root.editing-name
+                                            && !root.reordering-entry && root.presets.length > 0;
+                                        double-clicked => { root.begin-rename(); }
                                     }
-                                    Rectangle {
-                                        x: -6px;
-                                        y: parent.height - 1px;
-                                        width: parent.width + 12px;
-                                        height: 1px;
-                                        background: root.editing-name ? Theme.accent-soft : transparent;
-                                        animate background { duration: 120ms; easing: ease-out; }
-                                    }
-                                    name-title := Text {
-                                        x: 0px;
-                                        width: min(self.preferred-width, shortcut-button.x - rename-button.width - 16px);
-                                        height: parent.height;
-                                        visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
-                                        text: root.presets.length > 0
-                                            ? UiText.preset-title(root.editing-name ? "" : root.preview.label, root.preview.number)
-                                            : @tr("No presets");
-                                        color: root.editing-name ? Theme.text-disabled : Theme.text;
-                                        font-size: 21px;
-                                        overflow: elide;
-                                        vertical-alignment: center;
-                                        TouchArea {
-                                            enabled: root.interactive && !root.editing-name
-                                                && !root.reordering-entry && root.presets.length > 0;
-                                            double-clicked => { root.begin-rename(); }
+                                }
+                                Rectangle {
+                                    x: 0px;
+                                    visible: root.editing-name;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    clip: true;
+                                    ContextMenuArea {
+                                        Menu {
+                                            MenuItem { title: @tr("Cut"); activated => { name-input.cut(); } }
+                                            MenuItem { title: @tr("Copy"); activated => { name-input.copy(); } }
+                                            MenuItem { title: @tr("Paste"); activated => { name-input.paste(); } }
+                                            MenuItem { title: @tr("Select all"); activated => { name-input.select-all(); } }
+                                        }
+                                        name-input := TextInput {
+                                            property <length> scroll-offset;
+                                            x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                            width: max(parent.width, self.preferred-width);
+                                            height: parent.height;
+                                            enabled: root.interactive;
+                                            single-line: true;
+                                            text <=> root.name-draft;
+                                            color: Theme.text;
+                                            font-size: name-title.font-size;
+                                            vertical-alignment: center;
+                                            selection-background-color: #786c38;
+                                            selection-foreground-color: #fff8d4;
+                                            accessible-label: @tr("Preset name");
+                                            cursor-position-changed(position) => {
+                                                if (position.x + self.x < 0px) {
+                                                    self.scroll-offset = -position.x;
+                                                } else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                                    self.scroll-offset = parent.width - self.text-cursor-width - position.x;
+                                                }
+                                            }
+                                            accepted => { root.finish-rename(true); keyboard.focus(); }
+                                            changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
+                                            key-pressed(event) => {
+                                                if (self.preedit-text != "") { return reject; }
+                                                if (event.text == Key.Escape) {
+                                                    root.finish-rename(false);
+                                                    keyboard.focus();
+                                                    return accept;
+                                                }
+                                                return reject;
+                                            }
                                         }
                                     }
-                                    Rectangle {
-                                        x: 0px;
-                                        visible: root.editing-name;
-                                        width: parent.width;
-                                        height: parent.height;
-                                        clip: true;
-                                        ContextMenuArea {
-                                            Menu {
-                                                MenuItem { title: @tr("Cut"); activated => { name-input.cut(); } }
-                                                MenuItem { title: @tr("Copy"); activated => { name-input.copy(); } }
-                                                MenuItem { title: @tr("Paste"); activated => { name-input.paste(); } }
-                                                MenuItem { title: @tr("Select all"); activated => { name-input.select-all(); } }
+                                }
+                                rename-button := IconButton {
+                                    x: name-title.width + 8px;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    label: @tr("Rename preset");
+                                    icon: Icons.rename;
+                                    clicked => { root.begin-rename(); }
+                                }
+                                edit-button := PanelButton {
+                                    x: shortcut-button.x - self.width - 8px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: self.preferred-width;
+                                    height: 28px;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    text: @tr("Edit loadout");
+                                    clicked => { root.commit-names(); keyboard.focus(); root.edit-items(); }
+                                }
+                                shortcut-button := IconButton {
+                                    x: copy-button.x - self.width - 4px;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    label: @tr("Set shortcut");
+                                    icon: Icons.keyboard;
+                                    clicked => { root.commit-names(); root.edit-shortcut(root.current.name); }
+                                }
+                                copy-button := IconButton {
+                                    x: delete-button.x - self.width - 4px;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive && !root.reordering-entry;
+                                    label: @tr("Duplicate preset");
+                                    icon: Icons.copy;
+                                    clicked => { root.commit-names(); root.duplicate-preset(root.current.name); }
+                                }
+                                delete-button := IconButton {
+                                    x: parent.width - self.width;
+                                    y: (parent.height - self.height) / 2;
+                                    visible: !root.editing-name && root.presets.length > 0;
+                                    enabled: root.interactive;
+                                    label: @tr("Delete preset");
+                                    icon: Icons.delete;
+                                    clicked => { root.begin-delete(); }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            min-height: 0px;
+                            vertical-stretch: 1;
+                            ScrollView {
+                                visible: !root.editor-open;
+                                x: 0px; y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                content-width: max(360px, self.visible-width - 8px);
+                                VerticalLayout {
+                                    spacing: 16px;
+                                    alignment: start;
+                                    SelectableSection {
+                                        text: @tr("Stratagems & Booster");
+                                        checked: root.scope-stratagems;
+                                        enabled: root.interactive;
+                                        apply-label: @tr("Apply Stratagems");
+                                        apply-enabled: root.action-available(false, ActionScope.stratagems);
+                                        apply => { root.apply-current(ActionScope.stratagems); }
+                                        toggled => {
+                                            root.commit-names();
+                                            root.request-scope(ActionScope.stratagems);
+                                        }
+                                        Rectangle {
+                                            height: 48px;
+                                            if (root.preview.stratagems.ready): StratagemPreview {
+                                                icon-size: 44px;
+                                                items: root.preview.stratagems.items;
+                                                opacity: root.scope-stratagems ? 1 : 0.65;
                                             }
-                                            name-input := TextInput {
-                                                property <length> scroll-offset;
-                                                x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
-                                                width: max(parent.width, self.preferred-width);
-                                                height: parent.height;
-                                                enabled: root.interactive;
-                                                single-line: true;
-                                                text <=> root.name-draft;
-                                                color: Theme.text;
-                                                font-size: name-title.font-size;
+                                            if (!root.preview.stratagems.ready): Text {
+                                                text: root.presets.length > 0 ? UiText.section-message(root.preview.stratagems) : @tr("Use + New preset to get started.");
+                                                color: Theme.text-secondary;
+                                                wrap: word-wrap;
+                                                font-size: 12px;
                                                 vertical-alignment: center;
-                                                selection-background-color: #786c38;
-                                                selection-foreground-color: #fff8d4;
-                                                accessible-label: @tr("Preset name");
-                                                cursor-position-changed(position) => {
-                                                    if (position.x + self.x < 0px) {
-                                                        self.scroll-offset = -position.x;
-                                                    } else if (position.x + self.x > parent.width - self.text-cursor-width) {
-                                                        self.scroll-offset = parent.width - self.text-cursor-width - position.x;
-                                                    }
-                                                }
-                                                accepted => { root.finish-rename(true); keyboard.focus(); }
-                                                changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
-                                                key-pressed(event) => {
-                                                    if (self.preedit-text != "") { return reject; }
-                                                    if (event.text == Key.Escape) {
-                                                        root.finish-rename(false);
-                                                        keyboard.focus();
-                                                        return accept;
-                                                    }
-                                                    return reject;
-                                                }
                                             }
                                         }
                                     }
-                                    rename-button := IconButton {
-                                        x: name-title.width + 8px;
-                                        y: (parent.height - self.height) / 2;
-                                        visible: !root.editing-name && root.presets.length > 0;
+                                    Rectangle { height: 1px; background: Theme.border; }
+                                    SelectableSection {
+                                        text: @tr("Equipment");
+                                        detail: !root.loading && root.preview.equipment.ready && root.preview.equipment-cache-matches >= 0
+                                            ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.count) : "";
+                                        detail-help: @tr("Based on complete category caches. Uncovered items may still apply without scanning.");
+                                        checked: root.scope-equipment;
                                         enabled: root.interactive;
-                                        label: @tr("Rename preset");
-                                        icon: Icons.rename;
-                                        clicked => { root.begin-rename(); }
-                                    }
-                                    shortcut-button := IconButton {
-                                        x: copy-button.x - self.width - 4px;
-                                        y: (parent.height - self.height) / 2;
-                                        visible: !root.editing-name && root.presets.length > 0;
-                                        enabled: root.interactive;
-                                        label: @tr("Set shortcut");
-                                        icon: Icons.keyboard;
-                                        clicked => { root.commit-names(); root.edit-shortcut(root.current.name); }
-                                    }
-                                    copy-button := IconButton {
-                                        x: delete-button.x - self.width - 4px;
-                                        y: (parent.height - self.height) / 2;
-                                        visible: !root.editing-name && root.presets.length > 0;
-                                        enabled: root.interactive && !root.reordering-entry;
-                                        label: @tr("Duplicate preset");
-                                        icon: Icons.copy;
-                                        clicked => { root.commit-names(); root.duplicate-preset(root.current.name); }
-                                    }
-                                    delete-button := IconButton {
-                                        x: parent.width - self.width;
-                                        y: (parent.height - self.height) / 2;
-                                        visible: !root.editing-name && root.presets.length > 0;
-                                        enabled: root.interactive;
-                                        label: @tr("Delete preset");
-                                        icon: Icons.delete;
-                                        clicked => { root.begin-delete(); }
-                                    }
-                                }
-                            }
-                            SelectableSection {
-                                text: @tr("Stratagems & Booster");
-                                checked: root.scope-stratagems;
-                                enabled: root.interactive;
-                                apply-label: @tr("Apply Stratagems");
-                                apply-enabled: root.action-available(false, ActionScope.stratagems);
-                                apply => { root.apply-current(ActionScope.stratagems); }
-                                toggled => {
-                                    root.commit-names();
-                                    root.request-scope(ActionScope.stratagems);
-                                }
-                                Rectangle {
-                                    height: 48px;
-                                    if (root.preview.stratagems.ready): StratagemPreview {
-                                        icon-size: 44px;
-                                        items: root.preview.stratagems.items;
-                                        opacity: root.scope-stratagems ? 1 : 0.65;
-                                    }
-                                    if (!root.preview.stratagems.ready): Text {
-                                        text: root.presets.length > 0 ? UiText.section-message(root.preview.stratagems) : @tr("Use + New preset to get started.");
-                                        color: Theme.text-secondary;
-                                        wrap: word-wrap;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                            Rectangle { height: 1px; background: Theme.border; }
-                            SelectableSection {
-                                text: @tr("Equipment");
-                                detail: !root.loading && root.preview.equipment.ready && root.preview.equipment-cache-matches >= 0
-                                    ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.count) : "";
-                                detail-help: @tr("Based on complete category caches. Uncovered items may still apply without scanning.");
-                                checked: root.scope-equipment;
-                                enabled: root.interactive;
-                                apply-label: @tr("Apply equipment");
-                                apply-enabled: root.action-available(false, ActionScope.equipment);
-                                apply => { root.apply-current(ActionScope.equipment); }
-                                toggled => {
-                                    root.commit-names();
-                                    root.request-scope(ActionScope.equipment);
-                                }
-                                Rectangle {
-                                    height: 100px;
-                                    if (root.presets.length > 0): VerticalLayout {
-                                        spacing: 8px;
-                                        for row in 2: HorizontalLayout {
-                                            spacing: 14px;
-                                            for column in 3: EquipmentTile {
-                                                item: root.preview.equipment.items[row * 3 + column];
-                                                checked: root.scope-equipment-items[row * 3 + column];
-                                                enabled: root.interactive && root.scope-equipment;
-                                                toggled => { root.request-equipment-item(row * 3 + column); }
+                                        apply-label: @tr("Apply equipment");
+                                        apply-enabled: root.action-available(false, ActionScope.equipment);
+                                        apply => { root.apply-current(ActionScope.equipment); }
+                                        toggled => {
+                                            root.commit-names();
+                                            root.request-scope(ActionScope.equipment);
+                                        }
+                                        Rectangle {
+                                            height: 100px;
+                                            if (root.presets.length > 0): VerticalLayout {
+                                                spacing: 8px;
+                                                for row in 2: HorizontalLayout {
+                                                    spacing: 14px;
+                                                    for column in 3: EquipmentTile {
+                                                        item: root.preview.equipment.items[row * 3 + column];
+                                                        checked: root.scope-equipment-items[row * 3 + column];
+                                                        enabled: root.interactive && root.scope-equipment;
+                                                        toggled => { root.request-equipment-item(row * 3 + column); }
+                                                    }
+                                                }
+                                            }
+                                            if (root.presets.length == 0): Text {
+                                                text: UiText.section-message(root.preview.equipment);
+                                                color: Theme.text-secondary;
+                                                wrap: word-wrap;
+                                                font-size: 12px;
+                                                vertical-alignment: top;
                                             }
                                         }
                                     }
-                                    if (root.presets.length == 0): Text {
-                                        text: UiText.section-message(root.preview.equipment);
-                                        color: Theme.text-secondary;
-                                        wrap: word-wrap;
-                                        font-size: 12px;
-                                        vertical-alignment: top;
-                                    }
+                                }
+                            }
+                            item-editor := ItemEditor {
+                                visible: root.editor-open;
+                                enabled: root.editor-open;
+                                x: 0px; y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                slots: root.editor-draft;
+                                groups: root.editor-catalogs[root.editor-slot].groups;
+                                current-slot <=> root.editor-slot;
+                                chosen-category: root.editor-choices[root.editor-slot].category;
+                                chosen-item: root.editor-choices[root.editor-slot].item;
+                                can-clear: (root.editor-slot == 4 || root.editor-slot == 5)
+                                    && root.editor-draft[root.editor-slot].state == PreviewState.ready;
+                                can-save: root.editor-can-save;
+                                can-randomize-stratagems: root.editor-can-randomize-stratagems;
+                                can-randomize-equipment: root.editor-can-randomize-equipment;
+                                loading: root.editor-loading;
+                                busy: root.editor-busy || root.pending;
+                                dirty: root.editor-dirty;
+                                error: root.editor-error;
+                                choose(category, item) => { root.choose-item(category, item); }
+                                clear => { root.clear-item(); }
+                                randomize(equipment) => { root.randomize-items(equipment); }
+                                save => { root.save-items(); }
+                                cancel => { if (!root.editor-busy) { root.close-dialogs(); } }
+                            }
+                        }
+                        if (root.editor-open): HorizontalLayout {
+                            height: 50px;
+                            spacing: 10px;
+                            if (root.editor-missing): PanelButton {
+                                height: 32px;
+                                cross-axis-self-alignment: start;
+                                text: @tr("Scan missing items");
+                                filled: true;
+                                enabled: !root.editor-loading && !root.editor-busy && !root.pending;
+                                clicked => { root.scan-missing-items(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            PanelButton {
+                                height: 32px;
+                                min-width: 86px;
+                                cross-axis-self-alignment: start;
+                                text: @tr("Cancel");
+                                filled: true;
+                                enabled: !root.editor-busy && !root.pending;
+                                clicked => { root.close-dialogs(); }
+                            }
+                            VerticalLayout {
+                                height: 50px;
+                                width: max(110px, editor-save.preferred-width);
+                                spacing: 4px;
+                                editor-save := PanelButton {
+                                    height: 32px;
+                                    text: @tr("Save changes");
+                                    accent: true;
+                                    enabled: !root.editor-loading && !root.editor-busy && !root.pending
+                                        && root.editor-dirty && root.editor-can-save;
+                                    clicked => { item-editor.save-changes(); }
+                                }
+                                Text {
+                                    text: "Ctrl+S";
+                                    color: editor-save.enabled ? Theme.text-secondary : Theme.inactive;
+                                    font-size: 10px;
+                                    height: 14px;
+                                    horizontal-alignment: center;
                                 }
                             }
                         }
@@ -1229,11 +1392,11 @@ export component PresetPanel inherits Window {
                 Rectangle { height: 1px; background: Theme.border; }
                 VerticalLayout {
                     spacing: 8px;
-                    if (!root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
-                        details: UiText.preset-title(root.failure-label, root.failure-number) + " — " + root.failure-details;
+                    if (!root.editor-open && !root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
+                        details: (root.failure-scan ? @tr("Item scan") : UiText.preset-title(root.failure-label, root.failure-number)) + " — " + root.failure-details;
                         dismissed => { root.failure-details = ""; }
                     }
-                    if (root.loading || root.failure-details == "" || root.status != ""): Text {
+                    if (!root.editor-open && !root.settings-open && (root.loading || root.failure-details == "" || root.status != "")): Text {
                         text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
                             : root.search-active && root.current-visible-index < 0 ? @tr("Select a preset")
                             : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
@@ -1242,7 +1405,7 @@ export component PresetPanel inherits Window {
                         wrap: word-wrap;
                         font-size: 12px;
                     }
-                    if (root.shortcut-warning != ""): Text {
+                    if (!root.editor-open && root.shortcut-warning != ""): Text {
                         text: @tr("Some shortcuts are unavailable. See Settings → Shortcuts.");
                         color: Theme.warning;
                         font-size: 12px;
@@ -1295,16 +1458,15 @@ export component PresetPanel inherits Window {
                             spacing: 4px;
                             save-button := PanelButton {
                                 height: 32px;
-                                text: root.scope-stratagems ? (root.scope-equipment && root.equipment-items-selected ? @tr("Save preset") : @tr("Save Stratagems"))
-                                    : root.scope-equipment && root.equipment-items-selected ? @tr("Save equipment") : @tr("Select content");
+                                text: @tr("Capture from game");
                                 filled: true;
                                 enabled: root.save-available;
                                 property <string> hint: @tr("Fill all four Stratagem slots before saving.");
-                                if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
+                                if (root.scope-stratagems && !root.editor-open): Tooltip { text: @markdown("\{parent.hint}"); }
                                 clicked => { root.save-current(); }
                             }
                             Text {
-                                text: "Ctrl+S";
+                                text: root.editor-open ? "" : "Ctrl+S";
                                 color: root.save-available ? Theme.text-secondary : Theme.inactive;
                                 font-size: 10px;
                                 height: 14px;
@@ -1318,14 +1480,13 @@ export component PresetPanel inherits Window {
                             spacing: 4px;
                             apply-button := PanelButton {
                                 height: 32px;
-                                text: root.include-stratagems ? (root.include-equipment ? @tr("Apply preset") : @tr("Apply Stratagems"))
-                                    : root.include-equipment ? @tr("Apply equipment") : @tr("Select content");
+                                text: @tr("Apply to game");
                                 accent: true;
                                 enabled: root.available;
                                 clicked => { root.apply-current(ActionScope.selected); }
                             }
                             Text {
-                                text: "Enter";
+                                text: root.editor-open ? "" : "Enter";
                                 color: root.available ? Theme.text-secondary : Theme.inactive;
                                 font-size: 10px;
                                 height: 14px;
@@ -1359,7 +1520,7 @@ export component PresetPanel inherits Window {
         }
         settings := SettingsDialog {
             visible: root.settings-open;
-            enabled: root.settings-open && !root.pending && !root.update-installing;
+            enabled: root.settings-open && !root.pending && !root.scan-confirm-open && !root.update-installing;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(root.shortcut-settings-index > 0 ? 440px : 560px, parent.width - 32px);
@@ -1395,6 +1556,7 @@ export component PresetPanel inherits Window {
             download-update => { root.download-update(); }
             install-update => { root.install-update(); }
             view-project => { root.view-project(); }
+            scan-items(kind) => { root.scan-items(kind); }
             license-text => { root.license-text(); }
         }
         if (root.delete-open): Rectangle {
@@ -1404,7 +1566,7 @@ export component PresetPanel inherits Window {
         }
         delete-dialog := DeletePresetDialog {
             visible: root.delete-open;
-            enabled: root.delete-open;
+            enabled: root.delete-open && !root.scan-confirm-open;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);
@@ -1416,6 +1578,22 @@ export component PresetPanel inherits Window {
                 root.close-dialogs();
             }
             cancel => { root.close-dialogs(); }
+        }
+        if (root.scan-confirm-open): Rectangle {
+            background: #00000099;
+            border-radius: 8px;
+            TouchArea { }
+        }
+        scan-confirm-dialog := ScanConfirmationDialog {
+            visible: root.scan-confirm-open;
+            enabled: root.scan-confirm-open && !root.pending;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(420px, parent.width - 32px);
+            height: self.preferred-height;
+            count: root.scan-confirm-count;
+            confirm => { root.confirm-scan(); }
+            cancel => { root.cancel-scan-confirmation(); root.focus-current-view(); }
         }
     }
 }

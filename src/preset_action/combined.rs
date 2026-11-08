@@ -34,6 +34,7 @@ pub(super) fn execute(
             colors,
             Page::Stratagems,
             context.evidence,
+            None,
         )? == Page::Equipment;
         let captured = {
             let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
@@ -54,6 +55,7 @@ pub(super) fn execute(
             colors,
             Page::Equipment,
             context.evidence,
+            None,
         )?;
         let items = equipment::sample(capture, target.clone(), colors, context, selection)?;
         if !started_on_equipment {
@@ -64,6 +66,7 @@ pub(super) fn execute(
                 colors,
                 Page::Stratagems,
                 context.evidence,
+                None,
             )?;
         }
         // Only write after all samples and navigation succeed. These reuse the
@@ -86,6 +89,7 @@ pub(super) fn execute(
             colors,
             Page::Equipment,
             context.evidence,
+            None,
         )?;
         equipment::apply(capture, target.clone(), colors, context, preset, &items)?;
         // Stratagems/Booster go last, so fallback learning and auto-ready cannot
@@ -98,6 +102,7 @@ pub(super) fn execute(
                 colors,
                 Page::Stratagems,
                 context.evidence,
+                None,
             )?;
             stratagems::execute(
                 runtime,

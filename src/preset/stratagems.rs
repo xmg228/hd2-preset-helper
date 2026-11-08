@@ -1,8 +1,15 @@
 //! Captured Stratagem and Booster templates and their persistence.
 use std::path::Path;
 
-use super::{LocalTemplate, StratagemPreset, load_template_image, resolve_template_path, storage};
-use crate::vision::{ImageSample, SampleGeometry};
+use super::{
+    LocalTemplate, Preset, StratagemPreset, images::NewImages, load_template_image,
+    resolve_template_path, storage,
+};
+use crate::{
+    item::ItemKind,
+    item_cache::{IconChoice, ItemCache},
+    vision::{IconTemplate, ImageSample, SampleGeometry, TemplateClassifier},
+};
 use anyhow::{Context, Result, bail, ensure};
 
 pub struct CapturedStratagemPreset {
@@ -99,6 +106,121 @@ pub fn save(
     })
 }
 
+/// Copy changed catalog items into independent preset images in one commit.
+pub(super) fn write_cached(
+    path: &Path,
+    name: &str,
+    cache: &ItemCache,
+    choices: &[IconChoice; 6],
+    record: &mut Preset,
+    images: &mut NewImages,
+) -> Result<()> {
+    let mut preset = record.stratagems.clone().unwrap_or(StratagemPreset {
+        stratagems: Vec::new(),
+        booster: None,
+        fallback_booster: None,
+    });
+    let sources = (0..4)
+        .map(|index| match choices[index] {
+            IconChoice::Keep => {
+                let template = preset.stratagems.get(index).with_context(|| {
+                    format!("select a Stratagem for slot {} before saving", index + 1)
+                })?;
+                load_template_sample(path, template)
+            }
+            IconChoice::Clear => bail!("all four Stratagem slots must be filled"),
+            IconChoice::Item(index) => cache
+                .stratagems
+                .as_ref()
+                .and_then(|catalog| catalog.items.get(index))
+                .map(|item| item.icon.sample.clone())
+                .context("selected Stratagem is not available in the cache"),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for index in 0..4 {
+        for previous in 0..index {
+            match (choices[previous], choices[index]) {
+                (IconChoice::Item(a), IconChoice::Item(b)) => ensure!(
+                    a != b,
+                    "the same Stratagem cannot fill slots {} and {}",
+                    previous + 1,
+                    index + 1,
+                ),
+                (IconChoice::Keep, IconChoice::Keep) => {}
+                _ => ensure!(
+                    !TemplateClassifier::same_item(
+                        ItemKind::Stratagem,
+                        &sources[previous],
+                        &sources[index],
+                    )?,
+                    "could not distinguish the Stratagems in slots {} and {}; choose different items",
+                    previous + 1,
+                    index + 1,
+                ),
+            }
+        }
+    }
+    preset.stratagems = (0..4)
+        .map(|index| match choices[index] {
+            IconChoice::Keep => Ok(preset.stratagems[index].clone()),
+            IconChoice::Item(_) => Ok(LocalTemplate {
+                path: images.save(&format!("stratagem-{}", index + 1), &sources[index].image)?,
+                geometry: sources[index].geometry,
+            }),
+            IconChoice::Clear => unreachable!("empty Stratagem slots were rejected above"),
+        })
+        .collect::<Result<_>>()?;
+    for (index, role, field) in [
+        (4, "booster", &mut preset.booster),
+        (5, "fallback-booster", &mut preset.fallback_booster),
+    ] {
+        match choices[index] {
+            IconChoice::Keep => {}
+            IconChoice::Clear => *field = None,
+            IconChoice::Item(index) => {
+                let item = cache
+                    .boosters
+                    .as_ref()
+                    .and_then(|catalog| catalog.items.get(index))
+                    .context("selected Booster is not available in the cache")?;
+                *field = Some(LocalTemplate {
+                    path: images.save(role, &item.icon.sample.image)?,
+                    geometry: item.icon.sample.geometry,
+                });
+            }
+        }
+    }
+    if choices[4..]
+        .iter()
+        .any(|choice| *choice != IconChoice::Keep)
+    {
+        ensure!(
+            preset.booster.is_some() || preset.fallback_booster.is_none(),
+            "select a preferred Booster or clear the fallback before saving"
+        );
+        if let (Some(preferred), Some(fallback)) = (&preset.booster, &preset.fallback_booster) {
+            match (choices[4], choices[5]) {
+                (IconChoice::Item(a), IconChoice::Item(b)) => ensure!(
+                    a != b,
+                    "the preferred and fallback Booster must be different"
+                ),
+                (IconChoice::Keep, IconChoice::Keep) => {}
+                _ => ensure!(
+                    !TemplateClassifier::same_item(
+                        ItemKind::Booster,
+                        &load_template_sample(path, preferred)?,
+                        &load_template_sample(path, fallback)?,
+                    )?,
+                    "could not distinguish the preferred and fallback Booster; choose different items"
+                ),
+            }
+        }
+    }
+    validate(name, &preset)?;
+    record.stratagems = Some(preset);
+    Ok(())
+}
+
 pub fn save_fallback_booster(
     path: &Path,
     name: &str,
@@ -137,6 +259,14 @@ pub fn load_template_sample(presets_path: &Path, template: &LocalTemplate) -> Re
         image,
         geometry: template.geometry,
     })
+}
+
+pub(crate) fn load_icon_template(
+    presets_path: &Path,
+    template: &LocalTemplate,
+    kind: ItemKind,
+) -> Result<IconTemplate> {
+    IconTemplate::extract(kind, &load_template_sample(presets_path, template)?)
 }
 
 pub(super) fn validate(name: &str, preset: &StratagemPreset) -> Result<()> {

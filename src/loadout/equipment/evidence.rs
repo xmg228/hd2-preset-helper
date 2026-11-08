@@ -136,7 +136,6 @@ impl<'a> EquipmentEvidence<'a> {
             None,
             json!({"kind": self.kind, "target": self.target}),
         );
-        self.evidence.image("target-name", item.name.image.clone());
         self.evidence
             .image("target-foreground", item.name.foreground());
         if let Some(category) = &item.category {
@@ -208,7 +207,7 @@ pub(super) struct InputConfirmation<'a> {
 }
 
 fn describe(page: &EquipmentObservation) -> Value {
-    json!({ "scale": page.scale, "slots": page.slots, "focus": page.focus, "hover": page.hover,
+    json!({ "scale": page.scale, "slots": page.slots, "focus": page.focus, "hover": page.hover, "scrollbar": page.scrollbar,
         "name_geometry": page.name.geometry, "category_geometry": page.category.geometry,
         "name_width": page.name.image.width(), "name_height": page.name.image.height(),
         "name_support": page.name.response.iter().filter(|&&v| v > 0.0).count(),

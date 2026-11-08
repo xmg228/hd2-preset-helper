@@ -57,7 +57,7 @@ impl RecognizerSession {
         &self,
         image: &image::RgbaImage,
     ) -> Option<super::ScrollbarObservation> {
-        super::scrollbar::detect(image, self.geometry)
+        super::scrollbar::detect(image, self.geometry, super::scrollbar::Track::STRATAGEMS)
     }
 
     pub fn detect(

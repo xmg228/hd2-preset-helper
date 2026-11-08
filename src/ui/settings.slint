@@ -36,6 +36,7 @@ export component SettingsDialog inherits Rectangle {
     private property <SettingsPage> page: SettingsPage.general;
     private property <bool> shortcut-only: page == SettingsPage.preset-shortcut;
     private property <string> notices;
+    private property <int> scan-kind;
     out property <bool> viewing-licenses: page == SettingsPage.licenses;
     callback clear(int);
     callback save();
@@ -45,6 +46,7 @@ export component SettingsDialog inherits Rectangle {
     callback download-update();
     callback install-update();
     callback view-project();
+    callback scan-items(int);
     callback license-text() -> string;
     forward-focus: keys;
     public function focus-dialog(show-about: bool) {
@@ -164,6 +166,29 @@ export component SettingsDialog inherits Rectangle {
                         description: @tr("Starts in the background after sign-in.");
                         checked <=> root.start-with-windows;
                         enabled: root.enabled && !root.saving && root.startup-available;
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        Text { text: @tr("Item cache"); color: Theme.text; font-size: 14px; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            PanelComboBox {
+                                model: [@tr("All items"), @tr("Stratagems"), @tr("Booster"),
+                                    @tr("Helmet"), @tr("Armor"), @tr("Cape"),
+                                    @tr("Primary"), @tr("Secondary"), @tr("Throwable")];
+                                current-index <=> root.scan-kind;
+                                enabled: root.enabled && !root.saving;
+                            }
+                            PanelButton {
+                                text: @tr("Scan");
+                                filled: true;
+                                enabled: root.enabled && !root.saving;
+                                clicked => { root.scan-items(root.scan-kind); }
+                            }
+                        }
+                        Text { text: @tr("Open the panel to stop scanning."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
                     }
                 }
             }

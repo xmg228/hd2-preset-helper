@@ -5,7 +5,10 @@ mod frame;
 mod home;
 pub(crate) mod pages;
 
-pub use direct_select::{BoosterApplyOutcome, apply_stratagem_preset_from_home};
+pub use direct_select::BoosterApplyOutcome;
+pub(crate) use direct_select::{
+    IconApplyContext, apply_stratagem_preset_from_home, scan_icon_list,
+};
 pub use frame::bind_loadout_region;
 pub use home::{
     UiState, collect_home_booster, collect_stratagem_preset, detect_ui_state, scan_loadout_home,

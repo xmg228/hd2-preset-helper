@@ -335,6 +335,75 @@ msgstr "このビルドでは手動で更新してください。"
 msgid "Check for updates automatically"
 msgstr "更新を自動的に確認"
 
+# Item scanning.
+msgid "Item cache"
+msgstr "アイテムキャッシュ"
+
+msgid "All items"
+msgstr "すべてのアイテム"
+
+msgid "Stratagems"
+msgstr "戦略支援"
+
+msgid "Scan"
+msgstr "スキャン"
+
+msgid "Item scan"
+msgstr "アイテムのスキャン"
+
+msgid "Open the panel to stop scanning."
+msgstr "パネルを開くとスキャンを停止します。"
+
+# Item editing.
+msgid "Edit loadout"
+msgstr "装備構成を編集"
+
+msgid "Randomize Stratagems & Booster"
+msgstr "ストラタジェムとブースターをランダム選択"
+
+msgid "Offensive"
+msgstr "攻撃タイプ"
+
+msgid "Supply"
+msgstr "補給タイプ"
+
+msgid "Defensive"
+msgstr "防衛タイプ"
+
+msgid "Clear"
+msgstr "クリア"
+
+msgid "Loading…"
+msgstr "読み込み中…"
+
+msgid "No items available."
+msgstr "選択できるアイテムがありません。"
+
+msgid "Save changes"
+msgstr "変更を保存"
+
+msgid "Randomize equipment"
+msgstr "装備をランダム選択"
+
+msgid "Scan missing items"
+msgstr "不足するリストをスキャン"
+
+msgid "Capture from game"
+msgstr "ゲームから保存"
+
+msgid "Apply to game"
+msgstr "ゲームに適用"
+
+msgid "Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets."
+msgstr "初回は{}種類のアイテム一覧をスキャンしてキャッシュを作成するため、時間がかかる場合があります。次回以降はキャッシュを再利用し、毎回のスキャンは不要です。"
+
+# Item-list confirmation.
+msgid "Build item cache"
+msgstr "アイテムキャッシュを作成"
+
+msgid "Build cache and apply"
+msgstr "キャッシュを作成して適用"
+
 # Tray.
 msgid "Exit"
 msgstr "終了"

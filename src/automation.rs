@@ -1,17 +1,48 @@
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use std::time::Instant;
 
-use crate::capture::{CaptureRegion, CapturedFrame};
+use crate::capture::{CaptureRegion, CaptureSessionManager, CaptureSource, CapturedFrame};
 use crate::evidence::OperationEvidence;
 use crate::input::{InputSession, Key};
 use crate::window::WindowTarget;
+
+pub(crate) struct GameCapture<'a> {
+    pub source: &'a mut CaptureSource,
+    pub target: WindowTarget,
+    pub colors: crate::game_settings::GameColorSettings,
+}
+
+/// Prepare capture after the controller has activated the requested game window.
+pub(crate) fn prepare_game<'a>(
+    sessions: &'a mut CaptureSessionManager,
+    expected: crate::window::WindowIdentity,
+) -> Result<GameCapture<'a>> {
+    let target = crate::game_window::wait_for_foreground_game_window()
+        .context("failed to locate Helldivers window")?;
+    ensure!(
+        target.identity() == expected,
+        "the game window changed before the action started; try again"
+    );
+    crate::permissions::ensure_input_access()?;
+    let colors = crate::game_settings::read_color_settings()
+        .context("failed to read Helldivers color settings")?;
+    let source = sessions
+        .acquire(&target)
+        .context("failed to get capture session")?;
+    Ok(GameCapture {
+        source,
+        target,
+        colors,
+    })
+}
 
 pub struct AutomationSession<'a> {
     region: CaptureRegion<'a>,
     input: InputSession,
     evidence: &'a OperationEvidence,
     latest: Option<CapturedFrame>,
+    cancellation: Option<crate::scan::ScanCancellation>,
 }
 
 impl<'a> AutomationSession<'a> {
@@ -25,10 +56,12 @@ impl<'a> AutomationSession<'a> {
             input: InputSession::new(target)?,
             evidence,
             latest: evidence.latest_frame(),
+            cancellation: None,
         })
     }
 
     pub fn capture(&mut self) -> Result<CapturedFrame> {
+        self.check_cancelled()?;
         let frame = self.region.capture()?;
         self.evidence.observe(&frame);
         self.latest = Some(frame.clone());
@@ -37,6 +70,17 @@ impl<'a> AutomationSession<'a> {
 
     pub fn evidence(&self) -> &'a OperationEvidence {
         self.evidence
+    }
+
+    pub(crate) fn set_cancellation(&mut self, cancellation: crate::scan::ScanCancellation) {
+        self.cancellation = Some(cancellation);
+    }
+
+    pub(crate) fn check_cancelled(&self) -> Result<()> {
+        if let Some(cancellation) = &self.cancellation {
+            cancellation.check()?;
+        }
+        Ok(())
     }
 
     pub fn move_cursor(&mut self, point: (u32, u32)) -> Result<()> {
@@ -84,6 +128,7 @@ impl<'a> AutomationSession<'a> {
         parameters: serde_json::Value,
         send: impl FnOnce(&mut InputSession) -> Result<()>,
     ) -> Result<()> {
+        self.check_cancelled()?;
         let started = Instant::now();
         let result = send(&mut self.input);
         // Never encode/write images or record between injected down/up events.

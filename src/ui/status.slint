@@ -46,6 +46,7 @@ export component ActionStatus inherits Window {
     default-font-family: root.ui-font-family;
     in property <string> preset-label;
     in property <string> preset-number;
+    in property <bool> item-scan;
     in property <string> message;
     in property <StatusTone> tone;
     private property <color> accent: tone == StatusTone.success ? Theme.success
@@ -60,7 +61,7 @@ export component ActionStatus inherits Window {
         padding: 12px;
         spacing: 6px;
         alignment: start;
-        Text { text: UiText.preset-title(root.preset-label, root.preset-number); color: root.accent; font-size: 13px; height: 16px; overflow: elide; }
+        Text { text: root.item-scan ? @tr("Item scan") : UiText.preset-title(root.preset-label, root.preset-number); color: root.accent; font-size: 13px; height: 16px; overflow: elide; }
         Text { text: root.message; color: Theme.text; font-size: 13px; min-height: 16px; wrap: word-wrap; overflow: elide; }
         if (root.stratagems.length > 0 || root.booster.item-id != ""): HorizontalLayout {
             height: 40px;
