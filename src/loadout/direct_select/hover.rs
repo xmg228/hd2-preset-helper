@@ -19,12 +19,12 @@ const SELECTED_SCORE_DROP_RATIO: f32 = 0.10;
 
 pub(super) struct HoverSample {
     target_score: f32,
+    required_score_drop: f32,
 }
 
 impl HoverSample {
-    pub(super) fn is_dimmer_than(&self, unselected: &Self) -> bool {
-        let score_drop = unselected.target_score - self.target_score;
-        score_drop >= unselected.required_score_drop()
+    pub(super) fn is_dimmed(&self, after_score: f32) -> bool {
+        self.target_score - after_score >= self.required_score_drop
     }
 
     pub(super) fn target_score(&self) -> f32 {
@@ -32,7 +32,7 @@ impl HoverSample {
     }
 
     pub(super) fn required_score_drop(&self) -> f32 {
-        (self.target_score * SELECTED_SCORE_DROP_RATIO).max(SELECTED_MIN_SCORE_DROP)
+        self.required_score_drop
     }
 }
 
@@ -50,6 +50,9 @@ impl HoverEvidence {
     fn sample(&self) -> HoverSample {
         HoverSample {
             target_score: self.target_score,
+            // Measure the change relative to hover contrast, not background brightness.
+            required_score_drop: ((self.target_score - self.baseline) * SELECTED_SCORE_DROP_RATIO)
+                .max(SELECTED_MIN_SCORE_DROP),
         }
     }
 }
@@ -57,10 +60,8 @@ impl HoverEvidence {
 pub(super) struct HoverVerifier;
 
 impl HoverVerifier {
-    pub(super) fn sample_current_frame(image: &RgbaImage, target: &Slot) -> Result<HoverSample> {
-        Ok(HoverSample {
-            target_score: border_center_line_score(image, target)?,
-        })
+    pub(super) fn score_current_frame(image: &RgbaImage, target: &Slot) -> Result<f32> {
+        border_center_line_score(image, target)
     }
 
     pub(super) fn wait_at_current_position(

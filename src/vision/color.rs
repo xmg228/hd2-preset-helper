@@ -1,6 +1,6 @@
 // The home Booster presence check uses its calibrated yellow reference.
 const BOOSTER_YELLOW_RGB: [u8; 3] = [255, 222, 38];
-const BOOSTER_YELLOW_MAX_DISTANCE: u32 = 32;
+const BOOSTER_YELLOW_MAX_DISTANCE: u32 = 64;
 
 #[inline]
 pub fn luma601_u8(r: u8, g: u8, b: u8) -> u8 {

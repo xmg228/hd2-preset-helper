@@ -11,6 +11,7 @@ const TRACK_BOTTOM: f64 = 615.0;
 const CAP_HEIGHT: f64 = 2.0;
 const YELLOW_NOISE_FLOOR: f64 = 16.0;
 const CAP_RESPONSE_THRESHOLD: f64 = 40.0;
+const BODY_MAX_CHANNEL_SPREAD: f64 = 24.0;
 const ENDPOINT_TOLERANCE_PX: f64 = 0.75;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -59,7 +60,8 @@ pub(super) fn detect(image: &RgbaImage, geometry: RoiGeometry) -> Option<Scrollb
                 let [r, g, b, _] = image.get_pixel(x, y).0.map(f64::from);
                 yellow += (r.min(g) - b - YELLOW_NOISE_FLOOR).max(0.0);
                 gray += usize::from(
-                    r.max(g).max(b) - r.min(g).min(b) <= 16.0 && r.min(g).min(b) >= 64.0,
+                    r.max(g).max(b) - r.min(g).min(b) <= BODY_MAX_CHANNEL_SPREAD
+                        && r.min(g).min(b) >= 64.0,
                 );
             }
             let width = right - left;
