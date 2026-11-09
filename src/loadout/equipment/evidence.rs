@@ -1,7 +1,5 @@
 //! Equipment-specific evidence; storage and retention belong to the operation.
-use super::{
-    EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, search::Visit,
-};
+use super::{EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, search::Visit};
 use crate::{
     capture::CapturedFrame,
     evidence::OperationEvidence,
@@ -184,14 +182,15 @@ impl<'a> EquipmentEvidence<'a> {
                 .as_ref()
                 .map(|best| best.visit.target_cosine),
             match_threshold = NAME_MATCH_THRESHOLD,
-            identity_threshold = NAME_IDENTITY_THRESHOLD,
             "equipment search finished"
         );
-        self.evidence.record("equipment-search-finished", None,
+        self.evidence.record(
+            "equipment-search-finished",
+            None,
             json!({"kind": self.kind, "found": found,
             "visits": self.search_visits, "elapsed_s": elapsed_ms / 1000.0,
             "target": self.target, "best": self.best_match,
-            "match_threshold": NAME_MATCH_THRESHOLD, "identity_threshold": NAME_IDENTITY_THRESHOLD})
+            "match_threshold": NAME_MATCH_THRESHOLD}),
         );
     }
 }

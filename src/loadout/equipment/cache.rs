@@ -1,5 +1,5 @@
 //! Equipment catalog identities, position checks, and navigation routes.
-use super::{InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD};
+use super::{CATEGORY_MATCH_THRESHOLD, InputAction, NAME_MATCH_THRESHOLD};
 use crate::{
     input::Key,
     item::EquipmentKind,
@@ -12,7 +12,6 @@ use crate::{
 use serde::Serialize;
 
 pub(super) type Name = usize;
-const NAME_MATCH_MARGIN: f32 = 0.04;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub(super) struct Position {
@@ -21,7 +20,7 @@ pub(super) struct Position {
     pub col: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Target {
     category: usize,
     name: Name,
@@ -34,8 +33,11 @@ struct NameRanking<T> {
 }
 
 impl<T> NameRanking<T> {
-    fn accepts(&self, threshold: f32) -> bool {
-        self.score >= threshold && self.score - self.runner_up.unwrap_or(0.0) >= NAME_MATCH_MARGIN
+    fn accepts(&self) -> bool {
+        self.score >= NAME_MATCH_THRESHOLD
+            && self
+                .runner_up
+                .is_none_or(|score| score < NAME_MATCH_THRESHOLD)
     }
 }
 
@@ -84,11 +86,9 @@ impl Category {
                 .enumerate()
                 .map(|(index, sample)| (index, sample.signature())),
         )
-        .filter(|ranking| ranking.score >= NAME_IDENTITY_THRESHOLD)
+        .filter(|ranking| ranking.score >= NAME_MATCH_THRESHOLD)
         {
-            return ranking
-                .accepts(NAME_IDENTITY_THRESHOLD)
-                .then_some(ranking.best);
+            return ranking.accepts().then_some(ranking.best);
         }
         self.names.push(name.clone());
         Some(self.names.len() - 1)
@@ -96,11 +96,11 @@ impl Category {
 }
 
 impl ItemCache {
-    pub(crate) fn has_strong_match(&self, kind: EquipmentKind, target: &TextSignature) -> bool {
+    pub(crate) fn has_match(&self, kind: EquipmentKind, target: &TextSignature) -> bool {
         self.equipment[kind.index()]
             .as_ref()
             .and_then(|catalog| rank_targets(catalog, target))
-            .is_some_and(|ranking| ranking.accepts(NAME_IDENTITY_THRESHOLD))
+            .is_some_and(|ranking| ranking.accepts())
     }
 }
 
@@ -116,7 +116,7 @@ impl<'a> CachedList<'a> {
 
     pub fn target(&self, name: &TextSignature) -> Option<Target> {
         rank_targets(self.catalog, name)
-            .filter(|ranking| ranking.accepts(NAME_MATCH_THRESHOLD))
+            .filter(|ranking| ranking.accepts())
             .map(|ranking| ranking.best)
     }
 
@@ -147,7 +147,7 @@ impl<'a> CachedList<'a> {
 
     fn category_matches(&self, category: usize, title: &TextTemplate) -> bool {
         !self.kind.has_categories()
-            || self.catalog.categories[category].title.cosine(title) >= NAME_MATCH_THRESHOLD
+            || self.catalog.categories[category].title.cosine(title) >= CATEGORY_MATCH_THRESHOLD
     }
 
     pub fn matches(&self, position: Position, page: &EquipmentObservation) -> bool {
@@ -177,17 +177,13 @@ impl<'a> CachedList<'a> {
                 .enumerate()
                 .map(|(id, name)| (id, name.signature())),
         )
-        .is_some_and(|ranking| {
-            ranking.accepts(NAME_IDENTITY_THRESHOLD) && row.get(position.col) == Some(&ranking.best)
-        })
+        .is_some_and(|ranking| ranking.accepts() && row.get(position.col) == Some(&ranking.best))
     }
 
     pub fn locate(&self, page: &EquipmentObservation) -> Option<Position> {
         let focus = page.slots.get(page.focus?)?;
         let ranking = rank_targets(self.catalog, page.name.signature())?;
-        if !ranking.accepts(NAME_IDENTITY_THRESHOLD)
-            || !self.category_matches(ranking.best.category, &page.category)
-        {
+        if !ranking.accepts() || !self.category_matches(ranking.best.category, &page.category) {
             return None;
         }
         let columns = self.kind.list_columns();
@@ -236,7 +232,7 @@ impl<'a> CachedList<'a> {
                     && old
                         .iter()
                         .zip(names)
-                        .all(|(&id, name)| entry.names[id].cosine(name) >= NAME_IDENTITY_THRESHOLD)
+                        .all(|(&id, name)| entry.names[id].cosine(name) >= NAME_MATCH_THRESHOLD)
                 {
                     positions.push(Position { category, row, col });
                 }

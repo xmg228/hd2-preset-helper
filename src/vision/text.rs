@@ -90,7 +90,7 @@ impl Deref for TextSample {
     }
 }
 
-/// Foreground on the fixed logical grid, independent of capture resolution.
+/// Lightly smoothed foreground on the fixed logical grid.
 #[derive(Clone)]
 pub(crate) struct TextSignature {
     size: (u32, u32),
@@ -115,36 +115,33 @@ impl TextTemplate {
                 scale,
             } = self.geometry;
             let (width, height) = self.size;
-            if size == (width, height) && scale == 1.0 && x == 0.0 && y == 0.0 {
-                return TextSignature {
-                    size,
-                    response: self.response.clone(),
-                };
-            }
-            let source = TypedImage::from_pixels(
-                width,
-                height,
-                self.response.iter().map(|&v| F32::new(v)).collect(),
-            )
-            .unwrap();
-            let mut target = TypedImage::<F32>::new(size.0, size.1);
-            // Bilinear convolution also antialiases downsampling. Crop in continuous
-            // coordinates: stretching the rounded raster would lose its sampling phase.
-            let options = ResizeOptions::new()
-                .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
-                .crop(
-                    x,
-                    y,
-                    (size.0 as f64 * scale).min(width as f64 - x),
-                    (size.1 as f64 * scale).min(height as f64 - y),
-                );
-            Resizer::new()
-                .resize_typed(&source, &mut target, &options)
+            let mut response = if size == (width, height) && scale == 1.0 && x == 0.0 && y == 0.0 {
+                self.response.clone()
+            } else {
+                let source = TypedImage::from_pixels(
+                    width,
+                    height,
+                    self.response.iter().map(|&v| F32::new(v)).collect(),
+                )
                 .unwrap();
-            TextSignature {
-                size,
-                response: target.pixels().iter().map(|p| p.0).collect(),
-            }
+                let mut target = TypedImage::<F32>::new(size.0, size.1);
+                // Bilinear convolution also antialiases downsampling. Crop in continuous
+                // coordinates: stretching the rounded raster would lose its sampling phase.
+                let options = ResizeOptions::new()
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
+                    .crop(
+                        x,
+                        y,
+                        (size.0 as f64 * scale).min(width as f64 - x),
+                        (size.1 as f64 * scale).min(height as f64 - y),
+                    );
+                Resizer::new()
+                    .resize_typed(&source, &mut target, &options)
+                    .unwrap();
+                target.pixels().iter().map(|p| p.0).collect()
+            };
+            smooth_signature(&mut response, size.0 as usize);
+            TextSignature { size, response }
         })
     }
 
@@ -178,6 +175,19 @@ impl TextTemplate {
 }
 
 impl TextSample {
+    pub fn retain_left_group(mut self) -> Self {
+        let gap = (self.geometry.logical_size.1 as f64 * self.geometry.scale)
+            .round_ties_even()
+            .max(1.0) as usize;
+        retain_left_group(
+            &mut self.template.response,
+            self.image.width() as usize,
+            gap,
+        );
+        self.template.signature.take();
+        self
+    }
+
     pub fn from_image(image: RgbaImage, geometry: TextGeometry) -> anyhow::Result<Self> {
         let size = image.dimensions();
         anyhow::ensure!(
@@ -284,6 +294,57 @@ impl TextSample {
             },
             image,
         }
+    }
+}
+
+/// Separable three-tap Gaussian, sigma = 0.5 logical pixels, with replicated edges.
+fn smooth_signature(response: &mut [f32], width: usize) {
+    const SIDE: f32 = 0.106_506_98;
+    const CENTER: f32 = 1.0 - 2.0 * SIDE;
+    let height = response.len() / width;
+    let mut horizontal = vec![0.0; response.len()];
+    for (source, target) in response
+        .chunks_exact(width)
+        .zip(horizontal.chunks_exact_mut(width))
+    {
+        for x in 0..width {
+            target[x] = SIDE * source[x.saturating_sub(1)]
+                + CENTER * source[x]
+                + SIDE * source[(x + 1).min(width - 1)];
+        }
+    }
+    for y in 0..height {
+        let above = y.saturating_sub(1) * width;
+        let current = y * width;
+        let below = (y + 1).min(height - 1) * width;
+        for x in 0..width {
+            response[current + x] = SIDE * horizontal[above + x]
+                + CENTER * horizontal[current + x]
+                + SIDE * horizontal[below + x];
+        }
+    }
+}
+
+/// Keep the left-aligned text group, stopping at a blank gap wider than one line.
+fn retain_left_group(response: &mut [f32], width: usize, gap: usize) {
+    let mut columns = vec![false; width];
+    for row in response.chunks_exact(width) {
+        for (occupied, &value) in columns.iter_mut().zip(row) {
+            *occupied |= value > 0.0;
+        }
+    }
+    // The first group must also start near the name's known left edge.
+    let mut end = 0;
+    for (x, &occupied) in columns.iter().enumerate() {
+        if occupied {
+            if x - end > gap {
+                break;
+            }
+            end = x + 1;
+        }
+    }
+    for row in response.chunks_exact_mut(width) {
+        row[end..].fill(0.0);
     }
 }
 

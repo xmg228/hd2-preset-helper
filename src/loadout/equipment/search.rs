@@ -3,7 +3,7 @@ use anyhow::{Result, ensure};
 use serde::Serialize;
 
 use super::{
-    EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation,
+    EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, Navigation,
     cache::{CachedList, Position, Target},
     row::{RowScan, RowStep},
 };
@@ -150,8 +150,12 @@ impl<'a> Search<'a> {
         if !page.ready() {
             return self.reobserve().unwrap_or(Next::Rebuild);
         }
-        // An already focused strong live match needs no cache navigation.
-        if self.visits == 1 && score >= NAME_IDENTITY_THRESHOLD {
+        // A unique, already focused target needs no position lookup or navigation.
+        if self.visits == 1
+            && score >= NAME_MATCH_THRESHOLD
+            && self.selected.is_some()
+            && self.list.target(page.name.signature()) == self.selected
+        {
             return Next::Found;
         }
         if self.selected.is_none() {

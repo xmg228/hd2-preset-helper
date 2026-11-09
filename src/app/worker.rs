@@ -223,7 +223,7 @@ fn load_previews(path: &Path, cache: &ItemCache) -> Result<BTreeMap<String, Pres
                     loaded
                         .equipment_names
                         .iter()
-                        .filter(|(kind, sample)| cache.has_strong_match(*kind, sample.signature()))
+                        .filter(|(kind, sample)| cache.has_match(*kind, sample.signature()))
                         .count()
                 });
             }

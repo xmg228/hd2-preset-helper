@@ -28,11 +28,10 @@ use anyhow::{Context, Result, bail, ensure};
 use search::{Next, Search};
 use std::time::{Duration, Instant};
 
-// Candidate/continuity tolerance is not enough to merge identities or skip a search.
-const NAME_MATCH_THRESHOLD: f32 = 0.80;
-// Cross-resolution rasterization can lower an identical name to about 0.93.
-// Cache identity also requires separation from the runner-up.
-const NAME_IDENTITY_THRESHOLD: f32 = 0.90;
+// One threshold for smoothed name identities and saved-target acceptance.
+const NAME_MATCH_THRESHOLD: f32 = 0.96;
+const CATEGORY_MATCH_THRESHOLD: f32 = 0.80;
+const NAME_CONTINUITY_THRESHOLD: f32 = 0.80;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum InputAction {
@@ -273,11 +272,6 @@ impl<'a> Session<'a> {
         self.evidence.start_search(target);
         let started = Instant::now();
         let result = (|| {
-            if cache.equipment[kind.index()].is_some()
-                && self.page.name.cosine(&target.name) >= NAME_IDENTITY_THRESHOLD
-            {
-                return Ok(true);
-            }
             let mut rebuilt = false;
             let mut position = None;
             loop {

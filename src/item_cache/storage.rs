@@ -13,6 +13,7 @@ use crate::{
     item::ItemKind,
     vision::{
         IconSample, ImageSample, SampleGeometry,
+        equipment::EquipmentText,
         text::{TextGeometry, TextSample},
     },
 };
@@ -165,11 +166,11 @@ fn decode_catalog(catalog: Catalog) -> Result<EquipmentCatalog> {
                 "invalid item-cache equipment order"
             );
             Ok(EquipmentCategory {
-                title: decode_text(category.title)?,
+                title: decode_text(category.title, EquipmentText::Category)?,
                 names: category
                     .names
                     .into_iter()
-                    .map(decode_text)
+                    .map(|sample| decode_text(sample, EquipmentText::Name))
                     .collect::<Result<_>>()?,
                 order: category.order,
             })
@@ -207,8 +208,12 @@ fn encode_text(sample: &TextSample) -> Result<Text> {
     })
 }
 
-fn decode_text(sample: Text) -> Result<TextSample> {
+fn decode_text(sample: Text, field: EquipmentText) -> Result<TextSample> {
     let sample = TextSample::from_image(decode_image(&sample.image)?, sample.geometry)?;
+    let sample = match field {
+        EquipmentText::Name => sample.retain_left_group(),
+        EquipmentText::Category => sample,
+    };
     ensure!(sample.has_text(), "empty cached text foreground");
     Ok(sample)
 }

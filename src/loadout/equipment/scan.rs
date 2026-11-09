@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, ensure};
 
 use super::{
-    EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, NavigationWait,
+    CATEGORY_MATCH_THRESHOLD, EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, NavigationWait,
     Session,
     cache::Position,
     row::{RowScan, RowStep},
@@ -82,13 +82,13 @@ struct ScannedRow {
 
 impl ScannedRow {
     fn matches(&self, category: &TextSample, names: &[TextSample]) -> bool {
-        self.category.cosine(category) >= NAME_MATCH_THRESHOLD
+        self.category.cosine(category) >= CATEGORY_MATCH_THRESHOLD
             && self.names.len() == names.len()
             && self
                 .names
                 .iter()
                 .zip(names)
-                .all(|(a, b)| a.cosine(b) >= NAME_IDENTITY_THRESHOLD)
+                .all(|(a, b)| a.cosine(b) >= NAME_MATCH_THRESHOLD)
     }
 }
 
