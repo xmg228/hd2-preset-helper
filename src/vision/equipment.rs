@@ -243,10 +243,14 @@ impl EquipmentObserver {
 
     fn text(&self, image: &RgbaImage, field: EquipmentText) -> TextSample {
         let (rect, geometry) = self.text_region(field);
-        TextSample::extract(
+        let sample = TextSample::extract(
             image::imageops::crop_imm(image, rect.x, rect.y, rect.w, rect.h).to_image(),
             geometry,
-        )
+        );
+        match field {
+            EquipmentText::Name => sample.retain_left_group(),
+            EquipmentText::Category => sample,
+        }
     }
 
     /// Shared by live crops and native template loading, including fractional crop margins.

@@ -132,5 +132,9 @@ pub(super) fn load_text(
         image.dimensions() == (rect.w, rect.h),
         "equipment template {relative} does not match its saved capture geometry; save it again"
     );
-    Ok(TextSample::extract(image, geometry))
+    let sample = TextSample::extract(image, geometry);
+    Ok(match field {
+        EquipmentText::Name => sample.retain_left_group(),
+        EquipmentText::Category => sample,
+    })
 }

@@ -11,7 +11,7 @@ use std::{
 };
 
 use super::{Category, EquipmentCache};
-use crate::vision::text::TextSignature;
+use crate::vision::{equipment::EquipmentText, text::TextSignature};
 
 // Also bump when text extraction/geometry changes incompatibly.
 // Rebuild unscoped maps that may contain mixed category orders.
@@ -64,13 +64,13 @@ impl EquipmentCache {
                             "invalid equipment cache references"
                         );
                         categories.push(Category {
-                            title: decode(&entry.title)
+                            title: decode(&entry.title, EquipmentText::Category)
                                 .context("failed to decode equipment cache category heading")?,
                             names: entry
                                 .names
                                 .iter()
                                 .map(|png| {
-                                    decode(png)
+                                    decode(png, EquipmentText::Name)
                                         .context("failed to decode equipment cache item name")
                                 })
                                 .collect::<Result<_>>()?,
@@ -160,12 +160,14 @@ fn encode(signature: &TextSignature) -> Result<String> {
     Ok(STANDARD.encode(bytes.into_inner()))
 }
 
-fn decode(png: &str) -> Result<TextSignature> {
+fn decode(png: &str, field: EquipmentText) -> Result<TextSignature> {
     let bytes = STANDARD.decode(png)?;
     let image = image::load_from_memory_with_format(&bytes, ImageFormat::Png)?.into_luma8();
-    ensure!(
-        image.pixels().any(|p| p[0] > 0),
-        "empty equipment cache signature"
-    );
-    Ok(TextSignature::from_foreground(image))
+    let signature = TextSignature::from_foreground(image);
+    let signature = match field {
+        EquipmentText::Name => signature.retain_left_group(),
+        EquipmentText::Category => signature,
+    };
+    ensure!(signature.has_text(), "empty equipment cache signature");
+    Ok(signature)
 }

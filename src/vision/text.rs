@@ -34,6 +34,19 @@ pub(crate) struct TextSignature {
 }
 
 impl TextSignature {
+    pub fn retain_left_group(mut self) -> Self {
+        retain_left_group(
+            &mut self.response,
+            self.size.0 as usize,
+            self.size.1 as usize,
+        );
+        self
+    }
+
+    pub fn has_text(&self) -> bool {
+        self.response.iter().any(|&value| value > 0.0)
+    }
+
     pub fn from_foreground(image: GrayImage) -> Self {
         Self {
             size: image.dimensions(),
@@ -66,6 +79,15 @@ impl TextSignature {
 }
 
 impl TextSample {
+    pub fn retain_left_group(mut self) -> Self {
+        let gap = (self.geometry.logical_size.1 as f64 * self.geometry.scale)
+            .round_ties_even()
+            .max(1.0) as usize;
+        retain_left_group(&mut self.response, self.image.width() as usize, gap);
+        self.signature.take();
+        self
+    }
+
     pub fn signature(&self) -> &TextSignature {
         self.signature.get_or_init(|| {
             let TextGeometry {
@@ -201,6 +223,29 @@ impl TextSample {
 
     pub fn has_text(&self) -> bool {
         self.response.iter().any(|&value| value > 0.0)
+    }
+}
+
+/// Keep the left-aligned text group, stopping at a blank gap wider than one line.
+fn retain_left_group(response: &mut [f32], width: usize, gap: usize) {
+    let mut columns = vec![false; width];
+    for row in response.chunks_exact(width) {
+        for (occupied, &value) in columns.iter_mut().zip(row) {
+            *occupied |= value > 0.0;
+        }
+    }
+    // The first group must also start near the name's known left edge.
+    let mut end = 0;
+    for (x, &occupied) in columns.iter().enumerate() {
+        if occupied {
+            if x - end > gap {
+                break;
+            }
+            end = x + 1;
+        }
+    }
+    for row in response.chunks_exact_mut(width) {
+        row[end..].fill(0.0);
     }
 }
 
