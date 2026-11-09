@@ -7,7 +7,7 @@ use tracing::{debug, trace};
 use crate::automation::AutomationSession;
 use crate::vision::{Slot, luma601_u8};
 
-const HOVER_TIMEOUT: Duration = Duration::from_millis(700);
+const HOVER_TIMEOUT: Duration = Duration::from_millis(1500);
 const CHROMA_PENALTY: f32 = 0.75;
 
 const HOVER_MIN_SCORE_GAP: f32 = 24.0;

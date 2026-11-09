@@ -24,7 +24,7 @@ use crate::{
 
 const MAX_SCAN_TURNS: usize = 256;
 const SINGLE_PAGE_SETTLE: Duration = Duration::from_millis(150);
-const SINGLE_PAGE_TIMEOUT: Duration = Duration::from_millis(500);
+const SINGLE_PAGE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub(crate) fn scan_icon_list(
     recognizer: RecognizerSession,
