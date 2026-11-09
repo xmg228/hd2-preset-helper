@@ -8,7 +8,7 @@ use super::{
 use crate::{
     item::ItemKind,
     item_cache::{IconChoice, ItemCache},
-    vision::{IconTemplate, ImageSample, SampleGeometry, TemplateClassifier},
+    vision::{ImageSample, SampleGeometry, TemplateClassifier},
 };
 use anyhow::{Context, Result, bail, ensure};
 
@@ -280,14 +280,6 @@ pub fn load_template_sample(presets_path: &Path, template: &LocalTemplate) -> Re
         image,
         geometry: template.geometry,
     })
-}
-
-pub(crate) fn load_icon_template(
-    presets_path: &Path,
-    template: &LocalTemplate,
-    kind: ItemKind,
-) -> Result<IconTemplate> {
-    IconTemplate::extract(kind, &load_template_sample(presets_path, template)?)
 }
 
 pub(super) fn validate(name: &str, preset: &StratagemPreset) -> Result<()> {

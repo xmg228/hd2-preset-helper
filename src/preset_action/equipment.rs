@@ -53,9 +53,14 @@ pub(super) fn sample(
     context
         .events
         .emit(AppEvent::EquipmentActionStarted { saving: true });
-    with_session(capture, target, colors, context.evidence, None, |session| {
-        session.sample(selection)
-    })
+    with_session(
+        capture,
+        target,
+        colors,
+        context.evidence,
+        context.cancel.clone(),
+        |session| session.sample(selection),
+    )
 }
 
 pub(super) fn apply(
@@ -72,53 +77,63 @@ pub(super) fn apply(
     let client_size = capture.output_size();
     let total = items.iter().flatten().count();
     let mut completed = 0;
-    with_session(capture, target, colors, context.evidence, None, |session| {
-        session.apply(items, context.item_cache, |progress| {
-            let event = match progress {
-                ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
-                    kind,
-                    confirmed: false,
-                    completed,
-                    total,
-                },
-                ApplyProgress::Caching {
-                    kind,
-                    category,
-                    items,
-                } => AppEvent::ItemCaching {
-                    kind: ScanKind::Equipment(kind),
-                    category: Some(crate::preset::preview::equipment_category(category)),
-                    items,
-                },
-                ApplyProgress::Selected {
-                    kind,
-                    corrected_category,
-                } => {
-                    if let Some(category) = corrected_category {
-                        match storage::update_category(
-                            context.presets,
-                            preset,
-                            kind,
-                            &category,
-                            client_size,
-                        ) {
-                            Ok(()) => {
-                                tracing::info!("saved corrected equipment category")
-                            }
-                            Err(error) => tracing::warn!(path = %context.presets.display(), error = %format!("{error:#}"),
-                                "equipment applied, but its corrected category could not be saved"),
-                        }
-                    }
-                    completed += 1;
-                    AppEvent::EquipmentProgress {
+    with_session(
+        capture,
+        target,
+        colors,
+        context.evidence,
+        context.cancel.clone(),
+        |session| {
+            session.apply(items, context.item_cache, |progress| {
+                let event = match progress {
+                    ApplyProgress::Selecting(kind) => AppEvent::EquipmentProgress {
                         kind,
-                        confirmed: true,
+                        confirmed: false,
                         completed,
                         total,
+                    },
+                    ApplyProgress::Caching {
+                        kind,
+                        category,
+                        items,
+                    } => AppEvent::ItemCaching {
+                        kind: ScanKind::Equipment(kind),
+                        category: Some(crate::preset::preview::equipment_category(category)),
+                        items,
+                    },
+                    ApplyProgress::Selected {
+                        kind,
+                        corrected_category,
+                    } => {
+                        if let Some(category) = corrected_category {
+                            match storage::update_category(
+                                context.presets,
+                                preset,
+                                kind,
+                                &category,
+                                client_size,
+                            ) {
+                                Ok(()) => {
+                                    tracing::info!("saved corrected equipment category")
+                                }
+                                Err(error) => tracing::warn!(
+                                    path = %context.presets.display(),
+                                    error = %format!("{error:#}"),
+                                    "equipment applied, but its corrected category could not be saved"
+                                ),
+                            }
+                        }
+                        completed += 1;
+                        AppEvent::EquipmentProgress {
+                            kind,
+                            confirmed: true,
+                            completed,
+                            total,
+                        }
                     }
-                }
-            };
-            context.events.emit(event);
-        })
-    })
+                };
+                context.events.emit(event);
+            })
+        },
+    )
 }

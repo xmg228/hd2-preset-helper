@@ -67,6 +67,10 @@ pub(super) fn connect(
     panel.on_view_project(move || {
         let _ = project_send.send(UiRequest::ViewProject);
     });
+    let quick_start_send = send.clone();
+    panel.on_view_quick_start(move || {
+        let _ = quick_start_send.send(UiRequest::ViewQuickStart);
+    });
     let download_send = send.clone();
     panel.on_download_update(move || {
         let _ = download_send.send(UiRequest::DownloadUpdate);

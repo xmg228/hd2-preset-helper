@@ -124,12 +124,6 @@ msgstr "'+ 새 프리셋'을 눌러 시작하세요."
 msgid "Equipment"
 msgstr "장비"
 
-msgid "Cache coverage: {}/{}"
-msgstr "캐시 범위: {}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "완전한 분류 캐시를 기준으로 합니다. 포함되지 않은 장비도 목록 검색 없이 적용될 수 있습니다."
-
 msgid "Start from either loadout page."
 msgstr "두 장비 구성 페이지 중 어디서든 시작할 수 있습니다."
 
@@ -145,23 +139,8 @@ msgstr "패널 표시 / 숨기기"
 msgid "Global shortcut"
 msgstr "전역 단축키"
 
-msgid "Save preset"
-msgstr "프리셋 저장"
-
-msgid "Save Stratagems"
-msgstr "스트라타젬 저장"
-
-msgid "Save equipment"
-msgstr "장비 저장"
-
-msgid "Select content"
-msgstr "내용 선택"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "저장하기 전에 스트라타젬 슬롯 네 개를 모두 채우세요."
-
-msgid "Apply preset"
-msgstr "프리셋 적용"
 
 msgid "Apply Stratagems"
 msgstr "스트라타젬 적용"
@@ -354,6 +333,9 @@ msgstr "아이템 스캔"
 msgid "Open the panel to stop scanning."
 msgstr "패널을 열면 스캔이 중지됩니다."
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "더 선명한 아이콘을 얻으려면 부스터가 사용 중이지 않을 때 스캔하세요."
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "장비 구성 편집"
@@ -376,8 +358,23 @@ msgstr "지우기"
 msgid "Loading…"
 msgstr "불러오는 중…"
 
-msgid "No items available."
-msgstr "선택할 수 있는 아이템이 없습니다."
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "선택할 수 있는 아이템이 없습니다. 지금 이 목록을 스캔할 수 있습니다. 누락된 목록은 해당 종류의 아이템을 처음 적용할 때도 자동으로 스캔됩니다."
+
+msgid "Quick start"
+msgstr "빠른 시작"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "게임에서 장비를 구성하고 프리셋을 선택한 뒤 ‘{}’ 버튼을 누르세요."
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "나중에 사용하려면 프리셋을 선택하고 ‘{}’ 버튼을 누르거나 해당 단축키를 사용하세요."
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "‘{}’ 기능으로 아이템을 바꾸거나 장비를 무작위로 구성할 수도 있습니다. 필요한 목록은 각 종류의 아이템을 처음 적용할 때 자동으로 스캔되며, 미리 스캔할 수도 있습니다."
+
+msgid "Got it"
+msgstr "확인"
 
 msgid "Save changes"
 msgstr "변경 사항 저장"
@@ -385,8 +382,8 @@ msgstr "변경 사항 저장"
 msgid "Randomize equipment"
 msgstr "장비 무작위 선택"
 
-msgid "Scan missing items"
-msgstr "누락된 목록 스캔"
+msgid "Scan all missing lists"
+msgstr "누락된 모든 목록 스캔"
 
 msgid "Capture from game"
 msgstr "게임에서 저장"
@@ -403,6 +400,21 @@ msgstr "아이템 캐시 생성"
 
 msgid "Build cache and apply"
 msgstr "캐시 생성 후 적용"
+
+msgid "Rescan this list"
+msgstr "이 목록 다시 스캔"
+
+msgid "Scan this list"
+msgstr "이 목록 스캔"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "게임에서 이 목록을 스캔합니다. 저장하지 않은 모든 변경 사항은 사라집니다."
+
+msgid "Missing an item?"
+msgstr "아이템이 없나요?"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "게임에서 누락된 목록을 스캔합니다. 저장하지 않은 모든 변경 사항은 사라집니다."
 
 # Tray.
 msgid "Exit"

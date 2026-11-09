@@ -3,7 +3,7 @@ use super::{CATEGORY_MATCH_THRESHOLD, InputAction, NAME_MATCH_THRESHOLD};
 use crate::{
     input::Key,
     item::EquipmentKind,
-    item_cache::{EquipmentCatalog, EquipmentCategory as Category, ItemCache},
+    item_cache::{EquipmentCatalog, EquipmentCategory as Category},
     vision::{
         equipment::EquipmentObservation,
         text::{TextSample, TextSignature, TextTemplate},
@@ -92,15 +92,6 @@ impl Category {
         }
         self.names.push(name.clone());
         Some(self.names.len() - 1)
-    }
-}
-
-impl ItemCache {
-    pub(crate) fn has_match(&self, kind: EquipmentKind, target: &TextSignature) -> bool {
-        self.equipment[kind.index()]
-            .as_ref()
-            .and_then(|catalog| rank_targets(catalog, target))
-            .is_some_and(|ranking| ranking.accepts())
     }
 }
 

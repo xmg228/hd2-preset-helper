@@ -1,17 +1,11 @@
 //! Complete item-list collection, independent of preset selection.
-use std::{
-    path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::{
-    automation::AutomationSession,
+    automation::{AutomationSession, Cancellation},
     capture::CaptureSessionManager,
     evidence::OperationEvidence,
     item::{EquipmentKind, ItemKind},
@@ -101,34 +95,6 @@ pub(crate) struct ScanSummary {
     pub items: usize,
 }
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ScanCancellation(Arc<AtomicBool>);
-
-#[derive(Debug)]
-struct Cancelled;
-impl std::fmt::Display for Cancelled {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("item scan cancelled")
-    }
-}
-impl std::error::Error for Cancelled {}
-
-impl ScanCancellation {
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
-    }
-    pub fn check(&self) -> Result<()> {
-        if self.is_cancelled() {
-            Err(Cancelled.into())
-        } else {
-            Ok(())
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn execute(
     runtime: &RecognizerRuntime,
@@ -137,7 +103,7 @@ pub(crate) fn execute(
     capture_session: &mut CaptureSessionManager,
     expected_window: WindowIdentity,
     scope: ScanScope,
-    cancel: &ScanCancellation,
+    cancel: &Cancellation,
     mut progress: impl FnMut(ScanProgress),
     evidence: &OperationEvidence,
 ) -> Result<ScanSummary> {
@@ -150,30 +116,21 @@ pub(crate) fn execute(
     let target = prepared.target;
     let capture = prepared.source;
     let colors = prepared.colors;
-    evidence.record("scan-context", None, serde_json::json!({"scope": scope, "client_size": target.client_size(), "game_colors": colors}));
+    evidence.record("scan-context", None, serde_json::json!({"scope": scope, "kinds": kinds, "client_size": target.client_size(), "game_colors": colors}));
     let first_page = page_for(first);
     let origin = show_page(
-        capture,
-        runtime,
-        &target,
-        colors,
-        first_page,
-        evidence,
-        Some(cancel),
+        capture, runtime, &target, colors, first_page, evidence, cancel,
     )?;
+    let mut home = first_page;
     let mut summary = ScanSummary::default();
     let result = (|| -> Result<()> {
         for kind in kinds {
             cancel.check()?;
-            show_page(
-                capture,
-                runtime,
-                &target,
-                colors,
-                page_for(kind),
-                evidence,
-                Some(cancel),
-            )?;
+            let page = page_for(kind);
+            if home != page {
+                show_page(capture, runtime, &target, colors, page, evidence, cancel)?;
+                home = page;
+            }
             progress(ScanProgress {
                 kind,
                 category: None,
@@ -186,13 +143,13 @@ pub(crate) fn execute(
                         target.clone(),
                         colors,
                         evidence,
-                        Some(cancel.clone()),
-                        |session| session.scan(equipment_kind, &mut progress, cancel),
+                        cancel.clone(),
+                        |session| session.scan(equipment_kind, &mut progress),
                     )?;
                     let count = categories
                         .categories
                         .iter()
-                        .map(|category| category.names.len())
+                        .map(|category| category.order.len())
                         .sum();
                     cancel.check()?;
                     cache
@@ -203,10 +160,13 @@ pub(crate) fn execute(
                 ScanKind::Stratagems | ScanKind::Booster => {
                     let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
                     let recognizer = runtime.bind(bound.geometry);
-                    let mut automation =
-                        AutomationSession::new(bound.region, target.clone(), evidence)?;
-                    automation.set_cancellation(cancel.clone());
-                    let home = scan_loadout_home(&mut automation, recognizer)?;
+                    let mut automation = AutomationSession::new(
+                        bound.region,
+                        target.clone(),
+                        evidence,
+                        cancel.clone(),
+                    )?;
+                    let observation = scan_loadout_home(&mut automation, recognizer)?;
                     let item_kind = if kind == ScanKind::Stratagems {
                         ItemKind::Stratagem
                     } else {
@@ -216,9 +176,8 @@ pub(crate) fn execute(
                         recognizer,
                         &mut automation,
                         item_kind,
-                        home,
+                        observation,
                         &mut progress,
-                        cancel,
                     )?;
                     let count = items.items.len();
                     cancel.check()?;
@@ -238,15 +197,9 @@ pub(crate) fn execute(
             );
         }
         cancel.check()?;
-        show_page(
-            capture,
-            runtime,
-            &target,
-            colors,
-            origin,
-            evidence,
-            Some(cancel),
-        )?;
+        if home != origin {
+            show_page(capture, runtime, &target, colors, origin, evidence, cancel)?;
+        }
         Ok(())
     })();
     if let Err(error) = result {

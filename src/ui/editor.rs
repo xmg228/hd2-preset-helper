@@ -6,11 +6,15 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use super::{
     AppUi, CandidateCatalogRow, CandidateGroupRole, CandidateGroupRow, CandidateRow, PresetPanel,
-    PreviewRole, PreviewRow, PreviewState, UiRequest, image,
+    PresetRow, PreviewRole, PreviewRow, PreviewState, UiRequest, image,
 };
-use crate::item_cache::{
-    CachedChoices, EquipmentChoice, IconChoice,
-    preview::{IconCandidate, ItemCandidates},
+use crate::{
+    item::EquipmentKind,
+    item_cache::{
+        CachedChoices, EquipmentChoice, IconChoice,
+        preview::{IconCandidate, ItemCandidates},
+    },
+    scan::ScanKind,
 };
 
 fn model<T: Clone + 'static>(rows: Vec<T>) -> ModelRc<T> {
@@ -137,6 +141,21 @@ pub(super) fn connect(window: &PresetPanel, send: Sender<UiRequest>) {
     window.on_scan_missing_items(move || {
         let _ = scan.send(UiRequest::ScanMissingItems);
     });
+    let refresh = send.clone();
+    let weak = window.as_weak();
+    window.on_refresh_items(move || {
+        let Some(window) = weak.upgrade() else { return };
+        if !editable(&window) {
+            return;
+        }
+        let kind = match window.get_editor_slot() {
+            0..=3 => ScanKind::Stratagems,
+            4..=5 => ScanKind::Booster,
+            slot @ 6..=11 => ScanKind::Equipment(EquipmentKind::ALL[slot as usize - 6]),
+            _ => return,
+        };
+        let _ = refresh.send(UiRequest::RefreshItems(kind));
+    });
     let weak = window.as_weak();
     window.on_choose_item(move |category, item| {
         let Some(window) = weak.upgrade() else { return };
@@ -229,6 +248,22 @@ impl AppUi {
         else {
             return false;
         };
+        self.begin_item_editor(preset);
+        true
+    }
+
+    pub(super) fn reset_item_editor_for_scan(&self) -> bool {
+        let id = self.window.get_editor_preset();
+        let Some(preset) = self.window.get_presets().iter().find(|row| row.name == id) else {
+            return false;
+        };
+        let slot = self.window.get_editor_slot();
+        self.begin_item_editor(preset);
+        self.window.set_editor_slot(slot);
+        true
+    }
+
+    fn begin_item_editor(&self, preset: PresetRow) {
         let mut slots = (0..6)
             .map(|index| PreviewRow {
                 role: match index {
@@ -273,7 +308,6 @@ impl AppUi {
         self.window.set_editor_loading(true);
         self.window.set_editor_open(true);
         self.window.invoke_focus_item_editor();
-        true
     }
 
     pub fn item_candidates_loaded(&self, result: Result<ItemCandidates, String>) {

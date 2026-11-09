@@ -17,6 +17,9 @@ language = "auto"
 # Show only preset titles and shortcuts in the list.
 compact_preset_list = false
 
+# Last acknowledged notice revision.
+notice_revision = 0
+
 [updates]
 check_automatically = true
 

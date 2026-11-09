@@ -19,11 +19,7 @@ use crate::app_events::{AppEvent, AppEventSink};
 use crate::automation::AutomationSession;
 use crate::item::ItemKind;
 use crate::item_cache::ItemCache;
-use crate::preset::{
-    LocalTemplate, StratagemPreset,
-    stratagems::{load_icon_template, load_template_sample},
-};
-use crate::scan::ScanCancellation;
+use crate::preset::{LocalTemplate, StratagemPreset, stratagems::load_template_sample};
 use crate::vision::{
     IconTemplate, ImageSample, ItemAvailability, RecognizerSession, RoiObservation, Slot, SlotKind,
     TemplateClassifier,
@@ -113,20 +109,13 @@ impl<'a> IconApplyContext<'a> {
             Some(&page.roi.image),
             serde_json::json!({"kind":kind,"mapped_items":map.scan_count(),"assessment":assessment}),
         );
-        scan::complete_open_list(
-            navigator,
-            automation,
-            map,
-            page,
-            &mut |progress| {
-                self.events.emit(AppEvent::ItemCaching {
-                    kind: progress.kind,
-                    category: progress.category,
-                    items: progress.items,
-                })
-            },
-            &ScanCancellation::default(),
-        )
+        scan::complete_open_list(navigator, automation, map, page, &mut |progress| {
+            self.events.emit(AppEvent::ItemCaching {
+                kind: progress.kind,
+                category: progress.category,
+                items: progress.items,
+            })
+        })
         .with_context(|| {
             format!(
                 "failed to refresh {} cache from the open list",
@@ -188,9 +177,11 @@ pub(crate) fn apply_stratagem_preset_from_home(
     let mut booster_sources = Vec::new();
     if let Some(preferred) = &preset.booster {
         for template in std::iter::once(preferred).chain(preset.fallback_booster.as_ref()) {
+            let sample = load_template_sample(presets_path, template)
+                .context("failed to load booster template")?;
             booster_sources.push((
                 template.path.clone(),
-                load_icon_template(presets_path, template, ItemKind::Booster)
+                IconTemplate::extract(ItemKind::Booster, &sample)
                     .context("failed to load booster template")?,
             ));
         }

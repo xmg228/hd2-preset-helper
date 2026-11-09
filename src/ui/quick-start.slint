@@ -1,0 +1,67 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { PanelButton } from "controls.slint";
+
+export component QuickStartDialog inherits Rectangle {
+    in property <bool> enabled;
+    callback acknowledge();
+    forward-focus: keys;
+    public function focus-dialog() {
+        instructions.content-y = 0px;
+        acknowledge-button.focus();
+    }
+    background: Theme.surface;
+    border-color: Theme.border-strong;
+    border-width: 1px;
+    border-radius: 8px;
+    TouchArea { }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (!event.repeat) { root.acknowledge(); }
+                return accept;
+            }
+            return reject;
+        }
+        VerticalLayout {
+            padding: 22px;
+            spacing: 16px;
+            Text {
+                text: @tr("Quick start");
+                color: Theme.text;
+                font-size: 21px;
+                height: 30px;
+                overflow: elide;
+            }
+            instructions := ScrollView {
+                min-height: 0px;
+                preferred-height: body.preferred-height;
+                vertical-stretch: 1;
+                content-width: max(0px, self.visible-width - 8px);
+                content-height: body.preferred-height;
+                body := Text {
+                    width: instructions.content-width;
+                    height: self.preferred-height;
+                    text: @tr("Set up your loadout in the game, select a preset, then choose “{}”.", @tr("Capture from game"))
+                        + "\n\n" + @tr("To use it later, select the preset and choose “{}”, or use its shortcut.", @tr("Apply to game"))
+                        + "\n\n" + @tr("You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance.", @tr("Edit loadout"));
+                    color: Theme.text-secondary;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            HorizontalLayout {
+                height: 32px;
+                alignment: end;
+                acknowledge-button := PanelButton {
+                    min-width: 86px;
+                    text: @tr("Got it");
+                    accent: true;
+                    enabled: root.enabled;
+                    clicked => { root.acknowledge(); }
+                }
+            }
+        }
+    }
+}

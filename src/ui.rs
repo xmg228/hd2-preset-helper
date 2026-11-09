@@ -19,7 +19,7 @@ use crate::preset::preview::{
     PresetPreview, PreviewContent, PreviewImage, PreviewRole as PreviewImageRole,
 };
 use crate::preset::{LibraryMetadata, PresetMetadata, PresetScope, PresetSection};
-use crate::scan::{ScanProgress, ScanScope, ScanSummary};
+use crate::scan::{ScanKind, ScanProgress, ScanScope, ScanSummary};
 
 mod editor;
 mod library;
@@ -65,6 +65,7 @@ pub enum UiRequest {
     },
     Scan(ScanScope),
     ScanMissingItems,
+    RefreshItems(ScanKind),
     ConfirmScan,
     CancelScan,
     EditItems,
@@ -87,6 +88,8 @@ pub enum UiRequest {
     CheckUpdates,
     ViewUpdateNotes,
     ViewProject,
+    ViewQuickStart,
+    AcknowledgeQuickStart,
     DownloadUpdate,
     InstallUpdate,
     CreatePreset {
@@ -184,6 +187,10 @@ impl AppUi {
         let cancel_send = send.clone();
         window.on_cancel_scan(move || {
             let _ = cancel_send.send(UiRequest::CancelScan);
+        });
+        let quick_start_send = send.clone();
+        window.on_acknowledge_quick_start(move || {
+            let _ = quick_start_send.send(UiRequest::AcknowledgeQuickStart);
         });
         window.window().on_winit_window_event(move |_, event| {
             if matches!(event, WindowEvent::ScaleFactorChanged { .. }) {
@@ -403,8 +410,26 @@ impl AppUi {
     }
 
     pub fn can_scan_missing_items(&self) -> bool {
+        self.can_refresh_items() && self.window.get_editor_missing()
+    }
+
+    pub fn show_quick_start(&self) {
+        self.window.invoke_commit_names();
+        self.window.set_quick_start_open(true);
+        self.window.invoke_focus_quick_start();
+    }
+
+    pub fn dismiss_quick_start(&self) {
+        self.window.set_quick_start_open(false);
+        self.window.invoke_focus_current_view();
+    }
+
+    pub fn is_quick_start_open(&self) -> bool {
+        self.window.get_quick_start_open()
+    }
+
+    pub fn can_refresh_items(&self) -> bool {
         self.window.get_editor_open()
-            && self.window.get_editor_missing()
             && !self.window.get_editor_busy()
             && !self.window.get_editor_loading()
     }
@@ -414,7 +439,6 @@ impl AppUi {
         self.window.set_loading(false);
         self.window.set_editor_loading(true);
         self.window.set_editor_error(error.unwrap_or("").into());
-        self.window.invoke_focus_item_editor();
         Ok(())
     }
 
@@ -546,6 +570,13 @@ impl AppUi {
     }
 
     pub fn scan_progress(&mut self, progress: ScanProgress) -> Result<()> {
+        // The first progress event follows confirmation of a supported game page.
+        if self.window.get_editor_open()
+            && self.window.get_editor_dirty()
+            && !self.reset_item_editor_for_scan()
+        {
+            self.window.invoke_close_dialogs();
+        }
         self.status.scan_progress(progress);
         self.present_scan_status(false)
     }
@@ -640,7 +671,8 @@ impl AppUi {
                 .unwrap_or(false)
     }
     pub fn is_editing(&self) -> bool {
-        self.is_editing_items()
+        self.is_quick_start_open()
+            || self.is_editing_items()
             || self.is_scan_confirm_open()
             || self.window.get_editing_name()
             || self.window.get_editing_search()
@@ -651,7 +683,8 @@ impl AppUi {
     }
 
     pub fn shortcuts_blocked(&self) -> bool {
-        self.is_editing_items()
+        self.is_quick_start_open()
+            || self.is_editing_items()
             || self.is_scan_confirm_open()
             || self.window.get_delete_open()
             || self.panel_shortcut_blocked()
@@ -897,11 +930,6 @@ impl AppUi {
         self.window.set_status(message.into());
     }
     pub fn preview_failed(&self, message: &str) {
-        let rows = self.window.get_presets();
-        for (index, mut row) in rows.iter().enumerate() {
-            row.equipment_cache_matches = -1;
-            rows.set_row_data(index, row);
-        }
         self.window.set_loading(false);
         self.set_status(message);
     }
@@ -937,7 +965,6 @@ impl AppUi {
                 let preview = incoming.unwrap_or(PresetPreview {
                     stratagems: PreviewContent::Missing,
                     equipment: Default::default(),
-                    equipment_cache_matches: None,
                 });
                 PresetRow {
                     number: preset_number(name).into(),
@@ -946,9 +973,6 @@ impl AppUi {
                     shortcut: info.shortcut.as_str().into(),
                     stratagems: stratagem_section(preview.stratagems),
                     equipment: equipment_section(preview.equipment),
-                    equipment_cache_matches: preview
-                        .equipment_cache_matches
-                        .map_or(-1, |n| n as i32),
                 }
             })
             .collect();
@@ -1072,7 +1096,6 @@ fn preview_section(items: Vec<PreviewRow>) -> PreviewSection {
     for item in &items {
         if item.state != PreviewState::Missing {
             section.saved = true;
-            section.count += 1;
         }
         match item.state {
             PreviewState::Ready => {

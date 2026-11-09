@@ -5,7 +5,7 @@ use anyhow::{Context, Result, ensure};
 
 use super::{UiState, bind_loadout_region, detect_ui_state};
 use crate::{
-    automation::AutomationSession,
+    automation::{AutomationSession, Cancellation},
     capture::{CaptureSource, CapturedFrame},
     evidence::OperationEvidence,
     game_settings::GameColorSettings,
@@ -29,7 +29,7 @@ pub(crate) fn show_page(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
-    cancellation: Option<&crate::scan::ScanCancellation>,
+    cancellation: &Cancellation,
 ) -> Result<Page> {
     if page_visible(
         capture,
@@ -141,7 +141,7 @@ fn wait_for_page(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
-    cancellation: Option<&crate::scan::ScanCancellation>,
+    cancellation: &Cancellation,
 ) -> Result<()> {
     let started = Instant::now();
     let (mut region, detector) = bind_page(
@@ -192,7 +192,7 @@ fn page_visible(
     colors: GameColorSettings,
     page: Page,
     evidence: &OperationEvidence,
-    cancellation: Option<&crate::scan::ScanCancellation>,
+    cancellation: &Cancellation,
 ) -> Result<bool> {
     let (mut region, detector) = bind_page(
         capture,
@@ -248,14 +248,19 @@ fn bind_page<'a>(
     colors: GameColorSettings,
     page: Page,
     evidence: &'a OperationEvidence,
-    cancellation: Option<&crate::scan::ScanCancellation>,
+    cancellation: &Cancellation,
 ) -> Result<(AutomationSession<'a>, PageDetector)> {
-    let (mut automation, detector) = match page {
+    let (automation, detector) = match page {
         Page::Stratagems => {
             let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
             let detector = PageDetector::Stratagems(runtime.bind(bound.geometry));
             (
-                AutomationSession::new(bound.region, target.clone(), evidence)?,
+                AutomationSession::new(
+                    bound.region,
+                    target.clone(),
+                    evidence,
+                    cancellation.clone(),
+                )?,
                 detector,
             )
         }
@@ -265,14 +270,11 @@ fn bind_page<'a>(
                 EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
             let region = capture.region(resolved.rect, colors)?;
             (
-                AutomationSession::new(region, target.clone(), evidence)?,
+                AutomationSession::new(region, target.clone(), evidence, cancellation.clone())?,
                 PageDetector::Equipment(observer),
             )
         }
     };
-    if let Some(cancellation) = cancellation {
-        automation.set_cancellation(cancellation.clone());
-    }
     Ok((automation, detector))
 }
 

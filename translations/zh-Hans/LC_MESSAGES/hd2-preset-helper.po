@@ -124,12 +124,6 @@ msgstr "点击“+ 新建预设”开始使用。"
 msgid "Equipment"
 msgstr "装备"
 
-msgid "Cache coverage: {}/{}"
-msgstr "缓存覆盖：{}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "按完整分类缓存统计；未覆盖的装备也可能无需扫描即可应用。"
-
 msgid "Start from either loadout page."
 msgstr "可从任一配装页面开始。"
 
@@ -145,23 +139,8 @@ msgstr "显示 / 隐藏面板"
 msgid "Global shortcut"
 msgstr "全局快捷键"
 
-msgid "Save preset"
-msgstr "保存预设"
-
-msgid "Save Stratagems"
-msgstr "保存战略配备"
-
-msgid "Save equipment"
-msgstr "保存装备"
-
-msgid "Select content"
-msgstr "选择内容"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "保存战略配备前，请填满四个槽位。"
-
-msgid "Apply preset"
-msgstr "应用预设"
 
 msgid "Apply Stratagems"
 msgstr "应用战略配备"
@@ -354,6 +333,9 @@ msgstr "物品扫描"
 msgid "Open the panel to stop scanning."
 msgstr "打开面板可停止扫描。"
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "扫描强化资源时，建议避免被占用的情况，以获得更清晰的图标。"
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "编辑配装"
@@ -376,8 +358,23 @@ msgstr "清除"
 msgid "Loading…"
 msgstr "正在加载…"
 
-msgid "No items available."
-msgstr "暂无可选物品。"
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "暂无可选物品。可以现在扫描此列表；尚缺的列表也会在首次应用对应物品时自动扫描。"
+
+msgid "Quick start"
+msgstr "快速开始"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "在游戏中配好后，选择预设，点击「{}」。"
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "以后选中预设，点击「{}」或使用快捷键。"
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "也可以通过「{}」更换物品或随机搭配。所需列表会在首次应用对应类型时自动扫描，也可以提前扫描。"
+
+msgid "Got it"
+msgstr "知道了"
 
 msgid "Save changes"
 msgstr "保存更改"
@@ -385,8 +382,8 @@ msgstr "保存更改"
 msgid "Randomize equipment"
 msgstr "随机装备"
 
-msgid "Scan missing items"
-msgstr "补齐物品列表"
+msgid "Scan all missing lists"
+msgstr "补齐所有缺失列表"
 
 msgid "Capture from game"
 msgstr "记录游戏配装"
@@ -403,6 +400,21 @@ msgstr "建立物品缓存"
 
 msgid "Build cache and apply"
 msgstr "建立缓存并应用"
+
+msgid "Rescan this list"
+msgstr "重新扫描此列表"
+
+msgid "Scan this list"
+msgstr "扫描此列表"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "从游戏扫描此列表。所有未保存的更改将被放弃。"
+
+msgid "Missing an item?"
+msgstr "缺少物品？"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "从游戏补齐缺失列表。所有未保存的更改将被放弃。"
 
 # Tray.
 msgid "Exit"

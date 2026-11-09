@@ -5,6 +5,7 @@ import { IconButton, PanelButton, PanelComboBox, SettingToggle } from "controls.
 import { BindingRow, ShortcutEditor } from "shortcuts.slint";
 import { ShortcutRow } from "models.slint";
 import { UpdateView, UpdatePhase } from "updates.slint";
+import { UiText } from "text.slint";
 
 enum SettingsPage { general, shortcuts, preset-shortcut, about, licenses }
 
@@ -46,6 +47,7 @@ export component SettingsDialog inherits Rectangle {
     callback download-update();
     callback install-update();
     callback view-project();
+    callback view-quick-start();
     callback scan-items(int);
     callback license-text() -> string;
     forward-focus: keys;
@@ -188,7 +190,13 @@ export component SettingsDialog inherits Rectangle {
                                 clicked => { root.scan-items(root.scan-kind); }
                             }
                         }
-                        Text { text: @tr("Open the panel to stop scanning."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+                        Text {
+                            text: (root.scan-kind == 0 || root.scan-kind == 2 ? UiText.booster-scan-hint + "\n" : "")
+                                + @tr("Open the panel to stop scanning.");
+                            color: Theme.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
                     }
                 }
             }
@@ -231,6 +239,11 @@ export component SettingsDialog inherits Rectangle {
                             text: "GitHub";
                             enabled: root.enabled && !root.saving;
                             clicked => { root.view-project(); }
+                        }
+                        PanelButton {
+                            text: @tr("Quick start");
+                            enabled: root.enabled && !root.saving;
+                            clicked => { root.view-quick-start(); }
                         }
                         PanelButton {
                             text: @tr("Open-source licenses");

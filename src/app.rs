@@ -13,16 +13,18 @@ use anyhow::{Context, Result};
 use tracing::{Level, error, info, warn};
 
 use crate::app_paths::AppPaths;
+use crate::automation::Cancellation;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
 use crate::preset::PresetScope;
 use crate::preset_action::{PresetActionOptions, PresetCommand};
-use crate::scan::{ScanCancellation, ScanScope};
+use crate::scan::ScanScope;
 use crate::{game_window, input, platform, ui};
 use worker::{ActionWorker, Work, WorkCompletion, WorkerEvent};
 
 const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const ACTIVATION_CONFIRM_TIMEOUT: Duration = Duration::from_millis(200);
 const ACTION_COOLDOWN: Duration = Duration::from_millis(200);
+const NOTICE_REVISION: u32 = 1;
 
 struct PresetHotkeyBinding {
     hotkey: input::HotkeySpec,
@@ -154,6 +156,7 @@ fn run_with_config(
         ready_after: Instant::now(),
         prewarm_requested: false,
         panel_return_target: None,
+        notice_pending: config.ui.notice_revision < NOTICE_REVISION,
         updates: update::Updates::new(config.updates.check_automatically),
         ui,
     };
@@ -188,10 +191,11 @@ pub(super) enum GameAction {
         preset: String,
         command: PresetCommand,
         options: PresetActionOptions,
+        cancel: Cancellation,
     },
     Scan {
         scope: ScanScope,
-        cancel: ScanCancellation,
+        cancel: Cancellation,
     },
 }
 
@@ -246,7 +250,7 @@ enum ActionState {
         started: Instant,
     },
     Running {
-        scan_cancel: Option<ScanCancellation>,
+        cancel: Cancellation,
     },
 }
 
@@ -264,6 +268,7 @@ struct AppController {
     ready_after: Instant,
     prewarm_requested: bool,
     panel_return_target: Option<crate::window::WindowIdentity>,
+    notice_pending: bool,
     updates: update::Updates,
     ui: ui::AppUi,
 }
@@ -304,12 +309,7 @@ impl AppController {
         self.panel_hotkey.set_enabled_where(|key| {
             !self.exiting
                 && ((input_enabled && !self.ui.panel_shortcut_blocked())
-                    || matches!(
-                        self.state,
-                        ActionState::Running {
-                            scan_cancel: Some(_)
-                        }
-                    ))
+                    || matches!(self.state, ActionState::Running { .. }))
                 && (!panel_active || !ui::uses_shortcut(key))
         })?;
         self.ui.set_shortcut_warning(
@@ -326,10 +326,7 @@ impl AppController {
             self.handle_preset_hotkey(id)?;
         }
         while self.panel_hotkey.next_trigger().is_some() {
-            if let ActionState::Running {
-                scan_cancel: Some(cancel),
-            } = &self.state
-            {
+            if let ActionState::Running { cancel } = &self.state {
                 cancel.cancel();
             }
             if matches!(
@@ -474,10 +471,7 @@ impl AppController {
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
         self.cancel_action_check()?;
-        if let ActionState::Running {
-            scan_cancel: Some(cancel),
-        } = &self.state
-        {
+        if let ActionState::Running { cancel } = &self.state {
             cancel.cancel();
         }
         // Keep installation visible while replacement finishes; never exit
@@ -498,10 +492,7 @@ impl AppController {
 
 impl Drop for AppController {
     fn drop(&mut self) {
-        if let ActionState::Running {
-            scan_cancel: Some(cancel),
-        } = &self.state
-        {
+        if let ActionState::Running { cancel } = &self.state {
             cancel.cancel();
         }
         // Release shortcuts before waiting for an in-flight action to finish.

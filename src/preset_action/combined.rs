@@ -34,13 +34,17 @@ pub(super) fn execute(
             colors,
             Page::Stratagems,
             context.evidence,
-            None,
+            context.cancel,
         )? == Page::Equipment;
         let captured = {
             let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
             let recognizer = runtime.bind(bound.geometry);
-            let mut automation =
-                AutomationSession::new(bound.region, target.clone(), context.evidence)?;
+            let mut automation = AutomationSession::new(
+                bound.region,
+                target.clone(),
+                context.evidence,
+                context.cancel.clone(),
+            )?;
             let home = scan_loadout_home(&mut automation, recognizer)?;
             ensure!(
                 detect_ui_state(&home) == UiState::Home,
@@ -55,7 +59,7 @@ pub(super) fn execute(
             colors,
             Page::Equipment,
             context.evidence,
-            None,
+            context.cancel,
         )?;
         let items = equipment::sample(capture, target.clone(), colors, context, selection)?;
         if !started_on_equipment {
@@ -66,7 +70,7 @@ pub(super) fn execute(
                 colors,
                 Page::Stratagems,
                 context.evidence,
-                None,
+                context.cancel,
             )?;
         }
         // Only write after all samples and navigation succeed. These reuse the
@@ -89,7 +93,7 @@ pub(super) fn execute(
             colors,
             Page::Equipment,
             context.evidence,
-            None,
+            context.cancel,
         )?;
         equipment::apply(capture, target.clone(), colors, context, preset, &items)?;
         // Stratagems/Booster go last, so fallback learning and auto-ready cannot
@@ -102,7 +106,7 @@ pub(super) fn execute(
                 colors,
                 Page::Stratagems,
                 context.evidence,
-                None,
+                context.cancel,
             )?;
             stratagems::execute(
                 runtime,

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -106,7 +105,7 @@ impl ActionWorker {
                         Work::Prepare(target) => prepare_capture(&mut capture_session, target),
                         Work::Discard => capture_session.cancel_prepare(),
                         Work::LoadPreviews => {
-                            let previews = load_previews(&paths.presets, &item_cache)
+                            let previews = preview::load(&paths.presets)
                                 .map_err(|error| format!("{error:#}"));
                             if event_tx.send(WorkerEvent::PreviewsLoaded(previews)).is_err() { break; }
                         }
@@ -136,25 +135,39 @@ impl ActionWorker {
                             let evidence = crate::evidence::OperationEvidence::new();
                             let start = Instant::now();
                             let completion = match &action {
-                                GameAction::Preset { preset, command, options } => {
+                                GameAction::Preset { preset, command, options, cancel } => {
                                     let mut context = PresetActionContext {
                                         presets: &paths.presets,
                                         options: *options,
                                         events: &sink,
                                         item_cache: &mut item_cache,
                                         evidence: &evidence,
+                                        cancel,
                                     };
                                     let outcome = execute_preset(&runtime, &mut context, preset, *command, &mut capture_session, target);
-                                    if let Err(error) = &outcome {
-                                        let message = format!("{error:#}");
-                                        error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
-                                        sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message });
-                                        save_failure_report(&paths.last_failure, &action, error, Some(&evidence));
-                                    }
+                                    let outcome = match outcome {
+                                        Ok((outcome, completion)) => {
+                                            tracing::info!(elapsed_s = start.elapsed().as_secs_f64(), ?completion, "preset action completed");
+                                            sink.emit(AppEvent::PresetDone { preset: preset.clone(), completion });
+                                            Ok(outcome)
+                                        }
+                                        Err(error) => {
+                                            let message = format!("{error:#}");
+                                            if cancel.is_cancelled() {
+                                                debug!("preset action cancelled");
+                                                sink.emit(AppEvent::PresetCancelled { preset: preset.clone(), reason: message.clone() });
+                                            } else {
+                                                error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
+                                                sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message.clone() });
+                                                save_failure_report(&paths.last_failure, &action, &error, Some(&evidence));
+                                            }
+                                            Err(message)
+                                        }
+                                    };
                                     if let Err(error) = item_cache.save_if_changed(&cache_path) {
                                         warn!(error = %format!("{error:#}"), "could not save learned item cache");
                                     }
-                                    WorkCompletion::Preset(outcome.map_err(|error| format!("{error:#}")))
+                                    WorkCompletion::Preset(outcome)
                                 }
                                 GameAction::Scan { scope, cancel } => {
                                     let progress = event_tx.clone();
@@ -213,23 +226,6 @@ impl Drop for ActionWorker {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-fn load_previews(path: &Path, cache: &ItemCache) -> Result<BTreeMap<String, PresetPreview>> {
-    Ok(preview::load(path)?
-        .map(|(name, mut loaded)| {
-            if !loaded.equipment_names.is_empty() {
-                loaded.preview.equipment_cache_matches = Some({
-                    loaded
-                        .equipment_names
-                        .iter()
-                        .filter(|(kind, sample)| cache.has_match(*kind, sample.signature()))
-                        .count()
-                });
-            }
-            (name, loaded.preview)
-        })
-        .collect())
 }
 
 fn prepare_capture(capture_session: &mut CaptureSessionManager, identity: WindowIdentity) {

@@ -124,12 +124,6 @@ msgstr "「+ 新規プリセット」から始めましょう。"
 msgid "Equipment"
 msgstr "装備"
 
-msgid "Cache coverage: {}/{}"
-msgstr "キャッシュカバー率：{}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "完全なカテゴリキャッシュに基づきます。未カバーの装備でも、リストを走査せずに適用できる場合があります。"
-
 msgid "Start from either loadout page."
 msgstr "どちらの装備選択ページからでも開始できます。"
 
@@ -145,23 +139,8 @@ msgstr "パネルを表示 / 非表示"
 msgid "Global shortcut"
 msgstr "グローバルショートカット"
 
-msgid "Save preset"
-msgstr "プリセットを保存"
-
-msgid "Save Stratagems"
-msgstr "戦略支援を保存"
-
-msgid "Save equipment"
-msgstr "装備を保存"
-
-msgid "Select content"
-msgstr "内容を選択"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "保存する前に、戦略支援の4つのスロットをすべて埋めてください。"
-
-msgid "Apply preset"
-msgstr "プリセットを適用"
 
 msgid "Apply Stratagems"
 msgstr "戦略支援を適用"
@@ -354,6 +333,9 @@ msgstr "アイテムのスキャン"
 msgid "Open the panel to stop scanning."
 msgstr "パネルを開くとスキャンを停止します。"
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "鮮明なアイコンを取得するには、ブースターが使用されていない状態でスキャンしてください。"
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "装備構成を編集"
@@ -376,8 +358,23 @@ msgstr "クリア"
 msgid "Loading…"
 msgstr "読み込み中…"
 
-msgid "No items available."
-msgstr "選択できるアイテムがありません。"
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "選択できるアイテムがありません。今すぐこの一覧をスキャンできます。未取得の一覧は、対応する種類のアイテムを初めて適用するときにも自動でスキャンされます。"
+
+msgid "Quick start"
+msgstr "クイックスタート"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "ゲーム内で装備を整え、プリセットを選んで「{}」を押します。"
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "後で使うときは、プリセットを選んで「{}」を押すか、ショートカットキーを使います。"
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "「{}」ではアイテムの変更やランダムな装備構成の作成もできます。必要なリストは各種類のアイテムを初めて適用するときに自動でスキャンされます。事前にスキャンすることもできます。"
+
+msgid "Got it"
+msgstr "わかりました"
 
 msgid "Save changes"
 msgstr "変更を保存"
@@ -385,8 +382,8 @@ msgstr "変更を保存"
 msgid "Randomize equipment"
 msgstr "装備をランダム選択"
 
-msgid "Scan missing items"
-msgstr "不足するリストをスキャン"
+msgid "Scan all missing lists"
+msgstr "未取得の一覧をすべてスキャン"
 
 msgid "Capture from game"
 msgstr "ゲームから保存"
@@ -403,6 +400,21 @@ msgstr "アイテムキャッシュを作成"
 
 msgid "Build cache and apply"
 msgstr "キャッシュを作成して適用"
+
+msgid "Rescan this list"
+msgstr "この一覧を再スキャン"
+
+msgid "Scan this list"
+msgstr "この一覧をスキャン"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "ゲーム内のこの一覧をスキャンします。未保存の変更はすべて破棄されます。"
+
+msgid "Missing an item?"
+msgstr "アイテムが見つかりませんか？"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "ゲーム内の未取得の一覧をスキャンします。未保存の変更はすべて破棄されます。"
 
 # Tray.
 msgid "Exit"

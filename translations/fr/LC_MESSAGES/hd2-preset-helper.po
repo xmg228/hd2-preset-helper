@@ -124,12 +124,6 @@ msgstr "Commencez avec « + Nouveau préréglage »."
 msgid "Equipment"
 msgstr "Équipement"
 
-msgid "Cache coverage: {}/{}"
-msgstr "Couverture du cache : {}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "Basé sur les catégories entièrement mises en cache. Les éléments non couverts peuvent parfois être appliqués sans parcourir la liste."
-
 msgid "Start from either loadout page."
 msgstr "Vous pouvez commencer depuis l'une des deux pages d'équipement."
 
@@ -145,23 +139,8 @@ msgstr "Afficher / masquer le panneau"
 msgid "Global shortcut"
 msgstr "Raccourci global"
 
-msgid "Save preset"
-msgstr "Enregistrer le préréglage"
-
-msgid "Save Stratagems"
-msgstr "Enregistrer les stratagèmes"
-
-msgid "Save equipment"
-msgstr "Enregistrer l'équipement"
-
-msgid "Select content"
-msgstr "Choisir le contenu"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Remplissez les quatre emplacements de stratagèmes avant d'enregistrer."
-
-msgid "Apply preset"
-msgstr "Appliquer le préréglage"
 
 msgid "Apply Stratagems"
 msgstr "Appliquer les stratagèmes"
@@ -354,6 +333,9 @@ msgstr "Analyse des objets"
 msgid "Open the panel to stop scanning."
 msgstr "Ouvrez le panneau pour arrêter l’analyse."
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "Pour obtenir des icônes plus nettes, analysez les bonus lorsqu’aucun n’est utilisé."
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "Modifier la configuration"
@@ -376,8 +358,23 @@ msgstr "Effacer"
 msgid "Loading…"
 msgstr "Chargement…"
 
-msgid "No items available."
-msgstr "Aucun objet disponible."
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "Aucun objet disponible. Vous pouvez analyser cette liste maintenant. Les listes manquantes seront aussi analysées automatiquement lors de la première application des types d’objets correspondants."
+
+msgid "Quick start"
+msgstr "Prise en main"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "Préparez votre configuration dans le jeu, sélectionnez un préréglage, puis choisissez « {} »."
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "Pour l’utiliser plus tard, sélectionnez le préréglage et choisissez « {} », ou utilisez son raccourci."
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "Vous pouvez aussi utiliser « {} » pour changer les objets ou créer une configuration aléatoire. Les listes nécessaires sont analysées automatiquement à la première application de chaque type d’objet, ou vous pouvez les analyser à l’avance."
+
+msgid "Got it"
+msgstr "Compris"
 
 msgid "Save changes"
 msgstr "Enregistrer les modifications"
@@ -385,8 +382,8 @@ msgstr "Enregistrer les modifications"
 msgid "Randomize equipment"
 msgstr "Choisir l’équipement au hasard"
 
-msgid "Scan missing items"
-msgstr "Compléter les listes"
+msgid "Scan all missing lists"
+msgstr "Analyser toutes les listes manquantes"
 
 msgid "Capture from game"
 msgstr "Enregistrer depuis le jeu"
@@ -403,6 +400,21 @@ msgstr "Créer le cache des objets"
 
 msgid "Build cache and apply"
 msgstr "Créer le cache et appliquer"
+
+msgid "Rescan this list"
+msgstr "Analyser à nouveau cette liste"
+
+msgid "Scan this list"
+msgstr "Analyser cette liste"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "Cette liste sera analysée dans le jeu. Toutes les modifications non enregistrées seront perdues."
+
+msgid "Missing an item?"
+msgstr "Un objet manque ?"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "Les listes manquantes seront analysées dans le jeu. Toutes les modifications non enregistrées seront perdues."
 
 # Tray.
 msgid "Exit"

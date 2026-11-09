@@ -203,6 +203,7 @@ pub struct UiSettings {
     pub monitor: String,
     pub language: UiLanguage,
     pub compact_preset_list: bool,
+    pub notice_revision: u32,
 }
 
 impl Default for UiSettings {
@@ -213,6 +214,7 @@ impl Default for UiSettings {
             monitor: AUTO_MONITOR.to_string(),
             language: UiLanguage::default(),
             compact_preset_list: false,
+            notice_revision: 0,
         }
     }
 }
@@ -264,6 +266,12 @@ pub fn save_scope(config_path: &Path, scope: PresetScope) -> Result<()> {
 pub fn save_compact_preset_list(config_path: &Path, compact: bool) -> Result<()> {
     edit_config(config_path, |document| {
         write_setting(document, "ui", "compact_preset_list", compact)
+    })
+}
+
+pub(crate) fn save_notice_revision(config_path: &Path, revision: u32) -> Result<()> {
+    edit_config(config_path, |document| {
+        write_setting(document, "ui", "notice_revision", i64::from(revision))
     })
 }
 

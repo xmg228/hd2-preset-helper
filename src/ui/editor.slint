@@ -19,7 +19,7 @@ component ItemChoice inherits Rectangle {
     border-radius: 4px;
     border-width: 1px;
     border-color: selected ? Theme.accent-soft : keys.has-focus ? Theme.text-secondary : transparent;
-    background: selected ? #e9d77812 : touch.has-hover && enabled ? Theme.hover : Theme.control;
+    background: touch.has-hover && enabled ? Theme.hover : Theme.control;
     forward-focus: keys;
     accessible-role: button;
     accessible-label: label;
@@ -114,8 +114,10 @@ component EditorHeading inherits HorizontalLayout {
 
 export component ItemEditor inherits Rectangle {
     in property <bool> enabled: true;
+    in property <string> preset-title;
     in property <[PreviewRow]> slots;
     in property <[CandidateGroupRow]> groups;
+    in property <bool> missing;
     in property <bool> loading;
     in property <bool> busy;
     in property <bool> dirty;
@@ -131,13 +133,17 @@ export component ItemEditor inherits Rectangle {
     private property <bool> choosing;
     private property <bool> icon-mode: current-slot < 6;
     private property <int> icon-columns: clamp(floor(candidates.visible-width / 64px), 1, 8);
+    private property <string> refresh-hint: @tr("Scan this list from the game. All unsaved edits will be discarded.")
+        + (current-slot == 4 || current-slot == 5 ? "\n" + UiText.booster-scan-hint : "");
     callback choose(int, int);
     callback clear();
     callback randomize(bool);
+    callback scan-missing();
+    callback refresh();
     callback save();
     callback cancel();
     forward-focus: keys;
-    public function focus-dialog() { keys.focus(); }
+    public function focus-page() { keys.focus(); }
     public function reset() { root.choosing = false; }
     public function save-changes() {
         if (root.interactive && root.dirty && root.can-save) { root.save(); }
@@ -182,31 +188,84 @@ export component ItemEditor inherits Rectangle {
         }
         VerticalLayout {
             spacing: 12px;
-            if (root.choosing): HorizontalLayout {
-                height: 28px;
-                spacing: 8px;
-                IconButton {
+            HorizontalLayout {
+                min-height: 48px;
+                vertical-stretch: 0;
+                spacing: 12px;
+                if (root.choosing): IconButton {
                     icon: Icons.back;
                     label: @tr("Back");
+                    cross-axis-self-alignment: center;
                     enabled: root.enabled && !root.busy;
                     clicked => { root.choosing = false; keys.focus(); }
                 }
-                Text {
-                    text: UiText.item-label(root.slots[root.current-slot]);
-                    color: Theme.text;
-                    font-size: 15px;
-                    font-weight: 600;
+                VerticalLayout {
                     min-width: 0px;
+                    preferred-width: 0px;
                     horizontal-stretch: 1;
-                    overflow: elide;
-                    vertical-alignment: center;
+                    vertical-stretch: 0;
+                    cross-axis-self-alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: root.choosing ? UiText.item-label(root.slots[root.current-slot]) : @tr("Edit loadout");
+                        color: Theme.text;
+                        font-size: 20px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.preset-title;
+                        color: Theme.text-secondary;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
                 }
-                if (root.can-clear): PanelButton {
+                if (!root.choosing && root.missing): PanelButton {
+                    height: 32px;
+                    horizontal-stretch: 0;
+                    cross-axis-self-alignment: center;
+                    text: @tr("Scan all missing lists");
+                    filled: true;
+                    enabled: root.interactive;
+                    clicked => { root.scan-missing(); }
+                    private property <string> hint: @tr("Scan missing lists from the game. All unsaved edits will be discarded.")
+                        + "\n" + UiText.booster-scan-hint;
+                    Tooltip { text: @markdown("\{parent.hint}"); }
+                }
+                if (root.choosing && root.can-clear): PanelButton {
+                    height: 28px;
+                    cross-axis-self-alignment: center;
                     text: @tr("Clear");
                     enabled: root.interactive;
                     clicked => { root.clear(); root.choosing = false; keys.focus(); }
                 }
+                if (root.choosing && root.groups.length > 0): Text {
+                    text: @tr("Missing an item?");
+                    color: Theme.text-secondary;
+                    font-size: 11px;
+                    min-width: 0px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                if (root.choosing && root.groups.length > 0): IconButton {
+                    icon: Icons.update;
+                    label: @tr("Rescan this list");
+                    tooltip: root.refresh-hint;
+                    cross-axis-self-alignment: center;
+                    enabled: root.interactive;
+                    clicked => { root.refresh(); }
+                }
+                if (root.choosing && root.groups.length == 0): PanelButton {
+                    height: 32px;
+                    cross-axis-self-alignment: center;
+                    text: @tr("Scan this list");
+                    filled: true;
+                    enabled: root.interactive;
+                    clicked => { root.refresh(); }
+                    Tooltip { text: @markdown("\{root.refresh-hint}"); }
+                }
             }
+            Rectangle { height: 1px; background: Theme.border; }
             Rectangle {
                 min-height: 0px;
                 vertical-stretch: 1;
@@ -361,7 +420,7 @@ export component ItemEditor inherits Rectangle {
                     }
                 }
                 if (root.choosing && (root.loading || root.groups.length == 0)): Text {
-                    text: root.loading ? @tr("Loading…") : @tr("No items available.");
+                    text: root.loading ? @tr("Loading…") : @tr("No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types.");
                     color: Theme.text-secondary;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -377,6 +436,40 @@ export component ItemEditor inherits Rectangle {
                 max-height: 48px;
                 overflow: elide;
                 Tooltip { text: @markdown("\{root.error}"); }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                height: 50px;
+                spacing: 10px;
+                Rectangle { horizontal-stretch: 1; }
+                PanelButton {
+                    height: 32px;
+                    min-width: 86px;
+                    cross-axis-self-alignment: start;
+                    text: @tr("Cancel");
+                    filled: true;
+                    enabled: root.enabled && !root.busy;
+                    clicked => { root.cancel(); }
+                }
+                VerticalLayout {
+                    height: 50px;
+                    width: max(110px, save-button.preferred-width);
+                    spacing: 4px;
+                    save-button := PanelButton {
+                        height: 32px;
+                        text: @tr("Save changes");
+                        accent: true;
+                        enabled: root.interactive && root.dirty && root.can-save;
+                        clicked => { root.save-changes(); }
+                    }
+                    Text {
+                        text: "Ctrl+S";
+                        color: save-button.enabled ? Theme.text-secondary : Theme.inactive;
+                        font-size: 10px;
+                        height: 14px;
+                        horizontal-alignment: center;
+                    }
+                }
             }
         }
     }

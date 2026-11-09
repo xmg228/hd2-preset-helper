@@ -124,12 +124,6 @@ msgstr "Aby zacząć, użyj „+ Nowy zestaw”."
 msgid "Equipment"
 msgstr "Sprzęt"
 
-msgid "Cache coverage: {}/{}"
-msgstr "Pokrycie pamięcią podręczną: {}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "Dotyczy kategorii w całości zapisanych w pamięci podręcznej. Nieobjęte nią elementy można czasem zastosować bez przeszukiwania listy."
-
 msgid "Start from either loadout page."
 msgstr "Możesz zacząć na dowolnej z dwóch stron wyposażenia."
 
@@ -145,23 +139,8 @@ msgstr "Pokaż / ukryj panel"
 msgid "Global shortcut"
 msgstr "Globalny skrót klawiszowy"
 
-msgid "Save preset"
-msgstr "Zapisz zestaw"
-
-msgid "Save Stratagems"
-msgstr "Zapisz manewry"
-
-msgid "Save equipment"
-msgstr "Zapisz sprzęt"
-
-msgid "Select content"
-msgstr "Wybierz zawartość"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Przed zapisem wypełnij wszystkie cztery miejsca na manewry."
-
-msgid "Apply preset"
-msgstr "Zastosuj zestaw"
 
 msgid "Apply Stratagems"
 msgstr "Zastosuj manewry"
@@ -354,6 +333,9 @@ msgstr "Skanowanie przedmiotów"
 msgid "Open the panel to stop scanning."
 msgstr "Otwórz panel, aby zatrzymać skanowanie."
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "Aby uzyskać wyraźniejsze ikony, skanuj premie, gdy żadna nie jest używana."
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "Edytuj zestaw"
@@ -376,8 +358,23 @@ msgstr "Wyczyść"
 msgid "Loading…"
 msgstr "Ładowanie…"
 
-msgid "No items available."
-msgstr "Brak dostępnych przedmiotów."
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "Brak dostępnych przedmiotów. Możesz teraz zeskanować tę listę. Brakujące listy są też skanowane automatycznie przy pierwszym zastosowaniu odpowiednich typów przedmiotów."
+
+msgid "Quick start"
+msgstr "Szybki start"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "Przygotuj wyposażenie w grze, wybierz zestaw, a następnie kliknij „{}”."
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "Aby użyć go później, wybierz zestaw i kliknij „{}” lub użyj jego skrótu klawiszowego."
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "Opcja „{}” pozwala też zmieniać przedmioty lub losować wyposażenie. Potrzebne listy są skanowane automatycznie przy pierwszym zastosowaniu każdego typu przedmiotów; możesz też zeskanować je wcześniej."
+
+msgid "Got it"
+msgstr "Rozumiem"
 
 msgid "Save changes"
 msgstr "Zapisz zmiany"
@@ -385,8 +382,8 @@ msgstr "Zapisz zmiany"
 msgid "Randomize equipment"
 msgstr "Losuj wyposażenie"
 
-msgid "Scan missing items"
-msgstr "Uzupełnij listy przedmiotów"
+msgid "Scan all missing lists"
+msgstr "Skanuj wszystkie brakujące listy"
 
 msgid "Capture from game"
 msgstr "Zapisz z gry"
@@ -403,6 +400,21 @@ msgstr "Utwórz pamięć podręczną"
 
 msgid "Build cache and apply"
 msgstr "Utwórz pamięć podręczną i zastosuj"
+
+msgid "Rescan this list"
+msgstr "Skanuj tę listę ponownie"
+
+msgid "Scan this list"
+msgstr "Skanuj tę listę"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "Zeskanuj tę listę w grze. Wszystkie niezapisane zmiany zostaną odrzucone."
+
+msgid "Missing an item?"
+msgstr "Brakuje przedmiotu?"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "Zeskanuj brakujące listy w grze. Wszystkie niezapisane zmiany zostaną odrzucone."
 
 # Tray.
 msgid "Exit"

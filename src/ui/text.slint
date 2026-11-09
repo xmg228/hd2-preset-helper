@@ -2,6 +2,7 @@ import { CandidateGroupRole, PreviewRole, PreviewRow, PreviewSection } from "mod
 
 // Shared labels remain bindings, so changing the language updates every use.
 export global UiText {
+    out property <string> booster-scan-hint: @tr("For clearer icons, scan Boosters when none are in use.");
     public pure function candidate-group-label(role: CandidateGroupRole) -> string {
         if (role == CandidateGroupRole.offensive) { return @tr("Offensive"); }
         if (role == CandidateGroupRole.supply) { return @tr("Supply"); }

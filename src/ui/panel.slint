@@ -4,6 +4,7 @@ import { ScrollView } from "std-widgets.slint";
 import { PanelButton, IconButton, DeletePresetDialog, ScanConfirmationDialog, NameImage, FailureNotice } from "controls.slint";
 import { SettingsDialog } from "settings.slint";
 import { ItemEditor } from "editor.slint";
+import { QuickStartDialog } from "quick-start.slint";
 import { UpdatePhase } from "updates.slint";
 export { UpdatePhase }
 import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
@@ -19,8 +20,6 @@ export { ActionStatus, StatusItem, StatusTone } from "status.slint";
 
 component SelectableSection inherits Rectangle {
     in property <string> text;
-    in property <string> detail;
-    in property <string> detail-help;
     in property <bool> checked;
     in property <bool> enabled: true;
     in property <string> apply-label;
@@ -101,18 +100,6 @@ component SelectableSection inherits Rectangle {
                             stroke: Theme.background;
                         }
                     }
-                }
-            }
-            if (root.detail != ""): Text {
-                text: root.detail;
-                color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
-                font-size: 11px;
-                min-width: 0px;
-                horizontal-stretch: 0;
-                overflow: elide;
-                vertical-alignment: center;
-                if (root.detail-help != ""): Tooltip {
-                    text: @markdown("\{root.detail-help}");
                 }
             }
             Rectangle { horizontal-stretch: 1; }
@@ -324,6 +311,7 @@ export component PresetPanel inherits Window {
     in property <bool> loading: true;
     in property <[string]> panel-shortcut-keys;
     in-out property <bool> settings-open;
+    in-out property <bool> quick-start-open;
     out property <bool> viewing-licenses: settings.viewing-licenses;
     in-out property <bool> delete-open;
     in-out property <bool> scan-confirm-open;
@@ -391,9 +379,9 @@ export component PresetPanel inherits Window {
     out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
-    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && !editor-open && !scan-confirm-open && hovered-index >= 0 ? hovered-index : current-index];
+    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && !editor-open && !scan-confirm-open && !quick-start-open && hovered-index >= 0 ? hovered-index : current-index];
     private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open
-        && !scan-confirm-open && !editor-open && !editor-busy && !update-installing
+        && !scan-confirm-open && !quick-start-open && !editor-open && !editor-busy && !update-installing
         && reorder-phase != ReorderPhase.committing;
     private property <string> editing-preset;
     private property <string> name-draft;
@@ -438,6 +426,7 @@ export component PresetPanel inherits Window {
     callback clear-item();
     callback randomize-items(bool);
     callback scan-missing-items();
+    callback refresh-items();
     callback confirm-scan();
     callback cancel-scan();
     callback save-items();
@@ -467,6 +456,8 @@ export component PresetPanel inherits Window {
     callback download-update();
     callback install-update();
     callback view-project();
+    callback view-quick-start();
+    callback acknowledge-quick-start();
     callback scan-items(int);
     callback license-text() -> string;
     callback clear-shortcut(int);
@@ -476,7 +467,7 @@ export component PresetPanel inherits Window {
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() {
         root.finish-reorder();
-        if (!root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.editor-open) { keyboard.focus(); }
+        if (!root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.quick-start-open && !root.editor-open) { keyboard.focus(); }
     }
     public function focus-search-results() {
         if (root.current-visible-index < 0 && root.visible-presets.length > 0) {
@@ -506,7 +497,12 @@ export component PresetPanel inherits Window {
     public function focus-item-editor() {
         root.hovered-index = -1;
         root.apply-key-down = false;
-        item-editor.focus-dialog();
+        item-editor.focus-page();
+    }
+    public function focus-quick-start() {
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        quick-start-dialog.focus-dialog();
     }
     public function focus-scan-confirm() {
         root.hovered-index = -1;
@@ -520,12 +516,14 @@ export component PresetPanel inherits Window {
         }
     }
     public function focus-current-view() {
-        if (root.scan-confirm-open) { root.focus-scan-confirm(); }
+        if (root.quick-start-open) { root.focus-quick-start(); }
+        else if (root.scan-confirm-open) { root.focus-scan-confirm(); }
         else if (root.settings-open) { settings.focus(); }
         else if (root.editor-open) { root.focus-item-editor(); }
         else { root.focus-list(); }
     }
     public function prepare-hide() {
+        root.quick-start-open = false;
         root.cancel-scan-confirmation();
         root.delete-open = false;
         root.recording-shortcut = -1;
@@ -533,6 +531,7 @@ export component PresetPanel inherits Window {
     }
     changed editor-open => { if (!root.editor-open) { item-editor.reset(); } }
     public function close-dialogs() {
+        root.quick-start-open = false;
         root.cancel-scan-confirmation();
         if (root.settings-open) { settings.focus(); }
         if (root.delete-open) { delete-dialog.focus(); }
@@ -648,7 +647,7 @@ export component PresetPanel inherits Window {
             border-color: #ffffff20;
         }
         keyboard := FocusScope {
-            enabled: root.presented && !root.settings-open && !root.delete-open && !root.scan-confirm-open;
+            enabled: root.presented && !root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.quick-start-open;
             key-pressed(event) => {
                 if (root.editor-open) {
                     if (event.text == Key.Escape) { item-editor.back-or-cancel(); return accept; }
@@ -728,7 +727,7 @@ export component PresetPanel inherits Window {
                             }
                         }
                     }
-                    if (root.update-phase == UpdatePhase.ready): PanelButton {
+                    if (!root.editor-open && root.update-phase == UpdatePhase.ready): PanelButton {
                         text: @tr("Restart to update");
                         height: 28px;
                         horizontal-stretch: 0;
@@ -741,7 +740,7 @@ export component PresetPanel inherits Window {
                             root.install-update();
                         }
                     }
-                    if (root.update-version != "" && root.update-phase != UpdatePhase.ready): IconButton {
+                    if (!root.editor-open && root.update-version != "" && root.update-phase != UpdatePhase.ready): IconButton {
                         label: @tr("View available update");
                         icon: Icons.update;
                         enabled: root.interactive;
@@ -753,6 +752,7 @@ export component PresetPanel inherits Window {
                         }
                     }
                     IconButton {
+                        visible: !root.editor-open;
                         label: @tr("Settings");
                         icon: Icons.settings;
                         enabled: root.interactive;
@@ -767,758 +767,733 @@ export component PresetPanel inherits Window {
                             label: @tr("Hide panel");
                             clicked => { root.dismiss(); }
                         }
-                        Text { text: "Esc"; color: Theme.text-secondary; font-size: 9px; height: 12px; horizontal-alignment: center; }
+                        Text { text: root.editor-open ? "" : "Esc"; color: Theme.text-secondary; font-size: 9px; height: 12px; horizontal-alignment: center; }
                     }
                 }
                 Rectangle { height: 1px; background: Theme.border; }
-                HorizontalLayout {
+                pages := Rectangle {
+                    min-width: 0px;
                     min-height: 0px;
+                    preferred-width: 0px;
+                    preferred-height: 0px;
+                    horizontal-stretch: 1;
                     vertical-stretch: 1;
-                    spacing: 18px;
-                    VerticalLayout {
-                        width: 210px;
-                        spacing: 8px;
-                        HorizontalLayout {
-                            height: 30px;
-                            spacing: 8px;
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                height: 30px;
-                                background: Theme.control;
-                                border-radius: 4px;
-                                border-width: 1px;
-                                border-color: preset-search.has-focus ? Theme.accent-soft : Theme.border;
-                                TouchArea {
-                                    enabled: root.interactive && !root.reordering-entry;
-                                    mouse-cursor: text;
-                                    clicked => { preset-search.focus(); }
-                                }
-                                Icon {
-                                    x: 8px;
-                                    y: (parent.height - self.height) / 2;
-                                    icon: Icons.search;
-                                    stroke: root.interactive ? Theme.text-secondary : Theme.inactive;
-                                }
-                                Text {
-                                    x: 32px;
-                                    width: parent.width - 42px;
-                                    height: parent.height;
-                                    text: @tr("Search presets");
-                                    color: Theme.text-disabled;
-                                    font-size: 13px;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                    visible: root.search-query == "" && preset-search.preedit-text == "";
-                                }
-                                Rectangle {
-                                    x: 32px;
-                                    width: parent.width - self.x - (root.search-active ? 32px : 10px);
-                                    height: parent.height;
-                                    clip: true;
-                                    preset-search := TextInput {
-                                        property <length> scroll-offset;
-                                        x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
-                                        width: max(parent.width, self.preferred-width);
-                                        height: parent.height;
-                                        enabled: root.interactive && !root.reordering-entry;
-                                        single-line: true;
-                                        text <=> root.search-query;
-                                        color: Theme.text;
-                                        font-size: 13px;
-                                        vertical-alignment: center;
-                                        selection-background-color: #786c38;
-                                        selection-foreground-color: #fff8d4;
-                                        accessible-label: @tr("Search presets");
-                                        cursor-position-changed(position) => {
-                                            if (position.x + self.x < 0px) { self.scroll-offset = -position.x; }
-                                            else if (position.x + self.x > parent.width - self.text-cursor-width) {
-                                                self.scroll-offset = parent.width - self.text-cursor-width - position.x;
-                                            }
-                                        }
-                                        key-pressed(event) => {
-                                            if (self.preedit-text != "") { return reject; }
-                                            if (event.text == Key.Escape) {
-                                                if (root.search-active) { root.search-query = ""; keyboard.focus(); }
-                                                else { root.dismiss(); }
-                                                return accept;
-                                            }
-                                            if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
-                                            if (event.text == Key.Return) {
-                                                if (!event.repeat && root.visible-presets.length > 0) { root.focus-search-results(); }
-                                                return accept;
-                                            }
-                                            if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
-                                                if (root.visible-presets.length > 0) {
-                                                    root.move-selection(event.text == Key.DownArrow ? 1 : -1);
-                                                    keyboard.focus();
-                                                }
-                                                return accept;
-                                            }
-                                            return reject;
-                                        }
-                                    }
-                                }
-                                IconButton {
-                                    x: parent.width - self.width - 2px;
-                                    y: (parent.height - self.height) / 2;
-                                    label: @tr("Clear search");
-                                    icon: Icons.close;
-                                    visible: root.search-active;
-                                    enabled: root.interactive && !root.reordering-entry;
-                                    clicked => { root.search-query = ""; preset-search.focus(); }
-                                }
-                            }
-                            IconButton {
-                                cross-axis-self-alignment: center;
-                                label: @tr("Compact list");
-                                icon: Icons.list;
-                                checkable: true;
-                                checked: root.compact-list;
-                                enabled: root.interactive && !root.reordering-entry;
-                                clicked => {
-                                    root.commit-names();
-                                    keyboard.focus();
-                                    root.request-compact-list(!root.compact-list);
-                                }
-                            }
-                        }
-                        list-viewport := Rectangle {
-                            min-height: 0px;
-                            width: 210px;
-                            vertical-stretch: 1;
-                            preset-list := ScrollView {
-                                width: parent.width + 4px;
-                                height: parent.height;
-                                content-width: self.visible-width - 12px;
-                                content-height: root.visible-entries.length > 0
-                                    ? (root.visible-entries[root.visible-entries.length - 1].top
-                                        + root.visible-entries[root.visible-entries.length - 1].height) * 1px : 0px;
-                                changed visible-height => { root.ensure-revealed(); }
-                                changed content-height => { root.ensure-revealed(); }
-                                scrolled => { root.reveal-target = ""; }
-                                VerticalLayout {
-                                    alignment: start;
-                                    spacing: root.row-spacing;
-                                    for entry in root.visible-entries: Rectangle {
-                                        height: entry.height * 1px;
-                                        body := Rectangle {
-                                            width: parent.width;
-                                            height: parent.height;
-                                            y: !root.reorder-preview-visible || !root.drop-target.displace ? 0px
-                                                : entry.top >= root.drop-target.top && entry.top < root.drag-entry.top ? root.drag-span + root.row-spacing
-                                                : entry.top * 1px > root.drag-entry.top * 1px + root.drag-span && entry.top < root.drop-target.top ? -root.drag-span - root.row-spacing : 0px;
-                                            animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
-                                            opacity: root.reorder-preview-visible && entry.top >= root.drag-entry.top
-                                                && entry.top * 1px < root.drag-entry.top * 1px + root.drag-span
-                                                ? (root.drop-target.displace ? 0 : 0.35) : 1;
-                                            if (entry.is-folder): FolderHeader {
-                                                width: parent.width;
-                                                height: parent.height;
-                                                item: entry;
-                                                enabled: root.interactive && !root.reordering-entry;
-                                                reorderable: !root.search-active;
-                                                collapsible: !root.search-active;
-                                                handle-hovered: handle.has-hover;
-                                                highlighted: root.reorder-preview-visible && root.drop-target.inside == entry.name;
-                                                contains-current: !entry.expanded && entry.name == root.current-visible-entry;
-                                                editing: root.editing-folder == entry.name;
-                                                draft <=> root.folder-name-draft;
-                                                clicked => { keyboard.focus(); }
-                                                toggled => {
-                                                    root.hovered-index = -1;
-                                                    root.apply-key-down = false;
-                                                    root.reveal-target = "";
-                                                    root.toggle-folder(entry.name);
-                                                }
-                                                rename => { root.begin-folder-rename(entry.name, entry.label); }
-                                                ungroup => { keyboard.focus(); root.request-ungroup(entry.name); }
-                                                finish-rename(save) => { root.finish-folder-rename(save); }
-                                            }
-                                            if (!entry.is-folder): PresetCard {
-                                                x: entry.parent == "" ? 0px : root.entry-indent;
-                                                width: parent.width - self.x;
-                                                height: parent.height;
-                                                item: root.presets[entry.preset-index];
-                                                compact: root.compact-list;
-                                                reorderable: !root.search-active;
-                                                selected: entry.preset-index == root.current-index;
-                                                hovered: touch.has-hover || handle.has-hover;
-                                                handle-hovered: handle.has-hover;
-                                                scope-stratagems: root.scope-stratagems;
-                                                scope-equipment: root.scope-equipment && root.equipment-items-selected;
-                                                accessible-role: button;
-                                                accessible-label: UiText.preset-title(self.item.label, self.item.number);
-                                                accessible-description: UiText.section-message(self.item.stratagems) + " " + UiText.section-message(self.item.equipment);
-                                                accessible-enabled: root.interactive && !root.reordering-entry;
-                                                accessible-action-default => {
-                                                    if (root.interactive && !root.reordering-entry) { root.current-index = entry.preset-index; }
-                                                }
-                                                changed hovered => {
-                                                    if (self.hovered) { root.hovered-index = entry.preset-index; }
-                                                    else if (root.hovered-index == entry.preset-index) { root.hovered-index = -1; }
-                                                }
-                                                touch := TouchArea {
-                                                    x: root.search-active ? 0px : 18px;
-                                                    width: parent.width - self.x;
-                                                    enabled: root.interactive && !root.reordering-entry;
-                                                    mouse-cursor: pointer;
-                                                    pointer-event(event) => {
-                                                        if (event.kind == PointerEventKind.move) { root.hovered-index = entry.preset-index; }
-                                                    }
-                                                    clicked => { root.current-index = entry.preset-index; keyboard.focus(); }
-                                                    double-clicked => { root.apply-current(ActionScope.selected); }
-                                                }
-                                            }
-                                            drag := DragArea {
-                                                x: entry.parent == "" ? 0px : root.entry-indent;
-                                                y: 0px;
-                                                width: 18px;
-                                                height: parent.height;
-                                                enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
-                                                data: root.entry-drag-data;
-                                                allow-move: true;
-                                                changed dragging => {
-                                                    if (self.dragging) {
-                                                        root.reorder-phase = ReorderPhase.dragging;
-                                                        root.reveal-target = "";
-                                                        if (!entry.is-folder) { root.current-index = entry.preset-index; }
-                                                        root.hovered-index = -1;
-                                                        root.apply-key-down = false;
-                                                        keyboard.focus();
-                                                    }
-                                                }
-                                                drag-finished(action) => {
-                                                    if (action == DragAction.move && root.drop-target.valid) {
-                                                        root.reorder-phase = ReorderPhase.committing;
-                                                        root.request-reorder(root.drag-entry.name, root.drop-target.parent, root.drop-target.before);
-                                                    } else {
-                                                        root.finish-reorder();
-                                                    }
-                                                }
-                                                handle := TouchArea {
-                                                    enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
-                                                    mouse-cursor: self.pressed ? grabbing : grab;
-                                                    pointer-event(event) => {
-                                                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
-                                                            root.drag-source-ready = true;
-                                                            root.drag-entry = entry;
-                                                            root.drag-span = root.entry-span(root.visible-entries, entry.name) * 1px;
-                                                            root.drag-offset-y = self.mouse-y;
-                                                            root.drag-x = self.mouse-x + self.absolute-position.x - list-viewport.absolute-position.x;
-                                                            root.drag-y = entry.top * 1px + preset-list.content-y + self.mouse-y;
-                                                        } else if (event.kind == PointerEventKind.up && root.reorder-phase == ReorderPhase.idle) {
-                                                            root.drag-source-ready = false;
-                                                        }
-                                                        if (event.kind == PointerEventKind.move && !entry.is-folder) { root.hovered-index = entry.preset-index; }
-                                                    }
-                                                    clicked => {
-                                                        if (!entry.is-folder) { root.current-index = entry.preset-index; }
-                                                        keyboard.focus();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if (root.search-active && root.visible-presets.length == 0): Text {
-                                x: 8px;
-                                width: parent.width - 16px;
-                                height: parent.height;
-                                text: @tr("No matching presets");
-                                color: Theme.text-secondary;
-                                font-size: 13px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                wrap: word-wrap;
-                            }
-                            Rectangle {
-                                x: 0px;
-                                y: 0px;
-                                width: preset-list.content-width;
-                                height: parent.height;
-                                clip: true;
-                                Rectangle {
-                                    visible: root.reorder-preview-visible;
-                                    x: (root.drop-target.valid ? root.drop-target.parent : root.drag-entry.parent) == "" ? 0px : root.entry-indent;
-                                    y: root.reorder-phase == ReorderPhase.committing && root.drop-target.inside == ""
-                                        ? root.drop-y + preset-list.content-y : root.drag-card-y;
-                                    width: parent.width - self.x;
-                                    height: root.drag-entry.height * 1px;
-                                    animate x { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
-                                    drop-shadow-color: #00000080;
-                                    drop-shadow-blur: 8px;
-                                    drop-shadow-offset-y: 2px;
-                                    if (root.drag-entry.is-folder): FolderHeader {
-                                        width: parent.width;
-                                        height: parent.height;
-                                        item: root.drag-entry;
-                                        enabled: false;
-                                        highlighted: true;
-                                        handle-hovered: true;
-                                    }
-                                    if (!root.drag-entry.is-folder): PresetCard {
-                                        width: parent.width;
-                                        height: parent.height;
-                                        item: root.presets[max(0, root.drag-entry.preset-index)];
-                                        compact: root.compact-list;
-                                        selected: true;
-                                        handle-hovered: true;
-                                        scope-stratagems: root.scope-stratagems;
-                                        scope-equipment: root.scope-equipment && root.equipment-items-selected;
-                                    }
-                                }
-                                Rectangle {
-                                    visible: root.reorder-preview-visible && root.drop-target.valid && root.drop-target.inside == "";
-                                    x: root.drop-target.parent == "" ? 0px : root.entry-indent;
-                                    y: max(0px, root.insertion-y + preset-list.content-y - root.row-spacing / 2 - 1px);
-                                    width: parent.width - self.x;
-                                    height: 2px;
-                                    background: Theme.accent;
-                                    Rectangle {
-                                        x: 0px;
-                                        y: -2px;
-                                        width: 6px;
-                                        height: 6px;
-                                        border-radius: 3px;
-                                        background: Theme.accent;
-                                    }
-                                }
-                            }
-                            Timer {
-                                interval: 16ms;
-                                running: list-drop.has-drag && root.reorder-phase == ReorderPhase.dragging
-                                    && (root.drag-y < 28px || root.drag-y > list-viewport.height - 28px);
-                                triggered => {
-                                    let step = root.drag-y < 28px ? 8px : -8px;
-                                    preset-list.content-y = clamp(preset-list.content-y + step,
-                                        min(0px, preset-list.visible-height - preset-list.content-height), 0px);
-                                }
-                            }
-                        }
-                        HorizontalLayout {
-                            height: 30px;
-                            spacing: 8px;
-                            PanelButton {
-                                horizontal-stretch: 1;
-                                text: @tr("+ New preset");
-                                filled: true;
-                                enabled: root.interactive;
-                                clicked => { root.commit-names(); root.add-preset(); }
-                            }
-                            IconButton {
-                                label: @tr("New folder");
-                                icon: Icons.folder-plus;
-                                enabled: root.interactive && !root.reordering-entry;
-                                clicked => { root.commit-names(); root.add-folder(); }
-                            }
-                        }
-                    }
-                    Rectangle { width: 1px; background: Theme.border; }
-                    VerticalLayout {
-                        min-width: 0px;
-                        min-height: 0px;
-                        horizontal-stretch: 1;
-                        padding-top: 6px;
-                        spacing: 16px;
-                        HorizontalLayout {
-                            height: 32px;
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                Rectangle {
-                                    x: -6px;
-                                    width: parent.width + 12px;
-                                    height: parent.height;
-                                    border-radius: 3px;
-                                    background: root.editing-name ? #222627 : transparent;
-                                    animate background { duration: 120ms; easing: ease-out; }
-                                }
-                                Rectangle {
-                                    x: -6px;
-                                    y: parent.height - 1px;
-                                    width: parent.width + 12px;
-                                    height: 1px;
-                                    background: root.editing-name ? Theme.accent-soft : transparent;
-                                    animate background { duration: 120ms; easing: ease-out; }
-                                }
-                                name-title := Text {
-                                    x: 0px;
-                                    width: min(self.preferred-width, edit-button.x - rename-button.width - 16px);
-                                    height: parent.height;
-                                    visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
-                                    text: root.presets.length > 0
-                                        ? UiText.preset-title(root.editing-name ? "" : root.preview.label, root.preview.number)
-                                        : @tr("No presets");
-                                    color: root.editing-name ? Theme.text-disabled : Theme.text;
-                                    font-size: 21px;
-                                    overflow: elide;
-                                    vertical-alignment: center;
-                                    TouchArea {
-                                        enabled: root.interactive && !root.editing-name
-                                            && !root.reordering-entry && root.presets.length > 0;
-                                        double-clicked => { root.begin-rename(); }
-                                    }
-                                }
-                                Rectangle {
-                                    x: 0px;
-                                    visible: root.editing-name;
-                                    width: parent.width;
-                                    height: parent.height;
-                                    clip: true;
-                                    ContextMenuArea {
-                                        Menu {
-                                            MenuItem { title: @tr("Cut"); activated => { name-input.cut(); } }
-                                            MenuItem { title: @tr("Copy"); activated => { name-input.copy(); } }
-                                            MenuItem { title: @tr("Paste"); activated => { name-input.paste(); } }
-                                            MenuItem { title: @tr("Select all"); activated => { name-input.select-all(); } }
-                                        }
-                                        name-input := TextInput {
-                                            property <length> scroll-offset;
-                                            x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
-                                            width: max(parent.width, self.preferred-width);
-                                            height: parent.height;
-                                            enabled: root.interactive;
-                                            single-line: true;
-                                            text <=> root.name-draft;
-                                            color: Theme.text;
-                                            font-size: name-title.font-size;
-                                            vertical-alignment: center;
-                                            selection-background-color: #786c38;
-                                            selection-foreground-color: #fff8d4;
-                                            accessible-label: @tr("Preset name");
-                                            cursor-position-changed(position) => {
-                                                if (position.x + self.x < 0px) {
-                                                    self.scroll-offset = -position.x;
-                                                } else if (position.x + self.x > parent.width - self.text-cursor-width) {
-                                                    self.scroll-offset = parent.width - self.text-cursor-width - position.x;
-                                                }
-                                            }
-                                            accepted => { root.finish-rename(true); keyboard.focus(); }
-                                            changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
-                                            key-pressed(event) => {
-                                                if (self.preedit-text != "") { return reject; }
-                                                if (event.text == Key.Escape) {
-                                                    root.finish-rename(false);
-                                                    keyboard.focus();
-                                                    return accept;
-                                                }
-                                                return reject;
-                                            }
-                                        }
-                                    }
-                                }
-                                rename-button := IconButton {
-                                    x: name-title.width + 8px;
-                                    y: (parent.height - self.height) / 2;
-                                    visible: !root.editing-name && root.presets.length > 0;
-                                    enabled: root.interactive;
-                                    label: @tr("Rename preset");
-                                    icon: Icons.rename;
-                                    clicked => { root.begin-rename(); }
-                                }
-                                edit-button := PanelButton {
-                                    x: shortcut-button.x - self.width - 8px;
-                                    y: (parent.height - self.height) / 2;
-                                    width: self.preferred-width;
-                                    height: 28px;
-                                    visible: !root.editing-name && root.presets.length > 0;
-                                    enabled: root.interactive;
-                                    text: @tr("Edit loadout");
-                                    clicked => { root.commit-names(); keyboard.focus(); root.edit-items(); }
-                                }
-                                shortcut-button := IconButton {
-                                    x: copy-button.x - self.width - 4px;
-                                    y: (parent.height - self.height) / 2;
-                                    visible: !root.editing-name && root.presets.length > 0;
-                                    enabled: root.interactive;
-                                    label: @tr("Set shortcut");
-                                    icon: Icons.keyboard;
-                                    clicked => { root.commit-names(); root.edit-shortcut(root.current.name); }
-                                }
-                                copy-button := IconButton {
-                                    x: delete-button.x - self.width - 4px;
-                                    y: (parent.height - self.height) / 2;
-                                    visible: !root.editing-name && root.presets.length > 0;
-                                    enabled: root.interactive && !root.reordering-entry;
-                                    label: @tr("Duplicate preset");
-                                    icon: Icons.copy;
-                                    clicked => { root.commit-names(); root.duplicate-preset(root.current.name); }
-                                }
-                                delete-button := IconButton {
-                                    x: parent.width - self.width;
-                                    y: (parent.height - self.height) / 2;
-                                    visible: !root.editing-name && root.presets.length > 0;
-                                    enabled: root.interactive;
-                                    label: @tr("Delete preset");
-                                    icon: Icons.delete;
-                                    clicked => { root.begin-delete(); }
-                                }
-                            }
-                        }
-                        Rectangle {
-                            min-height: 0px;
-                            vertical-stretch: 1;
-                            ScrollView {
-                                visible: !root.editor-open;
-                                x: 0px; y: 0px;
-                                width: parent.width;
-                                height: parent.height;
-                                content-width: max(360px, self.visible-width - 8px);
-                                VerticalLayout {
-                                    spacing: 16px;
-                                    alignment: start;
-                                    SelectableSection {
-                                        text: @tr("Stratagems & Booster");
-                                        checked: root.scope-stratagems;
-                                        enabled: root.interactive;
-                                        apply-label: @tr("Apply Stratagems");
-                                        apply-enabled: root.action-available(false, ActionScope.stratagems);
-                                        apply => { root.apply-current(ActionScope.stratagems); }
-                                        toggled => {
-                                            root.commit-names();
-                                            root.request-scope(ActionScope.stratagems);
-                                        }
-                                        Rectangle {
-                                            height: 48px;
-                                            if (root.preview.stratagems.ready): StratagemPreview {
-                                                icon-size: 44px;
-                                                items: root.preview.stratagems.items;
-                                                opacity: root.scope-stratagems ? 1 : 0.65;
-                                            }
-                                            if (!root.preview.stratagems.ready): Text {
-                                                text: root.presets.length > 0 ? UiText.section-message(root.preview.stratagems) : @tr("Use + New preset to get started.");
-                                                color: Theme.text-secondary;
-                                                wrap: word-wrap;
-                                                font-size: 12px;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-                                    }
-                                    Rectangle { height: 1px; background: Theme.border; }
-                                    SelectableSection {
-                                        text: @tr("Equipment");
-                                        detail: !root.loading && root.preview.equipment.ready && root.preview.equipment-cache-matches >= 0
-                                            ? @tr("Cache coverage: {}/{}", root.preview.equipment-cache-matches, root.preview.equipment.count) : "";
-                                        detail-help: @tr("Based on complete category caches. Uncovered items may still apply without scanning.");
-                                        checked: root.scope-equipment;
-                                        enabled: root.interactive;
-                                        apply-label: @tr("Apply equipment");
-                                        apply-enabled: root.action-available(false, ActionScope.equipment);
-                                        apply => { root.apply-current(ActionScope.equipment); }
-                                        toggled => {
-                                            root.commit-names();
-                                            root.request-scope(ActionScope.equipment);
-                                        }
-                                        Rectangle {
-                                            height: 100px;
-                                            if (root.presets.length > 0): VerticalLayout {
-                                                spacing: 8px;
-                                                for row in 2: HorizontalLayout {
-                                                    spacing: 14px;
-                                                    for column in 3: EquipmentTile {
-                                                        item: root.preview.equipment.items[row * 3 + column];
-                                                        checked: root.scope-equipment-items[row * 3 + column];
-                                                        enabled: root.interactive && root.scope-equipment;
-                                                        toggled => { root.request-equipment-item(row * 3 + column); }
-                                                    }
-                                                }
-                                            }
-                                            if (root.presets.length == 0): Text {
-                                                text: UiText.section-message(root.preview.equipment);
-                                                color: Theme.text-secondary;
-                                                wrap: word-wrap;
-                                                font-size: 12px;
-                                                vertical-alignment: top;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            item-editor := ItemEditor {
-                                visible: root.editor-open;
-                                enabled: root.editor-open;
-                                x: 0px; y: 0px;
-                                width: parent.width;
-                                height: parent.height;
-                                slots: root.editor-draft;
-                                groups: root.editor-catalogs[root.editor-slot].groups;
-                                current-slot <=> root.editor-slot;
-                                chosen-category: root.editor-choices[root.editor-slot].category;
-                                chosen-item: root.editor-choices[root.editor-slot].item;
-                                can-clear: (root.editor-slot == 4 || root.editor-slot == 5)
-                                    && root.editor-draft[root.editor-slot].state == PreviewState.ready;
-                                can-save: root.editor-can-save;
-                                can-randomize-stratagems: root.editor-can-randomize-stratagems;
-                                can-randomize-equipment: root.editor-can-randomize-equipment;
-                                loading: root.editor-loading;
-                                busy: root.editor-busy || root.pending;
-                                dirty: root.editor-dirty;
-                                error: root.editor-error;
-                                choose(category, item) => { root.choose-item(category, item); }
-                                clear => { root.clear-item(); }
-                                randomize(equipment) => { root.randomize-items(equipment); }
-                                save => { root.save-items(); }
-                                cancel => { if (!root.editor-busy) { root.close-dialogs(); } }
-                            }
-                        }
-                        if (root.editor-open): HorizontalLayout {
-                            height: 50px;
-                            spacing: 10px;
-                            if (root.editor-missing): PanelButton {
-                                height: 32px;
-                                cross-axis-self-alignment: start;
-                                text: @tr("Scan missing items");
-                                filled: true;
-                                enabled: !root.editor-loading && !root.editor-busy && !root.pending;
-                                clicked => { root.scan-missing-items(); }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                            PanelButton {
-                                height: 32px;
-                                min-width: 86px;
-                                cross-axis-self-alignment: start;
-                                text: @tr("Cancel");
-                                filled: true;
-                                enabled: !root.editor-busy && !root.pending;
-                                clicked => { root.close-dialogs(); }
-                            }
-                            VerticalLayout {
-                                height: 50px;
-                                width: max(110px, editor-save.preferred-width);
-                                spacing: 4px;
-                                editor-save := PanelButton {
-                                    height: 32px;
-                                    text: @tr("Save changes");
-                                    accent: true;
-                                    enabled: !root.editor-loading && !root.editor-busy && !root.pending
-                                        && root.editor-dirty && root.editor-can-save;
-                                    clicked => { item-editor.save-changes(); }
-                                }
-                                Text {
-                                    text: "Ctrl+S";
-                                    color: editor-save.enabled ? Theme.text-secondary : Theme.inactive;
-                                    font-size: 10px;
-                                    height: 14px;
-                                    horizontal-alignment: center;
-                                }
-                            }
-                        }
-                    }
-                }
-                Rectangle { height: 1px; background: Theme.border; }
-                VerticalLayout {
-                    vertical-stretch: 0;
-                    spacing: 8px;
-                    if (!root.editor-open && !root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
-                        details: (root.failure-scan ? @tr("Item scan") : UiText.preset-title(root.failure-label, root.failure-number)) + " — " + root.failure-details;
-                        dismissed => { root.failure-details = ""; }
-                    }
-                    if (!root.editor-open && !root.settings-open && (root.loading || root.failure-details == "" || root.status != "")): Text {
-                        text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
-                            : root.search-active && root.current-visible-index < 0 ? @tr("Select a preset")
-                            : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
-                            : @tr("Select content to save or apply.");
-                        color: Theme.text-secondary;
-                        wrap: word-wrap;
-                        font-size: 12px;
-                    }
-                    if (!root.editor-open && root.shortcut-warning != ""): Text {
-                        text: @tr("Some shortcuts are unavailable. See Settings → Shortcuts.");
-                        color: Theme.warning;
-                        font-size: 12px;
-                        wrap: word-wrap;
-                        Tooltip { text: @markdown("\{root.shortcut-warning}"); }
-                    }
-                    Rectangle {
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        height: actions.stacked ? 112px : 50px;
-                        actions := GridLayout {
-                            x: 0px;
-                            width: parent.width;
-                            property <bool> stacked: root.width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
-                            height: parent.height;
+                    browse-page := Rectangle {
+                        visible: !root.editor-open;
+                        x: 0px; y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        VerticalLayout {
                             spacing: 12px;
-                            shortcut-hint := Rectangle {
-                                row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
-                                height: 50px;
-                                horizontal-stretch: 1;
-                                if (root.panel-shortcut-keys.length > 0): VerticalLayout {
-                                    spacing: 4px;
+                            HorizontalLayout {
+                                min-height: 0px;
+                                vertical-stretch: 1;
+                                spacing: 18px;
+                                VerticalLayout {
+                                    width: 210px;
+                                    spacing: 8px;
+                                    HorizontalLayout {
+                                        height: 30px;
+                                        spacing: 8px;
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            height: 30px;
+                                            background: Theme.control;
+                                            border-radius: 4px;
+                                            border-width: 1px;
+                                            border-color: preset-search.has-focus ? Theme.accent-soft : Theme.border;
+                                            TouchArea {
+                                                enabled: root.interactive && !root.reordering-entry;
+                                                mouse-cursor: text;
+                                                clicked => { preset-search.focus(); }
+                                            }
+                                            Icon {
+                                                x: 8px;
+                                                y: (parent.height - self.height) / 2;
+                                                icon: Icons.search;
+                                                stroke: root.interactive ? Theme.text-secondary : Theme.inactive;
+                                            }
+                                            Text {
+                                                x: 32px;
+                                                width: parent.width - 42px;
+                                                height: parent.height;
+                                                text: @tr("Search presets");
+                                                color: Theme.text-disabled;
+                                                font-size: 13px;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                visible: root.search-query == "" && preset-search.preedit-text == "";
+                                            }
+                                            Rectangle {
+                                                x: 32px;
+                                                width: parent.width - self.x - (root.search-active ? 32px : 10px);
+                                                height: parent.height;
+                                                clip: true;
+                                                preset-search := TextInput {
+                                                    property <length> scroll-offset;
+                                                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                                    width: max(parent.width, self.preferred-width);
+                                                    height: parent.height;
+                                                    enabled: root.interactive && !root.reordering-entry;
+                                                    single-line: true;
+                                                    text <=> root.search-query;
+                                                    color: Theme.text;
+                                                    font-size: 13px;
+                                                    vertical-alignment: center;
+                                                    selection-background-color: #786c38;
+                                                    selection-foreground-color: #fff8d4;
+                                                    accessible-label: @tr("Search presets");
+                                                    cursor-position-changed(position) => {
+                                                        if (position.x + self.x < 0px) { self.scroll-offset = -position.x; }
+                                                        else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                                            self.scroll-offset = parent.width - self.text-cursor-width - position.x;
+                                                        }
+                                                    }
+                                                    key-pressed(event) => {
+                                                        if (self.preedit-text != "") { return reject; }
+                                                        if (event.text == Key.Escape) {
+                                                            if (root.search-active) { root.search-query = ""; keyboard.focus(); }
+                                                            else { root.dismiss(); }
+                                                            return accept;
+                                                        }
+                                                        if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
+                                                        if (event.text == Key.Return) {
+                                                            if (!event.repeat && root.visible-presets.length > 0) { root.focus-search-results(); }
+                                                            return accept;
+                                                        }
+                                                        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+                                                            if (root.visible-presets.length > 0) {
+                                                                root.move-selection(event.text == Key.DownArrow ? 1 : -1);
+                                                                keyboard.focus();
+                                                            }
+                                                            return accept;
+                                                        }
+                                                        return reject;
+                                                    }
+                                                }
+                                            }
+                                            IconButton {
+                                                x: parent.width - self.width - 2px;
+                                                y: (parent.height - self.height) / 2;
+                                                label: @tr("Clear search");
+                                                icon: Icons.close;
+                                                visible: root.search-active;
+                                                enabled: root.interactive && !root.reordering-entry;
+                                                clicked => { root.search-query = ""; preset-search.focus(); }
+                                            }
+                                        }
+                                        IconButton {
+                                            cross-axis-self-alignment: center;
+                                            label: @tr("Compact list");
+                                            icon: Icons.list;
+                                            checkable: true;
+                                            checked: root.compact-list;
+                                            enabled: root.interactive && !root.reordering-entry;
+                                            clicked => {
+                                                root.commit-names();
+                                                keyboard.focus();
+                                                root.request-compact-list(!root.compact-list);
+                                            }
+                                        }
+                                    }
+                                    list-viewport := Rectangle {
+                                        min-height: 0px;
+                                        width: 210px;
+                                        vertical-stretch: 1;
+                                        preset-list := ScrollView {
+                                            width: parent.width + 4px;
+                                            height: parent.height;
+                                            content-width: self.visible-width - 12px;
+                                            content-height: root.visible-entries.length > 0
+                                                ? (root.visible-entries[root.visible-entries.length - 1].top
+                                                    + root.visible-entries[root.visible-entries.length - 1].height) * 1px : 0px;
+                                            changed visible-height => { root.ensure-revealed(); }
+                                            changed content-height => { root.ensure-revealed(); }
+                                            scrolled => { root.reveal-target = ""; }
+                                            VerticalLayout {
+                                                alignment: start;
+                                                spacing: root.row-spacing;
+                                                for entry in root.visible-entries: Rectangle {
+                                                    height: entry.height * 1px;
+                                                    body := Rectangle {
+                                                        width: parent.width;
+                                                        height: parent.height;
+                                                        y: !root.reorder-preview-visible || !root.drop-target.displace ? 0px
+                                                            : entry.top >= root.drop-target.top && entry.top < root.drag-entry.top ? root.drag-span + root.row-spacing
+                                                            : entry.top * 1px > root.drag-entry.top * 1px + root.drag-span && entry.top < root.drop-target.top ? -root.drag-span - root.row-spacing : 0px;
+                                                        animate y { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
+                                                        opacity: root.reorder-preview-visible && entry.top >= root.drag-entry.top
+                                                            && entry.top * 1px < root.drag-entry.top * 1px + root.drag-span
+                                                            ? (root.drop-target.displace ? 0 : 0.35) : 1;
+                                                        if (entry.is-folder): FolderHeader {
+                                                            width: parent.width;
+                                                            height: parent.height;
+                                                            item: entry;
+                                                            enabled: root.interactive && !root.reordering-entry;
+                                                            reorderable: !root.search-active;
+                                                            collapsible: !root.search-active;
+                                                            handle-hovered: handle.has-hover;
+                                                            highlighted: root.reorder-preview-visible && root.drop-target.inside == entry.name;
+                                                            contains-current: !entry.expanded && entry.name == root.current-visible-entry;
+                                                            editing: root.editing-folder == entry.name;
+                                                            draft <=> root.folder-name-draft;
+                                                            clicked => { keyboard.focus(); }
+                                                            toggled => {
+                                                                root.hovered-index = -1;
+                                                                root.apply-key-down = false;
+                                                                root.reveal-target = "";
+                                                                root.toggle-folder(entry.name);
+                                                            }
+                                                            rename => { root.begin-folder-rename(entry.name, entry.label); }
+                                                            ungroup => { keyboard.focus(); root.request-ungroup(entry.name); }
+                                                            finish-rename(save) => { root.finish-folder-rename(save); }
+                                                        }
+                                                        if (!entry.is-folder): PresetCard {
+                                                            x: entry.parent == "" ? 0px : root.entry-indent;
+                                                            width: parent.width - self.x;
+                                                            height: parent.height;
+                                                            item: root.presets[entry.preset-index];
+                                                            compact: root.compact-list;
+                                                            reorderable: !root.search-active;
+                                                            selected: entry.preset-index == root.current-index;
+                                                            hovered: touch.has-hover || handle.has-hover;
+                                                            handle-hovered: handle.has-hover;
+                                                            scope-stratagems: root.scope-stratagems;
+                                                            scope-equipment: root.scope-equipment && root.equipment-items-selected;
+                                                            accessible-role: button;
+                                                            accessible-label: UiText.preset-title(self.item.label, self.item.number);
+                                                            accessible-description: UiText.section-message(self.item.stratagems) + " " + UiText.section-message(self.item.equipment);
+                                                            accessible-enabled: root.interactive && !root.reordering-entry;
+                                                            accessible-action-default => {
+                                                                if (root.interactive && !root.reordering-entry) { root.current-index = entry.preset-index; }
+                                                            }
+                                                            changed hovered => {
+                                                                if (self.hovered) { root.hovered-index = entry.preset-index; }
+                                                                else if (root.hovered-index == entry.preset-index) { root.hovered-index = -1; }
+                                                            }
+                                                            touch := TouchArea {
+                                                                x: root.search-active ? 0px : 18px;
+                                                                width: parent.width - self.x;
+                                                                enabled: root.interactive && !root.reordering-entry;
+                                                                mouse-cursor: pointer;
+                                                                pointer-event(event) => {
+                                                                    if (event.kind == PointerEventKind.move) { root.hovered-index = entry.preset-index; }
+                                                                }
+                                                                clicked => { root.current-index = entry.preset-index; keyboard.focus(); }
+                                                                double-clicked => { root.apply-current(ActionScope.selected); }
+                                                            }
+                                                        }
+                                                        drag := DragArea {
+                                                            x: entry.parent == "" ? 0px : root.entry-indent;
+                                                            y: 0px;
+                                                            width: 18px;
+                                                            height: parent.height;
+                                                            enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
+                                                            data: root.entry-drag-data;
+                                                            allow-move: true;
+                                                            changed dragging => {
+                                                                if (self.dragging) {
+                                                                    root.reorder-phase = ReorderPhase.dragging;
+                                                                    root.reveal-target = "";
+                                                                    if (!entry.is-folder) { root.current-index = entry.preset-index; }
+                                                                    root.hovered-index = -1;
+                                                                    root.apply-key-down = false;
+                                                                    keyboard.focus();
+                                                                }
+                                                            }
+                                                            drag-finished(action) => {
+                                                                if (action == DragAction.move && root.drop-target.valid) {
+                                                                    root.reorder-phase = ReorderPhase.committing;
+                                                                    root.request-reorder(root.drag-entry.name, root.drop-target.parent, root.drop-target.before);
+                                                                } else {
+                                                                    root.finish-reorder();
+                                                                }
+                                                            }
+                                                            handle := TouchArea {
+                                                                enabled: root.interactive && !root.editing-name && !root.editing-folder-name && !root.search-active;
+                                                                mouse-cursor: self.pressed ? grabbing : grab;
+                                                                pointer-event(event) => {
+                                                                    if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                                                                        root.drag-source-ready = true;
+                                                                        root.drag-entry = entry;
+                                                                        root.drag-span = root.entry-span(root.visible-entries, entry.name) * 1px;
+                                                                        root.drag-offset-y = self.mouse-y;
+                                                                        root.drag-x = self.mouse-x + self.absolute-position.x - list-viewport.absolute-position.x;
+                                                                        root.drag-y = entry.top * 1px + preset-list.content-y + self.mouse-y;
+                                                                    } else if (event.kind == PointerEventKind.up && root.reorder-phase == ReorderPhase.idle) {
+                                                                        root.drag-source-ready = false;
+                                                                    }
+                                                                    if (event.kind == PointerEventKind.move && !entry.is-folder) { root.hovered-index = entry.preset-index; }
+                                                                }
+                                                                clicked => {
+                                                                    if (!entry.is-folder) { root.current-index = entry.preset-index; }
+                                                                    keyboard.focus();
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (root.search-active && root.visible-presets.length == 0): Text {
+                                            x: 8px;
+                                            width: parent.width - 16px;
+                                            height: parent.height;
+                                            text: @tr("No matching presets");
+                                            color: Theme.text-secondary;
+                                            font-size: 13px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                            wrap: word-wrap;
+                                        }
+                                        Rectangle {
+                                            x: 0px;
+                                            y: 0px;
+                                            width: preset-list.content-width;
+                                            height: parent.height;
+                                            clip: true;
+                                            Rectangle {
+                                                visible: root.reorder-preview-visible;
+                                                x: (root.drop-target.valid ? root.drop-target.parent : root.drag-entry.parent) == "" ? 0px : root.entry-indent;
+                                                y: root.reorder-phase == ReorderPhase.committing && root.drop-target.inside == ""
+                                                    ? root.drop-y + preset-list.content-y : root.drag-card-y;
+                                                width: parent.width - self.x;
+                                                height: root.drag-entry.height * 1px;
+                                                animate x { enabled: root.reorder-preview-visible; duration: 120ms; easing: ease-out; }
+                                                drop-shadow-color: #00000080;
+                                                drop-shadow-blur: 8px;
+                                                drop-shadow-offset-y: 2px;
+                                                if (root.drag-entry.is-folder): FolderHeader {
+                                                    width: parent.width;
+                                                    height: parent.height;
+                                                    item: root.drag-entry;
+                                                    enabled: false;
+                                                    highlighted: true;
+                                                    handle-hovered: true;
+                                                }
+                                                if (!root.drag-entry.is-folder): PresetCard {
+                                                    width: parent.width;
+                                                    height: parent.height;
+                                                    item: root.presets[max(0, root.drag-entry.preset-index)];
+                                                    compact: root.compact-list;
+                                                    selected: true;
+                                                    handle-hovered: true;
+                                                    scope-stratagems: root.scope-stratagems;
+                                                    scope-equipment: root.scope-equipment && root.equipment-items-selected;
+                                                }
+                                            }
+                                            Rectangle {
+                                                visible: root.reorder-preview-visible && root.drop-target.valid && root.drop-target.inside == "";
+                                                x: root.drop-target.parent == "" ? 0px : root.entry-indent;
+                                                y: max(0px, root.insertion-y + preset-list.content-y - root.row-spacing / 2 - 1px);
+                                                width: parent.width - self.x;
+                                                height: 2px;
+                                                background: Theme.accent;
+                                                Rectangle {
+                                                    x: 0px;
+                                                    y: -2px;
+                                                    width: 6px;
+                                                    height: 6px;
+                                                    border-radius: 3px;
+                                                    background: Theme.accent;
+                                                }
+                                            }
+                                        }
+                                        Timer {
+                                            interval: 16ms;
+                                            running: list-drop.has-drag && root.reorder-phase == ReorderPhase.dragging
+                                                && (root.drag-y < 28px || root.drag-y > list-viewport.height - 28px);
+                                            triggered => {
+                                                let step = root.drag-y < 28px ? 8px : -8px;
+                                                preset-list.content-y = clamp(preset-list.content-y + step,
+                                                    min(0px, preset-list.visible-height - preset-list.content-height), 0px);
+                                            }
+                                        }
+                                    }
+                                    HorizontalLayout {
+                                        height: 30px;
+                                        spacing: 8px;
+                                        PanelButton {
+                                            horizontal-stretch: 1;
+                                            text: @tr("+ New preset");
+                                            filled: true;
+                                            enabled: root.interactive;
+                                            clicked => { root.commit-names(); root.add-preset(); }
+                                        }
+                                        IconButton {
+                                            label: @tr("New folder");
+                                            icon: Icons.folder-plus;
+                                            enabled: root.interactive && !root.reordering-entry;
+                                            clicked => { root.commit-names(); root.add-folder(); }
+                                        }
+                                    }
+                                }
+                                Rectangle { width: 1px; background: Theme.border; }
+                                VerticalLayout {
+                                    min-width: 0px;
+                                    min-height: 0px;
+                                    horizontal-stretch: 1;
+                                    padding-top: 6px;
+                                    spacing: 16px;
                                     HorizontalLayout {
                                         height: 32px;
-                                        alignment: start;
-                                        spacing: 8px;
-                                        for key in root.panel-shortcut-keys: Rectangle {
-                                            height: 32px;
-                                            width: panel-key.preferred-width + 14px;
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Rectangle {
+                                            horizontal-stretch: 1;
                                             Rectangle {
-                                                y: (parent.height - self.height) / 2;
-                                                height: 26px;
-                                                width: parent.width;
+                                                x: -6px;
+                                                width: parent.width + 12px;
+                                                height: parent.height;
                                                 border-radius: 3px;
-                                                border-width: 1px;
-                                                border-color: Theme.inactive;
-                                                background: Theme.control;
+                                                background: root.editing-name ? #222627 : transparent;
+                                                animate background { duration: 120ms; easing: ease-out; }
                                             }
-                                            panel-key := Text {
-                                                text: key;
-                                                color: Theme.text;
-                                                font-size: 12px;
-                                                horizontal-alignment: center;
+                                            Rectangle {
+                                                x: -6px;
+                                                y: parent.height - 1px;
+                                                width: parent.width + 12px;
+                                                height: 1px;
+                                                background: root.editing-name ? Theme.accent-soft : transparent;
+                                                animate background { duration: 120ms; easing: ease-out; }
+                                            }
+                                            name-title := Text {
+                                                x: 0px;
+                                                width: min(self.preferred-width, edit-button.x - rename-button.width - 16px);
+                                                height: parent.height;
+                                                visible: !root.editing-name || (root.name-draft == "" && name-input.preedit-text == "");
+                                                text: root.presets.length > 0
+                                                    ? UiText.preset-title(root.editing-name ? "" : root.preview.label, root.preview.number)
+                                                    : @tr("No presets");
+                                                color: root.editing-name ? Theme.text-disabled : Theme.text;
+                                                font-size: 21px;
+                                                overflow: elide;
                                                 vertical-alignment: center;
+                                                TouchArea {
+                                                    enabled: root.interactive && !root.editing-name
+                                                        && !root.reordering-entry && root.presets.length > 0;
+                                                    double-clicked => { root.begin-rename(); }
+                                                }
+                                            }
+                                            Rectangle {
+                                                x: 0px;
+                                                visible: root.editing-name;
+                                                width: parent.width;
+                                                height: parent.height;
+                                                clip: true;
+                                                ContextMenuArea {
+                                                    Menu {
+                                                        MenuItem { title: @tr("Cut"); activated => { name-input.cut(); } }
+                                                        MenuItem { title: @tr("Copy"); activated => { name-input.copy(); } }
+                                                        MenuItem { title: @tr("Paste"); activated => { name-input.paste(); } }
+                                                        MenuItem { title: @tr("Select all"); activated => { name-input.select-all(); } }
+                                                    }
+                                                    name-input := TextInput {
+                                                        property <length> scroll-offset;
+                                                        x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-offset));
+                                                        width: max(parent.width, self.preferred-width);
+                                                        height: parent.height;
+                                                        enabled: root.interactive;
+                                                        single-line: true;
+                                                        text <=> root.name-draft;
+                                                        color: Theme.text;
+                                                        font-size: name-title.font-size;
+                                                        vertical-alignment: center;
+                                                        selection-background-color: #786c38;
+                                                        selection-foreground-color: #fff8d4;
+                                                        accessible-label: @tr("Preset name");
+                                                        cursor-position-changed(position) => {
+                                                            if (position.x + self.x < 0px) {
+                                                                self.scroll-offset = -position.x;
+                                                            } else if (position.x + self.x > parent.width - self.text-cursor-width) {
+                                                                self.scroll-offset = parent.width - self.text-cursor-width - position.x;
+                                                            }
+                                                        }
+                                                        accepted => { root.finish-rename(true); keyboard.focus(); }
+                                                        changed has-focus => { if (!self.has-focus) { root.finish-rename(true); } }
+                                                        key-pressed(event) => {
+                                                            if (self.preedit-text != "") { return reject; }
+                                                            if (event.text == Key.Escape) {
+                                                                root.finish-rename(false);
+                                                                keyboard.focus();
+                                                                return accept;
+                                                            }
+                                                            return reject;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            rename-button := IconButton {
+                                                x: name-title.width + 8px;
+                                                y: (parent.height - self.height) / 2;
+                                                visible: !root.editing-name && root.presets.length > 0;
+                                                enabled: root.interactive;
+                                                label: @tr("Rename preset");
+                                                icon: Icons.rename;
+                                                clicked => { root.begin-rename(); }
+                                            }
+                                            edit-button := PanelButton {
+                                                x: shortcut-button.x - self.width - 8px;
+                                                y: (parent.height - self.height) / 2;
+                                                width: self.preferred-width;
+                                                height: 28px;
+                                                visible: !root.editing-name && root.presets.length > 0;
+                                                enabled: root.interactive;
+                                                text: @tr("Edit loadout");
+                                                clicked => { root.commit-names(); keyboard.focus(); root.edit-items(); }
+                                            }
+                                            shortcut-button := IconButton {
+                                                x: copy-button.x - self.width - 4px;
+                                                y: (parent.height - self.height) / 2;
+                                                visible: !root.editing-name && root.presets.length > 0;
+                                                enabled: root.interactive;
+                                                label: @tr("Set shortcut");
+                                                icon: Icons.keyboard;
+                                                clicked => { root.commit-names(); root.edit-shortcut(root.current.name); }
+                                            }
+                                            copy-button := IconButton {
+                                                x: delete-button.x - self.width - 4px;
+                                                y: (parent.height - self.height) / 2;
+                                                visible: !root.editing-name && root.presets.length > 0;
+                                                enabled: root.interactive && !root.reordering-entry;
+                                                label: @tr("Duplicate preset");
+                                                icon: Icons.copy;
+                                                clicked => { root.commit-names(); root.duplicate-preset(root.current.name); }
+                                            }
+                                            delete-button := IconButton {
+                                                x: parent.width - self.width;
+                                                y: (parent.height - self.height) / 2;
+                                                visible: !root.editing-name && root.presets.length > 0;
+                                                enabled: root.interactive;
+                                                label: @tr("Delete preset");
+                                                icon: Icons.delete;
+                                                clicked => { root.begin-delete(); }
                                             }
                                         }
-                                        Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
                                     }
-                                    Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
+                                    Rectangle {
+                                        min-height: 0px;
+                                        vertical-stretch: 1;
+                                        ScrollView {
+                                            x: 0px; y: 0px;
+                                            width: parent.width;
+                                            height: parent.height;
+                                            content-width: max(360px, self.visible-width - 8px);
+                                            VerticalLayout {
+                                                spacing: 16px;
+                                                alignment: start;
+                                                SelectableSection {
+                                                    text: @tr("Stratagems & Booster");
+                                                    checked: root.scope-stratagems;
+                                                    enabled: root.interactive;
+                                                    apply-label: @tr("Apply Stratagems");
+                                                    apply-enabled: root.action-available(false, ActionScope.stratagems);
+                                                    apply => { root.apply-current(ActionScope.stratagems); }
+                                                    toggled => {
+                                                        root.commit-names();
+                                                        root.request-scope(ActionScope.stratagems);
+                                                    }
+                                                    Rectangle {
+                                                        height: 48px;
+                                                        if (root.preview.stratagems.ready): StratagemPreview {
+                                                            icon-size: 44px;
+                                                            items: root.preview.stratagems.items;
+                                                            opacity: root.scope-stratagems ? 1 : 0.65;
+                                                        }
+                                                        if (!root.preview.stratagems.ready): Text {
+                                                            text: root.presets.length > 0 ? UiText.section-message(root.preview.stratagems) : @tr("Use + New preset to get started.");
+                                                            color: Theme.text-secondary;
+                                                            wrap: word-wrap;
+                                                            font-size: 12px;
+                                                            vertical-alignment: center;
+                                                        }
+                                                    }
+                                                }
+                                                Rectangle { height: 1px; background: Theme.border; }
+                                                SelectableSection {
+                                                    text: @tr("Equipment");
+                                                    checked: root.scope-equipment;
+                                                    enabled: root.interactive;
+                                                    apply-label: @tr("Apply equipment");
+                                                    apply-enabled: root.action-available(false, ActionScope.equipment);
+                                                    apply => { root.apply-current(ActionScope.equipment); }
+                                                    toggled => {
+                                                        root.commit-names();
+                                                        root.request-scope(ActionScope.equipment);
+                                                    }
+                                                    Rectangle {
+                                                        height: 100px;
+                                                        if (root.presets.length > 0): VerticalLayout {
+                                                            spacing: 8px;
+                                                            for row in 2: HorizontalLayout {
+                                                                spacing: 14px;
+                                                                for column in 3: EquipmentTile {
+                                                                    item: root.preview.equipment.items[row * 3 + column];
+                                                                    checked: root.scope-equipment-items[row * 3 + column];
+                                                                    enabled: root.interactive && root.scope-equipment;
+                                                                    toggled => { root.request-equipment-item(row * 3 + column); }
+                                                                }
+                                                            }
+                                                        }
+                                                        if (root.presets.length == 0): Text {
+                                                            text: UiText.section-message(root.preview.equipment);
+                                                            color: Theme.text-secondary;
+                                                            wrap: word-wrap;
+                                                            font-size: 12px;
+                                                            vertical-alignment: top;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            save-action := VerticalLayout {
-                                row: actions.stacked ? 1 : 0; col: 1;
-                                height: 50px;
-                                width: max(150px, save-button.preferred-width);
-                                spacing: 4px;
-                                save-button := PanelButton {
-                                    height: 32px;
-                                    text: @tr("Capture from game");
-                                    filled: true;
-                                    enabled: root.save-available;
-                                    property <string> hint: @tr("Fill all four Stratagem slots before saving.");
-                                    if (root.scope-stratagems && !root.editor-open): Tooltip { text: @markdown("\{parent.hint}"); }
-                                    clicked => { root.save-current(); }
+                            Rectangle { height: 1px; background: Theme.border; }
+                            VerticalLayout {
+                                vertical-stretch: 0;
+                                spacing: 8px;
+                                if (!root.loading && root.failure-details != "" && root.status == ""): FailureNotice {
+                                    details: (root.failure-scan ? @tr("Item scan") : UiText.preset-title(root.failure-label, root.failure-number)) + " — " + root.failure-details;
+                                    dismissed => { root.failure-details = ""; }
                                 }
-                                Text {
-                                    text: root.editor-open ? "" : "Ctrl+S";
-                                    color: root.save-available ? Theme.text-secondary : Theme.inactive;
-                                    font-size: 10px;
-                                    height: 14px;
-                                    horizontal-alignment: center;
+                                if (!root.settings-open && (root.loading || root.failure-details == "" || root.status != "")): Text {
+                                    text: root.loading ? @tr("Loading previews…") : root.status != "" ? root.status
+                                        : root.search-active && root.current-visible-index < 0 ? @tr("Select a preset")
+                                        : root.scope-stratagems || (root.scope-equipment && root.equipment-items-selected) ? @tr("Start from either loadout page.")
+                                        : @tr("Select content to save or apply.");
+                                    color: Theme.text-secondary;
+                                    wrap: word-wrap;
+                                    font-size: 12px;
                                 }
-                            }
-                            apply-action := VerticalLayout {
-                                row: actions.stacked ? 1 : 0; col: 2;
-                                height: 50px;
-                                width: max(150px, apply-button.preferred-width);
-                                spacing: 4px;
-                                apply-button := PanelButton {
-                                    height: 32px;
-                                    text: @tr("Apply to game");
-                                    accent: true;
-                                    enabled: root.available;
-                                    clicked => { root.apply-current(ActionScope.selected); }
+                                if (root.shortcut-warning != ""): Text {
+                                    text: @tr("Some shortcuts are unavailable. See Settings → Shortcuts.");
+                                    color: Theme.warning;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    Tooltip { text: @markdown("\{root.shortcut-warning}"); }
                                 }
-                                Text {
-                                    text: root.editor-open ? "" : "Enter";
-                                    color: root.available ? Theme.text-secondary : Theme.inactive;
-                                    font-size: 10px;
-                                    height: 14px;
-                                    horizontal-alignment: center;
+                                Rectangle {
+                                    min-width: 0px;
+                                    preferred-width: 0px;
+                                    height: actions.stacked ? 112px : 50px;
+                                    actions := GridLayout {
+                                        x: 0px;
+                                        width: parent.width;
+                                        property <bool> stacked: root.width < shortcut-hint.preferred-width + save-action.width + apply-action.width + 60px;
+                                        height: parent.height;
+                                        spacing: 12px;
+                                        shortcut-hint := Rectangle {
+                                            row: 0; col: 0; colspan: actions.stacked ? 3 : 1;
+                                            height: 50px;
+                                            horizontal-stretch: 1;
+                                            if (root.panel-shortcut-keys.length > 0): VerticalLayout {
+                                                spacing: 4px;
+                                                HorizontalLayout {
+                                                    height: 32px;
+                                                    alignment: start;
+                                                    spacing: 8px;
+                                                    for key in root.panel-shortcut-keys: Rectangle {
+                                                        height: 32px;
+                                                        width: panel-key.preferred-width + 14px;
+                                                        Rectangle {
+                                                            y: (parent.height - self.height) / 2;
+                                                            height: 26px;
+                                                            width: parent.width;
+                                                            border-radius: 3px;
+                                                            border-width: 1px;
+                                                            border-color: Theme.inactive;
+                                                            background: Theme.control;
+                                                        }
+                                                        panel-key := Text {
+                                                            text: key;
+                                                            color: Theme.text;
+                                                            font-size: 12px;
+                                                            horizontal-alignment: center;
+                                                            vertical-alignment: center;
+                                                        }
+                                                    }
+                                                    Text { text: @tr("Show / hide panel"); color: Theme.text; font-size: 13px; height: 32px; vertical-alignment: center; }
+                                                }
+                                                Text { text: @tr("Global shortcut"); color: Theme.text-secondary; font-size: 10px; height: 14px; }
+                                            }
+                                        }
+                                        save-action := VerticalLayout {
+                                            row: actions.stacked ? 1 : 0; col: 1;
+                                            height: 50px;
+                                            width: max(150px, save-button.preferred-width);
+                                            spacing: 4px;
+                                            save-button := PanelButton {
+                                                height: 32px;
+                                                text: @tr("Capture from game");
+                                                filled: true;
+                                                enabled: root.save-available;
+                                                property <string> hint: @tr("Fill all four Stratagem slots before saving.");
+                                                if (root.scope-stratagems): Tooltip { text: @markdown("\{parent.hint}"); }
+                                                clicked => { root.save-current(); }
+                                            }
+                                            Text {
+                                                text: "Ctrl+S";
+                                                color: root.save-available ? Theme.text-secondary : Theme.inactive;
+                                                font-size: 10px;
+                                                height: 14px;
+                                                horizontal-alignment: center;
+                                            }
+                                        }
+                                        apply-action := VerticalLayout {
+                                            row: actions.stacked ? 1 : 0; col: 2;
+                                            height: 50px;
+                                            width: max(150px, apply-button.preferred-width);
+                                            spacing: 4px;
+                                            apply-button := PanelButton {
+                                                height: 32px;
+                                                text: @tr("Apply to game");
+                                                accent: true;
+                                                enabled: root.available;
+                                                clicked => { root.apply-current(ActionScope.selected); }
+                                            }
+                                            Text {
+                                                text: "Enter";
+                                                color: root.available ? Theme.text-secondary : Theme.inactive;
+                                                font-size: 10px;
+                                                height: 14px;
+                                                horizontal-alignment: center;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                    item-editor := ItemEditor {
+                        visible: root.editor-open;
+                        enabled: root.editor-open && !root.quick-start-open;
+                        preset-title: UiText.preset-title(root.current.label, root.current.number);
+                        missing: root.editor-missing;
+                        x: 0px; y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        slots: root.editor-draft;
+                        groups: root.editor-catalogs[root.editor-slot].groups;
+                        current-slot <=> root.editor-slot;
+                        chosen-category: root.editor-choices[root.editor-slot].category;
+                        chosen-item: root.editor-choices[root.editor-slot].item;
+                        can-clear: (root.editor-slot == 4 || root.editor-slot == 5)
+                            && root.editor-draft[root.editor-slot].state == PreviewState.ready;
+                        can-save: root.editor-can-save;
+                        can-randomize-stratagems: root.editor-can-randomize-stratagems;
+                        can-randomize-equipment: root.editor-can-randomize-equipment;
+                        loading: root.editor-loading;
+                        busy: root.editor-busy || root.pending;
+                        dirty: root.editor-dirty;
+                        error: root.editor-error;
+                        choose(category, item) => { root.choose-item(category, item); }
+                        clear => { root.clear-item(); }
+                        randomize(equipment) => { root.randomize-items(equipment); }
+                        refresh => { root.refresh-items(); }
+                        scan-missing => { root.scan-missing-items(); }
+                        save => { root.save-items(); }
+                        cancel => { if (!root.editor-busy) { root.close-dialogs(); } }
                     }
                 }
             }
@@ -1546,7 +1521,7 @@ export component PresetPanel inherits Window {
         }
         settings := SettingsDialog {
             visible: root.settings-open;
-            enabled: root.settings-open && !root.pending && !root.scan-confirm-open && !root.update-installing;
+            enabled: root.settings-open && !root.pending && !root.scan-confirm-open && !root.quick-start-open && !root.update-installing;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(root.shortcut-settings-index > 0 ? 440px : 560px, parent.width - 32px);
@@ -1582,6 +1557,7 @@ export component PresetPanel inherits Window {
             download-update => { root.download-update(); }
             install-update => { root.install-update(); }
             view-project => { root.view-project(); }
+            view-quick-start => { root.view-quick-start(); }
             scan-items(kind) => { root.scan-items(kind); }
             license-text => { root.license-text(); }
         }
@@ -1592,7 +1568,7 @@ export component PresetPanel inherits Window {
         }
         delete-dialog := DeletePresetDialog {
             visible: root.delete-open;
-            enabled: root.delete-open && !root.scan-confirm-open;
+            enabled: root.delete-open && !root.scan-confirm-open && !root.quick-start-open;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);
@@ -1612,7 +1588,7 @@ export component PresetPanel inherits Window {
         }
         scan-confirm-dialog := ScanConfirmationDialog {
             visible: root.scan-confirm-open;
-            enabled: root.scan-confirm-open && !root.pending;
+            enabled: root.scan-confirm-open && !root.pending && !root.quick-start-open;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);
@@ -1620,6 +1596,22 @@ export component PresetPanel inherits Window {
             count: root.scan-confirm-count;
             confirm => { root.confirm-scan(); }
             cancel => { root.cancel-scan-confirmation(); root.focus-current-view(); }
+        }
+        if (root.quick-start-open): Rectangle {
+            background: #00000099;
+            border-radius: 8px;
+            TouchArea {
+                scroll-event(event) => { return accept; }
+            }
+        }
+        quick-start-dialog := QuickStartDialog {
+            visible: root.quick-start-open;
+            enabled: root.quick-start-open && root.presented;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(500px, parent.width - 32px);
+            height: min(self.preferred-height, parent.height - 32px);
+            acknowledge => { root.acknowledge-quick-start(); }
         }
     }
 }

@@ -18,7 +18,7 @@ use crate::preset::{
     StratagemPreset,
     stratagems::{self as storage, CapturedStratagemPreset},
 };
-use crate::scan::{ScanCancellation, ScanKind, ScanProgress};
+use crate::scan::{ScanKind, ScanProgress};
 use crate::vision::{RecognizerRuntime, RecognizerSession};
 
 const READY_UP_HOLD_MS: u64 = 45;
@@ -36,9 +36,13 @@ pub(super) fn execute(
     let bound_region = bind_loadout_region(capture, runtime.calibration(), game_color_settings)
         .context("failed to bind loadout capture region")?;
     let recognizer = runtime.bind(bound_region.geometry);
-    let mut automation =
-        AutomationSession::new(bound_region.region, game_window.clone(), context.evidence)
-            .context("failed to start automation session")?;
+    let mut automation = AutomationSession::new(
+        bound_region.region,
+        game_window.clone(),
+        context.evidence,
+        context.cancel.clone(),
+    )
+    .context("failed to start automation session")?;
 
     let (initial_result, ui_state) = {
         let initial_result = scan_loadout_home(&mut automation, recognizer)
@@ -90,15 +94,10 @@ pub(super) fn execute(
                     category: None,
                     items: 0,
                 });
-                let items = scan_icon_list(
-                    recognizer,
-                    &mut automation,
-                    kind,
-                    home,
-                    &mut progress,
-                    &ScanCancellation::default(),
-                )
-                .with_context(|| format!("failed to cache {} before application", kind.label()))?;
+                let items = scan_icon_list(recognizer, &mut automation, kind, home, &mut progress)
+                    .with_context(|| {
+                        format!("failed to cache {} before application", kind.label())
+                    })?;
                 context.item_cache.set_icons(kind, items);
                 home = scan_loadout_home(&mut automation, recognizer)
                     .context("failed to refresh loadout home after caching")?;

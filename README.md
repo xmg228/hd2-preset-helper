@@ -50,8 +50,8 @@ Choose what to save or apply, including individual equipment items. Saving
 overwrites only selected content; applying skips unsaved items. Preset shortcuts
 use the same selection.
 
-Choose **Edit loadout** to replace items in a preset. **Scan missing items**
-collects any missing item lists from the game.
+Choose **Edit loadout** to replace items in a preset. Scan item lists from the
+selector; starting a scan discards unsaved edits.
 Preset shortcuts pause until you save or cancel your edits; hiding the panel keeps the draft.
 
 ### Usage notes
@@ -63,7 +63,7 @@ Preset shortcuts pause until you save or cancel your edits; hiding the panel kee
   weapon attachments or separate appearances of items with the same name.
 - Equipment templates work across resolutions, but need to be re-saved if the game
   language changes.
-- The app asks before scanning missing item lists on first use.
+- The app asks before scanning missing item lists on first application.
   Later applications reuse these lists.
 
 ## Compatibility

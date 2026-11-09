@@ -3,7 +3,7 @@ export enum ActionScope { selected, stratagems, equipment }
 export enum PreviewRole { stratagem, booster, fallback-booster, helmet, armor, cape, primary, secondary, throwable }
 export enum PreviewState { missing, ready, invalid }
 export struct PreviewRow { role: PreviewRole, number: int, state: PreviewState, picture: image, error: string }
-export struct PreviewSection { items: [PreviewRow], summary: image, count: int, error: string, ready: bool, saved: bool }
+export struct PreviewSection { items: [PreviewRow], summary: image, error: string, ready: bool, saved: bool }
 export enum CandidateGroupRole { title, offensive, supply, defensive, all }
 export struct CandidateRow { category: int, item: int, picture: image }
 export struct CandidateGroupRow { title: image, role: CandidateGroupRole, items: [CandidateRow] }
@@ -15,7 +15,6 @@ export struct PresetRow {
     shortcut: string,
     stratagems: PreviewSection,
     equipment: PreviewSection,
-    equipment-cache-matches: int,
 }
 export struct LibraryEntryRow {
     name: string,

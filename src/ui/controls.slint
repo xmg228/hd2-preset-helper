@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Icon, Icons } from "icons.slint";
+import { UiText } from "text.slint";
 
 export component PanelComboBox inherits Rectangle {
     in property <[string]> model;
@@ -402,6 +403,13 @@ export component ScanConfirmationDialog inherits Rectangle {
                 text: @tr("Scan the required item lists ({}) once to build the cache. This may take a while; the cache is reused when applying presets.", root.count);
                 color: Theme.text-secondary;
                 font-size: 12px;
+                wrap: word-wrap;
+                vertical-stretch: 0;
+            }
+            Text {
+                text: UiText.booster-scan-hint;
+                color: Theme.text-secondary;
+                font-size: 11px;
                 wrap: word-wrap;
                 vertical-stretch: 0;
             }

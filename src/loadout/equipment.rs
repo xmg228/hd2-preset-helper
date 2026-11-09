@@ -6,18 +6,17 @@ mod row;
 mod scan;
 mod search;
 
-pub(crate) use crate::item_cache::{EquipmentItem, EquipmentSet};
+use crate::item_cache::{EquipmentItem, EquipmentSet};
 use evidence::EquipmentEvidence;
 
 use crate::{
-    automation::AutomationSession,
+    automation::{AutomationSession, Cancellation},
     capture::CaptureSource,
     game_settings::GameColorSettings,
     game_window,
     input::Key,
     item::{EquipmentKind, EquipmentSelection},
     item_cache::ItemCache,
-    scan::ScanCancellation,
     vision::equipment::{
         CapturedEquipmentItem, CapturedEquipmentSet, EquipmentObservation, EquipmentObserver,
     },
@@ -80,16 +79,13 @@ pub(crate) fn with_session<T>(
     target: WindowTarget,
     colors: GameColorSettings,
     evidence: &crate::evidence::OperationEvidence,
-    cancellation: Option<ScanCancellation>,
+    cancellation: Cancellation,
     operation: impl FnOnce(&mut Session<'_>) -> Result<T>,
 ) -> Result<T> {
     let (width, height) = capture.output_size();
     let (observer, resolved) = EquipmentObserver::resolve(width, height, EquipmentKind::Helmet)?;
     let region = capture.region(resolved.rect, colors)?;
-    let mut automation = AutomationSession::new(region, target, evidence)?;
-    if let Some(cancellation) = cancellation {
-        automation.set_cancellation(cancellation);
-    }
+    let automation = AutomationSession::new(region, target, evidence, cancellation)?;
     let mut session = Session::new(automation, observer, (width, height))?;
     ensure!(
         session.at_entry(),
@@ -122,7 +118,7 @@ pub(crate) enum ApplyProgress<'a> {
 }
 
 impl<'a> Session<'a> {
-    pub fn new(
+    fn new(
         mut automation: AutomationSession<'a>,
         observer: EquipmentObserver,
         client_size: (u32, u32),
@@ -164,7 +160,7 @@ impl<'a> Session<'a> {
         Ok(())
     }
 
-    pub fn at_entry(&self) -> bool {
+    fn at_entry(&self) -> bool {
         self.observer.entry(&self.frame).confirmed()
     }
 

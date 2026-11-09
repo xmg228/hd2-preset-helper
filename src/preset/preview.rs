@@ -1,5 +1,5 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{Context, Result};
 use image::RgbaImage;
@@ -7,7 +7,7 @@ use image::RgbaImage;
 use super::{LocalTemplate, storage, stratagems};
 use crate::{
     item::{EquipmentKind, ItemKind},
-    vision::{IconSample, equipment::EquipmentText, render_icon, text::TextTemplate},
+    vision::{IconSample, equipment::EquipmentText, render_icon},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -33,86 +33,73 @@ pub enum PreviewContent<T> {
 pub struct PresetPreview {
     pub stratagems: PreviewContent<Vec<PreviewImage>>,
     pub equipment: [PreviewContent<RgbaImage>; 6],
-    /// Strong cached-name matches at the current UI scale, not live verification.
-    pub equipment_cache_matches: Option<usize>,
 }
 
-/// Transient name samples, consumed by the worker before presentation crosses to the UI.
-pub(crate) struct LoadedPreview {
-    pub preview: PresetPreview,
-    /// Saved names retain their kinds even when the preset contains only some items.
-    pub equipment_names: Vec<(EquipmentKind, TextTemplate)>,
-}
-
-pub(crate) fn load(path: &Path) -> Result<impl Iterator<Item = (String, LoadedPreview)> + '_> {
+pub(crate) fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
     let file = storage::load(path)?;
-    Ok(file.into_presets().map(move |record| {
-        let id = record.id;
-        let stratagems = content(record.stratagems.as_ref().map(|preset| {
-            stratagems::validate(&id, preset)?;
-            preset
-                .stratagems
-                .iter()
-                .enumerate()
-                .map(|(index, item)| (PreviewRole::Stratagem(index + 1), item))
-                .chain(
-                    preset
-                        .booster
-                        .iter()
-                        .map(|item| (PreviewRole::Booster, item)),
-                )
-                .chain(
-                    preset
-                        .fallback_booster
-                        .iter()
-                        .map(|item| (PreviewRole::FallbackBooster, item)),
-                )
-                .map(|(role, item)| {
-                    let kind = match role {
-                        PreviewRole::Stratagem(_) => ItemKind::Stratagem,
-                        PreviewRole::Booster | PreviewRole::FallbackBooster => ItemKind::Booster,
-                    };
-                    Ok(PreviewImage {
-                        role,
-                        image: icon_preview(path, item, kind)?,
+    Ok(file
+        .into_presets()
+        .map(|record| {
+            let id = record.id;
+            let stratagems = content(record.stratagems.as_ref().map(|preset| {
+                stratagems::validate(&id, preset)?;
+                preset
+                    .stratagems
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| (PreviewRole::Stratagem(index + 1), item))
+                    .chain(
+                        preset
+                            .booster
+                            .iter()
+                            .map(|item| (PreviewRole::Booster, item)),
+                    )
+                    .chain(
+                        preset
+                            .fallback_booster
+                            .iter()
+                            .map(|item| (PreviewRole::FallbackBooster, item)),
+                    )
+                    .map(|(role, item)| {
+                        let kind = match role {
+                            PreviewRole::Stratagem(_) => ItemKind::Stratagem,
+                            PreviewRole::Booster | PreviewRole::FallbackBooster => {
+                                ItemKind::Booster
+                            }
+                        };
+                        Ok(PreviewImage {
+                            role,
+                            image: icon_preview(path, item, kind)?,
+                        })
                     })
-                })
-                .collect()
-        }));
-        let mut equipment_names = Vec::new();
-        let equipment = std::array::from_fn(|index| {
-            let Some(equipment) = record.equipment.as_ref() else {
-                return PreviewContent::Missing;
-            };
-            let Some(item) = equipment.items[index].as_ref() else {
-                return PreviewContent::Missing;
-            };
-            match super::equipment::load_text(
-                path,
-                &item.name,
-                item.name_client_size.unwrap_or(equipment.client_size),
-                EquipmentText::Name,
-            ) {
-                Ok(sample) => {
-                    let image = name_preview(&sample);
-                    equipment_names.push((EquipmentKind::ALL[index], sample));
-                    PreviewContent::Ready(image)
+                    .collect()
+            }));
+            let equipment = std::array::from_fn(|index| {
+                let Some(equipment) = record.equipment.as_ref() else {
+                    return PreviewContent::Missing;
+                };
+                let Some(item) = equipment.items[index].as_ref() else {
+                    return PreviewContent::Missing;
+                };
+                match super::equipment::load_text(
+                    path,
+                    &item.name,
+                    item.name_client_size.unwrap_or(equipment.client_size),
+                    EquipmentText::Name,
+                ) {
+                    Ok(sample) => PreviewContent::Ready(name_preview(&sample)),
+                    Err(error) => PreviewContent::Invalid(format!("{error:#}")),
                 }
-                Err(error) => PreviewContent::Invalid(format!("{error:#}")),
-            }
-        });
-        (
-            id,
-            LoadedPreview {
-                preview: PresetPreview {
+            });
+            (
+                id,
+                PresetPreview {
                     stratagems,
                     equipment,
-                    equipment_cache_matches: None,
                 },
-                equipment_names,
-            },
-        )
-    }))
+            )
+        })
+        .collect())
 }
 
 pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<RgbaImage> {

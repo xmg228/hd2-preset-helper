@@ -124,12 +124,6 @@ msgstr "Starte mit „+ Neues Preset“."
 msgid "Equipment"
 msgstr "Ausrüstung"
 
-msgid "Cache coverage: {}/{}"
-msgstr "Cache-Abdeckung: {}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "Basiert auf vollständig erfassten Kategorien. Nicht abgedeckte Gegenstände können auch ohne Listendurchlauf angewendet werden."
-
 msgid "Start from either loadout page."
 msgstr "Du kannst auf einer der beiden Ausrüstungsseiten beginnen."
 
@@ -145,23 +139,8 @@ msgstr "Panel ein- / ausblenden"
 msgid "Global shortcut"
 msgstr "Globales Tastenkürzel"
 
-msgid "Save preset"
-msgstr "Preset speichern"
-
-msgid "Save Stratagems"
-msgstr "Taktikausrüstungen speichern"
-
-msgid "Save equipment"
-msgstr "Ausrüstung speichern"
-
-msgid "Select content"
-msgstr "Inhalte auswählen"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Belege vor dem Speichern alle vier Taktikausrüstungsplätze."
-
-msgid "Apply preset"
-msgstr "Preset anwenden"
 
 msgid "Apply Stratagems"
 msgstr "Taktikausrüstungen anwenden"
@@ -354,6 +333,9 @@ msgstr "Gegenstände scannen"
 msgid "Open the panel to stop scanning."
 msgstr "Öffne das Panel, um den Scan zu stoppen."
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "Für klarere Symbole solltest du Booster scannen, wenn keiner verwendet wird."
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "Loadout bearbeiten"
@@ -376,8 +358,23 @@ msgstr "Leeren"
 msgid "Loading…"
 msgstr "Wird geladen…"
 
-msgid "No items available."
-msgstr "Keine Gegenstände verfügbar."
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "Keine Gegenstände verfügbar. Du kannst diese Liste jetzt scannen. Fehlende Listen werden auch beim ersten Anwenden der entsprechenden Gegenstandstypen automatisch gescannt."
+
+msgid "Quick start"
+msgstr "Kurzanleitung"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "Stelle dein Loadout im Spiel zusammen, wähle ein Preset und klicke auf „{}“."
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "Wähle später das Preset und klicke auf „{}“ oder nutze sein Tastenkürzel."
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "Über „{}“ kannst du auch Gegenstände ändern oder ein zufälliges Loadout zusammenstellen. Benötigte Listen werden beim ersten Anwenden des jeweiligen Gegenstandstyps automatisch gescannt; du kannst sie auch vorab scannen."
+
+msgid "Got it"
+msgstr "Verstanden"
 
 msgid "Save changes"
 msgstr "Änderungen speichern"
@@ -385,8 +382,8 @@ msgstr "Änderungen speichern"
 msgid "Randomize equipment"
 msgstr "Ausrüstung zufällig wählen"
 
-msgid "Scan missing items"
-msgstr "Fehlende Listen scannen"
+msgid "Scan all missing lists"
+msgstr "Alle fehlenden Listen scannen"
 
 msgid "Capture from game"
 msgstr "Aus dem Spiel übernehmen"
@@ -403,6 +400,21 @@ msgstr "Gegenstands-Cache erstellen"
 
 msgid "Build cache and apply"
 msgstr "Cache erstellen und anwenden"
+
+msgid "Rescan this list"
+msgstr "Diese Liste erneut scannen"
+
+msgid "Scan this list"
+msgstr "Diese Liste scannen"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "Diese Liste im Spiel scannen. Alle nicht gespeicherten Änderungen werden verworfen."
+
+msgid "Missing an item?"
+msgstr "Fehlt ein Gegenstand?"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "Fehlende Listen im Spiel scannen. Alle nicht gespeicherten Änderungen werden verworfen."
 
 # Tray.
 msgid "Exit"

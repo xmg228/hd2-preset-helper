@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, ensure};
 
 use super::{
-    CLICK_HOLD_MS, ScrollDirection,
+    CLICK_HOLD_MS, ScrollDirection, TARGET_POSITION_TOLERANCE,
     home_activation::{HomeOpenTarget, home_booster_target, open_slot_list},
     list_map::ListMap,
     page_navigation::{PageNavigator, PageSnapshot, PageTurnInput, PageTurnResult},
@@ -15,7 +15,7 @@ use crate::{
     item::ItemKind,
     item_cache::{CachedIcon, IconCatalog},
     loadout::home::{UiState, find_home_row, wait_for_ui_state},
-    scan::{ScanCancellation, ScanKind, ScanProgress},
+    scan::{ScanKind, ScanProgress},
     vision::{
         HOME_ICON_SIZE_LOGICAL, IconSample, ImageSample, RecognizerSession, RoiObservation, Slot,
         SlotKind, TemplateClassifier, crop_icon_sample,
@@ -32,9 +32,8 @@ pub(crate) fn scan_icon_list(
     kind: ItemKind,
     home: RoiObservation,
     progress: &mut impl FnMut(ScanProgress),
-    cancel: &ScanCancellation,
 ) -> Result<IconCatalog> {
-    cancel.check()?;
+    automation.check_cancelled()?;
     let selected = home_samples(kind, recognizer, &home)?;
     let target = match kind {
         ItemKind::Stratagem => {
@@ -57,9 +56,7 @@ pub(crate) fn scan_icon_list(
         .center();
     automation.move_cursor(point)?;
     let mut map = ListMap::new(&page, kind, automation.evidence());
-    complete_open_list(
-        &navigator, automation, &mut map, &mut page, progress, cancel,
-    )?;
+    complete_open_list(&navigator, automation, &mut map, &mut page, progress)?;
     let templates = materialize_icons(kind, &map, &selected)?;
     automation.tap_key(Key::Escape, CLICK_HOLD_MS)?;
     let returned = wait_for_ui_state(
@@ -80,7 +77,6 @@ pub(super) fn complete_open_list(
     map: &mut ListMap,
     page: &mut PageSnapshot,
     progress: &mut impl FnMut(ScanProgress),
-    cancel: &ScanCancellation,
 ) -> Result<()> {
     let kind = navigator.item_kind();
     let mut report = |map: &ListMap| {
@@ -93,15 +89,17 @@ pub(super) fn complete_open_list(
             items: map.scan_count(),
         })
     };
-    cancel.check()?;
+    automation.check_cancelled()?;
     report(map);
     if page.roi.scrollbar.is_none() {
-        confirm_single_page(navigator, automation, map, page, cancel)?;
-        let placement = map
-            .locate_page(page, None)
-            .placement
-            .context("single-page icon list lost its map position")?;
-        map.commit(page, placement, "single-page", automation.evidence());
+        confirm_single_page(navigator, automation, map, page)?;
+        if map.scan_count() != 0 || empty_booster_slot(kind, page).is_none() {
+            let placement = map
+                .locate_page(page, None)
+                .placement
+                .context("single-page icon list lost its map position")?;
+            map.commit(page, placement, "single-page", automation.evidence());
+        }
         map.confirm_single_page();
     } else {
         let mut turns = 0;
@@ -113,7 +111,6 @@ pub(super) fn complete_open_list(
                 page,
                 ScrollDirection::Down,
                 &mut turns,
-                cancel,
             )?;
             report(map);
         }
@@ -125,12 +122,11 @@ pub(super) fn complete_open_list(
                 page,
                 ScrollDirection::Up,
                 &mut turns,
-                cancel,
             )?;
             report(map);
         }
     }
-    cancel.check()?;
+    automation.check_cancelled()?;
     map.scan_samples()?;
     automation.evidence().record(
         "icon-scan-complete",
@@ -187,11 +183,10 @@ fn turn(
     page: &PageSnapshot,
     direction: ScrollDirection,
     turns: &mut usize,
-    cancel: &ScanCancellation,
 ) -> Result<PageSnapshot> {
     let mut current = None;
     for attempt in 0..2 {
-        cancel.check()?;
+        automation.check_cancelled()?;
         ensure!(
             *turns < MAX_SCAN_TURNS,
             "icon scan exceeded {MAX_SCAN_TURNS} page turns"
@@ -216,13 +211,29 @@ fn turn(
     anyhow::bail!("icon scan navigation remained ambiguous after recovery")
 }
 
+fn empty_booster_slot(kind: ItemKind, page: &PageSnapshot) -> Option<&Slot> {
+    if kind != ItemKind::Booster || page.roi.scrollbar.is_some() {
+        return None;
+    }
+    let [slot] = page.roi.slots.as_slice() else {
+        return None;
+    };
+    let [sample] = page.slot_samples.as_slice() else {
+        return None;
+    };
+    (slot.kind == SlotKind::NoBoosterOption && slot.col == 0 && sample.native.is_none())
+        .then_some(slot)
+}
+
 fn confirm_single_page(
     navigator: &PageNavigator,
     automation: &mut AutomationSession<'_>,
     map: &ListMap,
     page: &mut PageSnapshot,
-    cancel: &ScanCancellation,
 ) -> Result<()> {
+    let empty = empty_booster_slot(navigator.item_kind(), page)
+        .filter(|_| map.scan_count() == 0)
+        .cloned();
     let last_row = page
         .slot_samples
         .iter()
@@ -244,23 +255,32 @@ fn confirm_single_page(
         "the list extent could not be confirmed without a scrollbar"
     );
     for notches in [1, -1] {
-        cancel.check()?;
+        automation.check_cancelled()?;
         automation.scroll(notches)?;
         let started = Instant::now();
         let mut stable = 0;
         loop {
-            cancel.check()?;
+            automation.check_cancelled()?;
             let next = navigator.scan_direct_page(automation.capture()?)?;
             ensure!(
                 next.roi.scrollbar.is_none(),
                 "a scrollbar appeared while checking the single-page list"
             );
-            let assessment = map.locate_page(&next, None);
-            let unchanged = assessment
-                .placement
-                .as_ref()
-                .is_some_and(|placement| !placement.has_moved())
-                && next.slot_samples.len() == page.slot_samples.len();
+            let unchanged = if let Some(original) = &empty {
+                // The no-Booster option has no icon evidence; verify its fixed geometry.
+                empty_booster_slot(navigator.item_kind(), &next).is_some_and(|slot| {
+                    slot.x.abs_diff(original.x) <= TARGET_POSITION_TOLERANCE
+                        && slot.y.abs_diff(original.y) <= TARGET_POSITION_TOLERANCE
+                        && slot.w.abs_diff(original.w) <= TARGET_POSITION_TOLERANCE
+                        && slot.h.abs_diff(original.h) <= TARGET_POSITION_TOLERANCE
+                })
+            } else {
+                map.locate_page(&next, None)
+                    .placement
+                    .as_ref()
+                    .is_some_and(|placement| !placement.has_moved())
+                    && next.slot_samples.len() == page.slot_samples.len()
+            };
             ensure!(
                 unchanged,
                 "the icon list moved while checking its single-page extent"

@@ -19,19 +19,13 @@ use super::{
     RoiObservation, Slot, SlotKind, SlotLayout,
 };
 const ENV_PHASES: [f32; 5] = [-0.45, -0.225, 0.0, 0.225, 0.45];
+const SCAN_STRATAGEM_MATCH_THRESHOLD: f64 = 0.25;
 const SCAN_MATCH_MARGIN: f64 = 0.04;
 
 struct PreparedTemplateEntry {
     item_id: String,
     category: Option<StratagemCategory>,
     prepared: PreparedTemplate,
-}
-
-struct TemplateSource {
-    item_id: String,
-    category: Option<StratagemCategory>,
-    semantic: SemanticImage,
-    physical_size: f32,
 }
 
 /// Classifies home or list slots against templates captured with a preset.
@@ -105,23 +99,16 @@ impl TemplateClassifier {
         );
 
         let load_start = Instant::now();
-        let sources = sources
+        let categories = sources
             .iter()
-            .map(|(item_id, sample)| TemplateSource {
-                item_id: item_id.clone(),
-                category: sample.category,
-                semantic: sample.semantic.clone(),
-                physical_size: sample.geometry.physical_size,
-            })
-            .collect::<Vec<_>>();
-        let categories = sources.iter().fold(Vec::new(), |mut categories, source| {
-            if let Some(category) = source.category
-                && !categories.contains(&category)
-            {
-                categories.push(category);
-            }
-            categories
-        });
+            .fold(Vec::new(), |mut categories, (_, source)| {
+                if let Some(category) = source.category
+                    && !categories.contains(&category)
+                {
+                    categories.push(category);
+                }
+                categories
+            });
 
         let sample_slot = initial_page
             .slots
@@ -141,17 +128,17 @@ impl TemplateClassifier {
         let match_threshold = match_threshold(item_kind);
 
         let prepared = sources
-            .into_par_iter()
-            .map(|source| {
+            .par_iter()
+            .map(|(item_id, source)| {
                 let prepared = prepare_icon_template(
                     item_kind,
                     &source.semantic,
-                    source.physical_size,
+                    source.geometry.physical_size,
                     &candidate_geometry,
                 )
-                .with_context(|| format!("failed to prepare local template {}", source.item_id))?;
+                .with_context(|| format!("failed to prepare local template {item_id}"))?;
                 Ok(PreparedTemplateEntry {
-                    item_id: source.item_id,
+                    item_id: item_id.clone(),
                     category: source.category,
                     prepared,
                 })
@@ -239,6 +226,10 @@ impl TemplateClassifier {
         if selected.is_empty() {
             return Ok(Vec::new());
         }
+        let threshold = match kind {
+            ItemKind::Stratagem => SCAN_STRATAGEM_MATCH_THRESHOLD,
+            ItemKind::Booster => booster::MATCH_THRESHOLD,
+        };
         let first = scanned.first().context("the scanned icon list is empty")?;
         let scores = selected
             .par_iter()
@@ -289,10 +280,10 @@ impl TemplateClassifier {
                 .unwrap_or(f64::INFINITY);
             debug!(
                 item_kind = %kind.label(), home_sample = index, position,
-                score, margin, reverse_margin, "scanned selection match evaluated"
+                score, threshold, margin, reverse_margin, "scanned selection match evaluated"
             );
             ensure!(
-                score < match_threshold(kind)
+                score < threshold
                     && margin >= SCAN_MATCH_MARGIN
                     && reverse_margin >= SCAN_MATCH_MARGIN
                     && !positions.contains(&position),

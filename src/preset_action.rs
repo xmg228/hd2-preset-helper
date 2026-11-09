@@ -9,7 +9,8 @@ use std::time::Instant;
 use anyhow::{Result, bail};
 use tracing::{debug, info};
 
-use crate::app_events::{AppEvent, AppEventSink};
+use crate::app_events::{AppEvent, AppEventSink, PresetCompletion};
+use crate::automation::Cancellation;
 use crate::capture::CaptureSessionManager;
 use crate::item::EquipmentSelection;
 use crate::loadout::pages::{Page, show_page};
@@ -46,6 +47,7 @@ pub(crate) struct PresetActionContext<'a> {
     pub events: &'a AppEventSink,
     pub item_cache: &'a mut crate::item_cache::ItemCache,
     pub evidence: &'a crate::evidence::OperationEvidence,
+    pub cancel: &'a Cancellation,
 }
 
 pub fn execute_preset(
@@ -55,8 +57,8 @@ pub fn execute_preset(
     command: PresetCommand,
     capture_session: &mut CaptureSessionManager,
     expected_window: crate::window::WindowIdentity,
-) -> Result<PresetActionOutcome> {
-    let action_start = Instant::now();
+) -> Result<(PresetActionOutcome, PresetCompletion)> {
+    context.cancel.check()?;
     info!("preset action started");
     context.events.emit(AppEvent::PresetStarted {
         preset: preset_name.to_string(),
@@ -99,7 +101,7 @@ pub fn execute_preset(
             "resolved_command": format!("{command:?}"),
         }),
     );
-    let (outcome, completion) = match command {
+    match command {
         PresetCommand::SaveFull(_) | PresetCommand::ApplyFull(_) => combined::execute(
             runtime,
             context,
@@ -108,7 +110,7 @@ pub fn execute_preset(
             capture,
             game_window,
             game_color_settings,
-        )?,
+        ),
         PresetCommand::SaveStratagems | PresetCommand::ApplyStratagems => {
             show_page(
                 capture,
@@ -117,7 +119,7 @@ pub fn execute_preset(
                 game_color_settings,
                 Page::Stratagems,
                 context.evidence,
-                None,
+                context.cancel,
             )?;
             stratagems::execute(
                 runtime,
@@ -127,7 +129,7 @@ pub fn execute_preset(
                 capture,
                 game_window,
                 game_color_settings,
-            )?
+            )
         }
         PresetCommand::SaveEquipment(_) | PresetCommand::ApplyEquipment(_) => {
             show_page(
@@ -137,7 +139,7 @@ pub fn execute_preset(
                 game_color_settings,
                 Page::Equipment,
                 context.evidence,
-                None,
+                context.cancel,
             )?;
             equipment::execute(
                 capture,
@@ -146,18 +148,8 @@ pub fn execute_preset(
                 context,
                 preset_name,
                 command,
-            )?
+            )
         }
         PresetCommand::ApplySaved(_) => unreachable!("saved sections are resolved before dispatch"),
-    };
-    info!(
-        elapsed_s = action_start.elapsed().as_secs_f64(),
-        ?completion,
-        "preset action completed"
-    );
-    context.events.emit(AppEvent::PresetDone {
-        preset: preset_name.to_string(),
-        completion,
-    });
-    Ok(outcome)
+    }
 }

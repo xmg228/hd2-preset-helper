@@ -1,11 +1,33 @@
 use anyhow::{Context, Result, ensure};
 use serde_json::json;
-use std::time::Instant;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use crate::capture::{CaptureRegion, CaptureSessionManager, CaptureSource, CapturedFrame};
 use crate::evidence::OperationEvidence;
 use crate::input::{InputSession, Key};
 use crate::window::WindowTarget;
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Cancellation(Arc<AtomicBool>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+    pub fn check(&self) -> Result<()> {
+        ensure!(!self.is_cancelled(), "operation cancelled");
+        Ok(())
+    }
+}
 
 pub(crate) struct GameCapture<'a> {
     pub source: &'a mut CaptureSource,
@@ -42,7 +64,7 @@ pub struct AutomationSession<'a> {
     input: InputSession,
     evidence: &'a OperationEvidence,
     latest: Option<CapturedFrame>,
-    cancellation: Option<crate::scan::ScanCancellation>,
+    cancellation: Cancellation,
 }
 
 impl<'a> AutomationSession<'a> {
@@ -50,13 +72,14 @@ impl<'a> AutomationSession<'a> {
         region: CaptureRegion<'a>,
         target: WindowTarget,
         evidence: &'a OperationEvidence,
+        cancellation: Cancellation,
     ) -> Result<Self> {
         Ok(Self {
             region,
             input: InputSession::new(target)?,
             evidence,
             latest: evidence.latest_frame(),
-            cancellation: None,
+            cancellation,
         })
     }
 
@@ -72,15 +95,8 @@ impl<'a> AutomationSession<'a> {
         self.evidence
     }
 
-    pub(crate) fn set_cancellation(&mut self, cancellation: crate::scan::ScanCancellation) {
-        self.cancellation = Some(cancellation);
-    }
-
     pub(crate) fn check_cancelled(&self) -> Result<()> {
-        if let Some(cancellation) = &self.cancellation {
-            cancellation.check()?;
-        }
-        Ok(())
+        self.cancellation.check()
     }
 
     pub fn move_cursor(&mut self, point: (u32, u32)) -> Result<()> {

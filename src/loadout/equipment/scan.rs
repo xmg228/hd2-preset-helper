@@ -11,7 +11,7 @@ use crate::{
     input::Key,
     item::EquipmentKind,
     item_cache::{EquipmentCatalog, EquipmentCategory},
-    scan::{ScanCancellation, ScanKind, ScanProgress},
+    scan::{ScanKind, ScanProgress},
     vision::{
         ScrollbarObservation,
         equipment::{EquipmentObservation, EquipmentObserver},
@@ -178,9 +178,7 @@ impl Session<'_> {
         &mut self,
         kind: EquipmentKind,
         progress: &mut impl FnMut(ScanProgress),
-        cancel: &ScanCancellation,
     ) -> Result<EquipmentCatalog> {
-        self.automation.set_cancellation(cancel.clone());
         self.open(kind)?;
         let original = EquipmentItem {
             name: self.page.name.to_template(),
@@ -194,7 +192,7 @@ impl Session<'_> {
                 items,
             })
         })?;
-        cancel.check()?;
+        self.automation.check_cancelled()?;
         let columns = kind.list_columns();
         let categories = &collection.catalog.categories;
         let rows = categories
@@ -311,6 +309,13 @@ impl Session<'_> {
                         names,
                         boundary_before,
                     });
+                    // A one-row list has no Down response to confirm a cycle.
+                    if rows.len() == 1
+                        && self.page.scrollbar.is_none()
+                        && self.page.slots.iter().all(|slot| slot.row == focus.row)
+                    {
+                        break 0;
+                    }
                     row = None;
                     InputAction::Key(Key::Down)
                 }

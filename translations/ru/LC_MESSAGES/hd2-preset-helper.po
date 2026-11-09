@@ -124,12 +124,6 @@ msgstr "Нажмите «+ Новый набор», чтобы начать."
 msgid "Equipment"
 msgstr "Снаряжение"
 
-msgid "Cache coverage: {}/{}"
-msgstr "Покрытие кэшем: {}/{}"
-
-msgid "Based on complete category caches. Uncovered items may still apply without scanning."
-msgstr "Учитываются полностью кэшированные категории. Не охваченные кэшем предметы иногда можно применить без обхода списка."
-
 msgid "Start from either loadout page."
 msgstr "Начните на любой из двух страниц выбора снаряжения."
 
@@ -145,23 +139,8 @@ msgstr "Показать / скрыть панель"
 msgid "Global shortcut"
 msgstr "Глобальное сочетание клавиш"
 
-msgid "Save preset"
-msgstr "Сохранить набор"
-
-msgid "Save Stratagems"
-msgstr "Сохранить стратагемы"
-
-msgid "Save equipment"
-msgstr "Сохранить снаряжение"
-
-msgid "Select content"
-msgstr "Выбрать содержимое"
-
 msgid "Fill all four Stratagem slots before saving."
 msgstr "Перед сохранением заполните все четыре ячейки стратагем."
-
-msgid "Apply preset"
-msgstr "Применить набор"
 
 msgid "Apply Stratagems"
 msgstr "Применить стратагемы"
@@ -354,6 +333,9 @@ msgstr "Сканирование предметов"
 msgid "Open the panel to stop scanning."
 msgstr "Откройте панель, чтобы остановить сканирование."
 
+msgid "For clearer icons, scan Boosters when none are in use."
+msgstr "Чтобы получить более чёткие значки, сканируйте усилители, когда ни один из них не используется."
+
 # Item editing.
 msgid "Edit loadout"
 msgstr "Изменить комплект"
@@ -376,8 +358,23 @@ msgstr "Очистить"
 msgid "Loading…"
 msgstr "Загрузка…"
 
-msgid "No items available."
-msgstr "Нет доступных предметов."
+msgid "No items available. You can scan this list now. Missing lists are also scanned automatically when you first apply the corresponding item types."
+msgstr "Нет доступных предметов. Этот список можно просканировать сейчас. Недостающие списки также сканируются автоматически при первом применении соответствующих типов предметов."
+
+msgid "Quick start"
+msgstr "Быстрый старт"
+
+msgid "Set up your loadout in the game, select a preset, then choose “{}”."
+msgstr "Подготовьте снаряжение в игре, выберите набор и нажмите «{}»."
+
+msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
+msgstr "Чтобы использовать его позже, выберите набор и нажмите «{}» или воспользуйтесь его сочетанием клавиш."
+
+msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
+msgstr "Через «{}» также можно менять предметы или создавать случайный комплект. Нужные списки сканируются автоматически при первом применении каждого типа предметов; их также можно отсканировать заранее."
+
+msgid "Got it"
+msgstr "Понятно"
 
 msgid "Save changes"
 msgstr "Сохранить изменения"
@@ -385,8 +382,8 @@ msgstr "Сохранить изменения"
 msgid "Randomize equipment"
 msgstr "Выбрать снаряжение случайно"
 
-msgid "Scan missing items"
-msgstr "Дополнить списки предметов"
+msgid "Scan all missing lists"
+msgstr "Сканировать все недостающие списки"
 
 msgid "Capture from game"
 msgstr "Сохранить из игры"
@@ -403,6 +400,21 @@ msgstr "Создать кэш предметов"
 
 msgid "Build cache and apply"
 msgstr "Создать кэш и применить"
+
+msgid "Rescan this list"
+msgstr "Пересканировать этот список"
+
+msgid "Scan this list"
+msgstr "Сканировать этот список"
+
+msgid "Scan this list from the game. All unsaved edits will be discarded."
+msgstr "Отсканировать этот список в игре. Все несохранённые изменения будут потеряны."
+
+msgid "Missing an item?"
+msgstr "Нет нужного предмета?"
+
+msgid "Scan missing lists from the game. All unsaved edits will be discarded."
+msgstr "Отсканировать недостающие списки в игре. Все несохранённые изменения будут потеряны."
 
 # Tray.
 msgid "Exit"

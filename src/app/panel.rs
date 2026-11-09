@@ -6,24 +6,22 @@ use tracing::{debug, error, warn};
 use super::failure::save_failure_report;
 use super::{
     ACTION_COOLDOWN, ACTIVATION_CONFIRM_TIMEOUT, ActionState, AppController, GameAction,
-    HOTKEY_RELEASE_TIMEOUT, PendingAction, Work, preset_hotkeys,
+    HOTKEY_RELEASE_TIMEOUT, NOTICE_REVISION, PendingAction, Work, preset_hotkeys,
 };
 use crate::{
     app_events::AppEvent,
+    automation::Cancellation,
     game_window, input,
     preset::{PresetScope, PresetSection},
     preset_action::PresetCommand,
-    scan::{ScanCancellation, ScanScope, ScanSummary},
+    scan::{ScanScope, ScanSummary},
     ui::UiRequest,
     window::WindowTarget,
 };
 
 impl AppController {
     pub(super) fn open_panel(&mut self) -> Result<()> {
-        if let ActionState::Running {
-            scan_cancel: Some(cancel),
-        } = &self.state
-        {
+        if let ActionState::Running { cancel } = &self.state {
             cancel.cancel();
             return Ok(());
         }
@@ -37,6 +35,9 @@ impl AppController {
         let anchor = game.as_ref().map(|target| target.client_origin());
         self.ui.show_panel(anchor)?;
         if !self.updates.installing() {
+            if self.notice_pending {
+                self.ui.show_quick_start();
+            }
             self.worker.send(Work::LoadPreviews)?;
         }
         Ok(())
@@ -89,6 +90,7 @@ impl AppController {
                 preset,
                 command,
                 options: self.settings,
+                cancel: Cancellation::default(),
             },
             hotkey_id,
         )
@@ -98,7 +100,7 @@ impl AppController {
         self.begin_game_action(
             GameAction::Scan {
                 scope,
-                cancel: ScanCancellation::default(),
+                cancel: Cancellation::default(),
             },
             None,
         )
@@ -108,12 +110,13 @@ impl AppController {
         let editor_scan = matches!(
             action,
             GameAction::Scan {
-                scope: ScanScope::Missing,
+                scope: ScanScope::Missing | ScanScope::One(_),
                 ..
             }
-        ) && self.ui.can_scan_missing_items();
+        ) && self.ui.can_refresh_items();
         if self.exiting
             || self.updates.installing()
+            || self.ui.is_quick_start_open()
             || (self.ui.is_editing_items() && !editor_scan)
             || !matches!(self.state, ActionState::Idle)
             || Instant::now() < self.ready_after
@@ -390,6 +393,12 @@ impl AppController {
                     self.begin_scan(ScanScope::Missing)?;
                 }
                 UiRequest::ScanMissingItems => {}
+                UiRequest::RefreshItems(kind)
+                    if self.ui.is_panel_active() && self.ui.can_refresh_items() =>
+                {
+                    self.begin_scan(ScanScope::One(kind))?;
+                }
+                UiRequest::RefreshItems(_) => {}
                 UiRequest::EditItems
                     if !self.exiting
                         && !self.updates.installing()
@@ -448,6 +457,28 @@ impl AppController {
                     }
                 }
                 UiRequest::OpenSettings(target) => self.open_settings(target),
+                UiRequest::ViewQuickStart
+                    if !self.exiting
+                        && !self.updates.installing()
+                        && matches!(self.state, ActionState::Idle)
+                        && self.ui.is_panel_active()
+                        && !self.ui.is_editing_items()
+                        && !self.ui.is_scan_confirm_open() =>
+                {
+                    self.ui.show_quick_start();
+                }
+                UiRequest::ViewQuickStart => {}
+                UiRequest::AcknowledgeQuickStart => {
+                    if self.notice_pending {
+                        self.notice_pending = false;
+                        if let Err(error) =
+                            crate::config::save_notice_revision(&self.paths.config, NOTICE_REVISION)
+                        {
+                            warn!(error = %format!("{error:#}"), "could not save notice acknowledgement");
+                        }
+                    }
+                    self.ui.dismiss_quick_start();
+                }
                 UiRequest::CheckUpdates => self.check_updates(),
                 UiRequest::ViewUpdateNotes => self.view_update_notes(),
                 UiRequest::ViewProject => self.open_link(env!("CARGO_PKG_REPOSITORY")),
@@ -706,16 +737,15 @@ impl AppController {
         self.panel_return_target = None;
         // Unregister before the worker can inject its first key, not on the next tick.
         self.hotkeys.set_enabled(false)?;
-        let scan_cancel = match &action {
-            GameAction::Scan { cancel, .. } => Some(cancel.clone()),
-            GameAction::Preset { .. } => None,
+        let cancel = match &action {
+            GameAction::Scan { cancel, .. } | GameAction::Preset { cancel, .. } => cancel.clone(),
         };
-        self.panel_hotkey.set_enabled(scan_cancel.is_some())?;
+        self.panel_hotkey.set_enabled(true)?;
         self.worker.send(Work::Run {
             action,
             target: target.identity(),
         })?;
-        self.state = ActionState::Running { scan_cancel };
+        self.state = ActionState::Running { cancel };
         Ok(())
     }
 }
