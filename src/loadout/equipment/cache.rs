@@ -1,7 +1,7 @@
 //! Complete category orders. Live scans/repairs belong to `survey`, not this cache.
 mod storage;
 
-use super::{InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation};
+use super::{CATEGORY_MATCH_THRESHOLD, InputAction, NAME_MATCH_THRESHOLD, Navigation};
 use crate::{
     input::Key,
     item::EquipmentKind,
@@ -14,14 +14,12 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
 pub(super) type Name = usize;
-const NAME_MATCH_MARGIN: f32 = 0.04;
 const CATEGORY_IDENTITY_THRESHOLD: f32 = 0.97;
 
 #[derive(Clone, Copy)]
 pub(super) struct Target {
     pub category: usize,
     pub name: Name,
-    pub score: f32,
 }
 
 #[derive(Default)]
@@ -31,15 +29,15 @@ pub(crate) struct EquipmentCache {
 }
 
 struct Category {
-    title: TextSignature,
-    names: Vec<TextSignature>,
+    title: TextSample,
+    names: Vec<TextSample>,
     order: Vec<Name>,
     previous: Option<usize>,
     next: Option<usize>,
     circular: bool,
 }
 
-/// Shared evidence; callers choose the strength required by their own decision.
+/// Only one candidate may meet the name threshold.
 struct NameRanking<T> {
     best: T,
     score: f32,
@@ -47,12 +45,11 @@ struct NameRanking<T> {
 }
 
 impl<T> NameRanking<T> {
-    fn margin(&self) -> f32 {
-        self.score - self.runner_up.unwrap_or(0.0)
-    }
-
-    fn accepts(&self, threshold: f32) -> bool {
-        self.score >= threshold && self.margin() >= NAME_MATCH_MARGIN
+    fn accepts(&self) -> bool {
+        self.score >= NAME_MATCH_THRESHOLD
+            && self
+                .runner_up
+                .is_none_or(|score| score < NAME_MATCH_THRESHOLD)
     }
 }
 
@@ -88,7 +85,7 @@ fn rank_targets(
                 .iter()
                 .enumerate()
                 .filter(|(name, _)| entry.order.contains(name))
-                .map(move |(name, signature)| ((category, name), signature))
+                .map(move |(name, sample)| ((category, name), sample.signature()))
         }),
     )
 }
@@ -119,22 +116,27 @@ impl Category {
         }
     }
 
-    fn identify(&mut self, name: &TextSignature) -> Option<Name> {
-        if let Some(ranking) = rank_names(name, self.names.iter().enumerate())
-            .filter(|ranking| ranking.score >= NAME_IDENTITY_THRESHOLD)
+    fn identify(&mut self, name: &TextSample) -> Option<Name> {
+        if let Some(ranking) = rank_names(
+            name.signature(),
+            self.names
+                .iter()
+                .enumerate()
+                .map(|(id, sample)| (id, sample.signature())),
+        )
+        .filter(|ranking| ranking.score >= NAME_MATCH_THRESHOLD)
         {
-            let margin = ranking.margin();
-            if margin < NAME_MATCH_MARGIN {
+            let accepted = ranking.accepts();
+            if !accepted {
                 tracing::debug!(
                     best_name = ranking.best,
                     best_cosine = ranking.score,
                     runner_up_cosine = ranking.runner_up,
-                    margin,
-                    required_margin = NAME_MATCH_MARGIN,
+                    match_threshold = NAME_MATCH_THRESHOLD,
                     "equipment cache identity is ambiguous"
                 );
             }
-            return (margin >= NAME_MATCH_MARGIN).then_some(ranking.best);
+            return accepted.then_some(ranking.best);
         }
         // A moderately similar name may be a different item. Keep its own evidence.
         self.names.push(name.clone());
@@ -175,8 +177,8 @@ impl Drop for SearchCache<'_> {
 }
 
 impl EquipmentCache {
-    /// A strong candidate in a complete, same-scale map; never a live-position guarantee.
-    pub(crate) fn has_strong_match(
+    /// A unique name match in a complete, same-scale map; not a live-position guarantee.
+    pub(crate) fn has_match(
         &self,
         kind: EquipmentKind,
         scale: f64,
@@ -185,7 +187,7 @@ impl EquipmentCache {
         self.scales.get(&scale.to_string()).is_some_and(|kinds| {
             let categories = &kinds[kind.index()];
             rank_targets(categories, 0..categories.len(), target)
-                .is_some_and(|ranking| ranking.accepts(NAME_IDENTITY_THRESHOLD))
+                .is_some_and(|ranking| ranking.accepts())
         })
     }
 
@@ -211,7 +213,7 @@ impl SearchCache<'_> {
         navigation: Option<Navigation>,
     ) -> Result<Location> {
         let focus = &page.slots[page.focus.context("equipment focus missing")?];
-        let title = page.category.signature();
+        let title = &page.category;
         let columns = self.kind.list_columns();
         // Single-category lists also need a visual language check on their first visit.
         if !self.kind.has_categories()
@@ -232,7 +234,7 @@ impl SearchCache<'_> {
         }
         // Only a strong, same-scale heading match can reuse a map identity.
         let category = if self.kind.has_categories() {
-            self.match_category(title, CATEGORY_IDENTITY_THRESHOLD)
+            self.match_category(title.signature(), CATEGORY_IDENTITY_THRESHOLD)
         } else {
             (!self.categories.is_empty()).then_some(0)
         }
@@ -250,7 +252,7 @@ impl SearchCache<'_> {
         let col = focus.col;
         let width = page.slots.iter().filter(|s| s.row == focus.row).count();
         let name = self.categories[category]
-            .identify(page.name.signature())
+            .identify(&page.name)
             .with_context(|| format!("equipment name matches multiple cached identities in category {category}; search stopped"))?;
         let key = navigation.and_then(|n| match n.action {
             InputAction::Key(k) => Some(k),
@@ -363,14 +365,14 @@ impl SearchCache<'_> {
 
     /// A saved heading may come from another resolution; it only guides navigation.
     pub fn category_hint(&self, target: &TextSample) -> Option<usize> {
-        self.match_category(target.signature(), NAME_MATCH_THRESHOLD)
+        self.match_category(target.signature(), CATEGORY_MATCH_THRESHOLD)
     }
 
     fn match_category(&self, target: &TextSignature, threshold: f32) -> Option<usize> {
         self.categories
             .iter()
             .enumerate()
-            .map(|(category, entry)| (category, entry.title.cosine(target)))
+            .map(|(category, entry)| (category, entry.title.signature().cosine(target)))
             .max_by(|a, b| a.1.total_cmp(&b.1))
             .filter(|(_, score)| *score >= threshold)
             .map(|(category, _)| category)
@@ -485,25 +487,18 @@ impl SearchCache<'_> {
     ) -> Option<Target> {
         let ranking = rank_targets(self.categories, categories, target)?;
         let (category, name) = ranking.best;
-        let margin = ranking.margin();
-        let accepted = ranking.accepts(NAME_MATCH_THRESHOLD);
+        let accepted = ranking.accepts();
         if !accepted {
             tracing::debug!(
                 category,
                 best_name = name,
                 best_cosine = ranking.score,
                 runner_up_cosine = ranking.runner_up,
-                margin,
                 match_threshold = NAME_MATCH_THRESHOLD,
-                required_margin = NAME_MATCH_MARGIN,
                 "equipment cache target rejected"
             );
         }
-        accepted.then_some(Target {
-            category,
-            name,
-            score: ranking.score,
-        })
+        accepted.then_some(Target { category, name })
     }
 
     pub fn take_order(&mut self, category: usize) -> Vec<Name> {

@@ -3,7 +3,7 @@ use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
 use super::{
-    EquipmentItem, InputAction, NAME_IDENTITY_THRESHOLD, NAME_MATCH_THRESHOLD, Navigation,
+    EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, Navigation,
     cache::{Location, SearchCache, Target},
     survey::{Step, Survey},
 };
@@ -156,9 +156,9 @@ impl<'a> Search<'a> {
         score: f32,
         same_category: bool,
     ) -> Result<Next> {
-        // A strong name match can override a stale category hint immediately.
+        // A confirmed name match can override a stale category hint immediately.
         if self.visits == 1
-            && score >= NAME_IDENTITY_THRESHOLD
+            && score >= NAME_MATCH_THRESHOLD
             && (!self.cache.is_complete(location.category)
                 || self
                     .cache
@@ -169,7 +169,7 @@ impl<'a> Search<'a> {
         }
         if self.visits == 1 {
             // A reliable cached identity outranks the saved category hint.
-            self.select_target(self.cache.category_indices(), false);
+            self.select_target(self.cache.category_indices());
         }
         loop {
             if let Some(survey) = &mut self.survey {
@@ -182,9 +182,7 @@ impl<'a> Search<'a> {
                         self.survey = None;
                         let single_category =
                             !self.cache.kind.has_categories() || self.cache.is_circular(category);
-                        let accept_weak = single_category
-                            || matches!(self.category_search, CategorySearch::Target(_));
-                        if !self.select_target([category], accept_weak) {
+                        if !self.select_target([category]) {
                             if single_category {
                                 return Ok(Next::NotFound);
                             }
@@ -234,9 +232,8 @@ impl<'a> Search<'a> {
                     return Ok(Next::Input(InputAction::Key(key.unwrap_or(Key::C))));
                 }
                 CategorySearch::All { searched } if searched.contains(&location.category) => {
-                    // Weak matches are compared across the whole pass, never first-come-first-served.
                     let categories = searched.clone();
-                    if !self.select_target(categories, true) {
+                    if !self.select_target(categories) {
                         return Ok(Next::NotFound);
                     }
                     continue;
@@ -268,7 +265,7 @@ impl<'a> Search<'a> {
                 if location.position.is_some() && navigation.is_none_or(|n| !n.retried) {
                     return self.route(location, target, score);
                 }
-            } else if self.select_target([location.category], !self.cache.kind.has_categories()) {
+            } else if self.select_target([location.category]) {
                 continue;
             }
             let old = self.cache.take_order(location.category);
@@ -299,17 +296,8 @@ impl<'a> Search<'a> {
         }
     }
 
-    /// Weak candidates need a completed comparison, or a target already chosen before repair.
-    fn select_target(
-        &mut self,
-        categories: impl IntoIterator<Item = usize>,
-        accept_weak: bool,
-    ) -> bool {
-        let Some(target) = self
-            .cache
-            .target(categories, self.target.name.signature())
-            .filter(|target| accept_weak || target.score >= NAME_IDENTITY_THRESHOLD)
-        else {
+    fn select_target(&mut self, categories: impl IntoIterator<Item = usize>) -> bool {
+        let Some(target) = self.cache.target(categories, self.target.name.signature()) else {
             return false;
         };
         self.category_search = CategorySearch::Target(target);

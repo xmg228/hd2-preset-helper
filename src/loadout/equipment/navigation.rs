@@ -1,8 +1,8 @@
 //! Closed-loop equipment actions on the session's latest observation.
 use super::{
-    EQUIP_TIMEOUT, EquipmentItem, INPUT_HOLD_MS, INPUT_RELEASE_INTERVAL, InputAction,
-    NAME_MATCH_THRESHOLD, NAVIGATION_RETRY_AFTER, NAVIGATION_TIMEOUT, Navigation,
-    PAGE_STABLE_INTERVAL, Session, evidence,
+    CATEGORY_MATCH_THRESHOLD, EQUIP_TIMEOUT, EquipmentItem, INPUT_HOLD_MS, INPUT_RELEASE_INTERVAL,
+    InputAction, NAME_CONTINUITY_THRESHOLD, NAME_MATCH_THRESHOLD, NAVIGATION_RETRY_AFTER,
+    NAVIGATION_TIMEOUT, Navigation, PAGE_STABLE_INTERVAL, Session, evidence,
 };
 use crate::{
     input::Key,
@@ -258,7 +258,7 @@ impl Session<'_> {
             list_moved |= change.geometry_changed;
             responded |= change.observed();
             let complete = if equipping {
-                change.name_cosine >= NAME_MATCH_THRESHOLD
+                change.name_cosine >= NAME_CONTINUITY_THRESHOLD
                     && self.page.focus.is_some_and(|i| self.page.slots[i].equipped)
             } else if !self.page.ready()
                 || !(list_moved || change.focus_changed)
@@ -423,7 +423,7 @@ impl Session<'_> {
         let corrected_category = target
             .category
             .as_ref()
-            .is_none_or(|saved| self.page.category.cosine(saved) < NAME_MATCH_THRESHOLD)
+            .is_none_or(|saved| self.page.category.cosine(saved) < CATEGORY_MATCH_THRESHOLD)
             .then(|| self.page.category.clone());
         self.return_to_entry()?;
         Ok(corrected_category)

@@ -165,9 +165,7 @@ fn load_previews(
                     loaded
                         .equipment_names
                         .iter()
-                        .filter(|(kind, sample)| {
-                            cache.has_strong_match(*kind, scale, sample.signature())
-                        })
+                        .filter(|(kind, sample)| cache.has_match(*kind, scale, sample.signature()))
                         .count()
                 });
             }

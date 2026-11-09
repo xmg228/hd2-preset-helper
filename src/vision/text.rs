@@ -1,16 +1,18 @@
 use std::sync::OnceLock;
 
+use anyhow::{Result, ensure};
 use fast_image_resize::{
     FilterType, ResizeAlg, ResizeOptions, Resizer, images::TypedImage, pixels::F32,
 };
 use image::{GrayImage, RgbaImage};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const WHITE_SEED_MIN: u8 = 200;
-const TEXT_CHROMA_MAX: u8 = 5;
+const WHITE_SEED_CHROMA_MAX: u8 = 5;
+const TEXT_CHROMA_MAX: u8 = 10;
 
 /// Continuous logical text region inside its integer native crop.
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub(crate) struct TextGeometry {
     pub logical_size: (u32, u32),
     pub crop_offset: [f64; 2],
@@ -26,7 +28,7 @@ pub(crate) struct TextSample {
     signature: OnceLock<TextSignature>,
 }
 
-/// Foreground on the fixed logical grid, independent of capture resolution.
+/// Lightly smoothed foreground on the fixed logical grid.
 #[derive(Clone)]
 pub(crate) struct TextSignature {
     size: (u32, u32),
@@ -34,42 +36,6 @@ pub(crate) struct TextSignature {
 }
 
 impl TextSignature {
-    pub fn retain_left_group(mut self) -> Self {
-        retain_left_group(
-            &mut self.response,
-            self.size.0 as usize,
-            self.size.1 as usize,
-        );
-        self
-    }
-
-    pub fn has_text(&self) -> bool {
-        self.response.iter().any(|&value| value > 0.0)
-    }
-
-    pub fn from_foreground(image: GrayImage) -> Self {
-        Self {
-            size: image.dimensions(),
-            response: image
-                .into_raw()
-                .into_iter()
-                .map(|p| p as f32 / 255.0)
-                .collect(),
-        }
-    }
-
-    pub fn foreground(&self) -> GrayImage {
-        GrayImage::from_raw(
-            self.size.0,
-            self.size.1,
-            self.response
-                .iter()
-                .map(|p| (p * 255.0).round() as u8)
-                .collect(),
-        )
-        .unwrap()
-    }
-
     pub fn cosine(&self, other: &Self) -> f32 {
         if self.size != other.size {
             return 0.0;
@@ -79,6 +45,32 @@ impl TextSignature {
 }
 
 impl TextSample {
+    pub fn from_image(image: RgbaImage, geometry: TextGeometry) -> Result<Self> {
+        let (width, height) = image.dimensions();
+        ensure!(
+            width > 0
+                && height > 0
+                && geometry.scale.is_finite()
+                && geometry.scale > 0.0
+                && geometry.logical_size.0 > 0
+                && geometry.logical_size.1 > 0
+                && geometry.logical_size.0 <= 4096
+                && geometry.logical_size.1 <= 512
+                && geometry
+                    .crop_offset
+                    .iter()
+                    .all(|v| v.is_finite() && *v >= 0.0)
+                && geometry.crop_offset[0] < width as f64
+                && geometry.crop_offset[1] < height as f64
+                && geometry.crop_offset[0] + geometry.logical_size.0 as f64 * geometry.scale
+                    <= width as f64 + 1e-6
+                && geometry.crop_offset[1] + geometry.logical_size.1 as f64 * geometry.scale
+                    <= height as f64 + 1e-6,
+            "text image contains invalid sampling geometry"
+        );
+        Ok(Self::extract(image, geometry))
+    }
+
     pub fn retain_left_group(mut self) -> Self {
         let gap = (self.geometry.logical_size.1 as f64 * self.geometry.scale)
             .round_ties_even()
@@ -96,36 +88,33 @@ impl TextSample {
                 scale,
             } = self.geometry;
             let (width, height) = self.image.dimensions();
-            if size == (width, height) && scale == 1.0 && x == 0.0 && y == 0.0 {
-                return TextSignature {
-                    size,
-                    response: self.response.clone(),
-                };
-            }
-            let source = TypedImage::from_pixels(
-                width,
-                height,
-                self.response.iter().map(|&v| F32::new(v)).collect(),
-            )
-            .unwrap();
-            let mut target = TypedImage::<F32>::new(size.0, size.1);
-            // Bilinear convolution also antialiases downsampling. Crop in continuous
-            // coordinates: stretching the rounded raster would lose its sampling phase.
-            let options = ResizeOptions::new()
-                .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
-                .crop(
-                    x,
-                    y,
-                    (size.0 as f64 * scale).min(width as f64 - x),
-                    (size.1 as f64 * scale).min(height as f64 - y),
-                );
-            Resizer::new()
-                .resize_typed(&source, &mut target, &options)
+            let mut response = if size == (width, height) && scale == 1.0 && x == 0.0 && y == 0.0 {
+                self.response.clone()
+            } else {
+                let source = TypedImage::from_pixels(
+                    width,
+                    height,
+                    self.response.iter().map(|&v| F32::new(v)).collect(),
+                )
                 .unwrap();
-            TextSignature {
-                size,
-                response: target.pixels().iter().map(|p| p.0).collect(),
-            }
+                let mut target = TypedImage::<F32>::new(size.0, size.1);
+                // Bilinear convolution also antialiases downsampling. Crop in continuous
+                // coordinates: stretching the rounded raster would lose its sampling phase.
+                let options = ResizeOptions::new()
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
+                    .crop(
+                        x,
+                        y,
+                        (size.0 as f64 * scale).min(width as f64 - x),
+                        (size.1 as f64 * scale).min(height as f64 - y),
+                    );
+                Resizer::new()
+                    .resize_typed(&source, &mut target, &options)
+                    .unwrap();
+                target.pixels().iter().map(|p| p.0).collect()
+            };
+            smooth_signature(&mut response, size.0 as usize);
+            TextSignature { size, response }
         })
     }
 
@@ -160,7 +149,8 @@ impl TextSample {
         for (index, pixel) in image.pixels().enumerate() {
             let low = pixel[0].min(pixel[1]).min(pixel[2]);
             let high = pixel[0].max(pixel[1]).max(pixel[2]);
-            if background[index] || low < 100 || high - low > TEXT_CHROMA_MAX {
+            let chroma = high - low;
+            if background[index] || low < 100 || chroma >= TEXT_CHROMA_MAX {
                 continue;
             }
             let (x, y) = (index as i32 % width, index as i32 / width);
@@ -177,8 +167,11 @@ impl TextSample {
                 })
             });
             allowed[index] = supported;
-            seeds[index] = bright[index] && low >= WHITE_SEED_MIN;
-            intensity[index] = (low as f32 - 100.0) / 155.0;
+            seeds[index] =
+                bright[index] && low >= WHITE_SEED_MIN && chroma <= WHITE_SEED_CHROMA_MAX;
+            // Small channel changes attenuate a stroke rather than removing it abruptly.
+            let neutrality = 1.0 - chroma as f32 / TEXT_CHROMA_MAX as f32;
+            intensity[index] = (low as f32 - 100.0) / 155.0 * neutrality;
         }
         let mut response = vec![0.0; luma.len()];
         for pixels in connected(&allowed, width as usize, true) {
@@ -223,6 +216,34 @@ impl TextSample {
 
     pub fn has_text(&self) -> bool {
         self.response.iter().any(|&value| value > 0.0)
+    }
+}
+
+/// Separable three-tap Gaussian, sigma = 0.5 logical pixels, with replicated edges.
+fn smooth_signature(response: &mut [f32], width: usize) {
+    const SIDE: f32 = 0.106_506_98;
+    const CENTER: f32 = 1.0 - 2.0 * SIDE;
+    let height = response.len() / width;
+    let mut horizontal = vec![0.0; response.len()];
+    for (source, target) in response
+        .chunks_exact(width)
+        .zip(horizontal.chunks_exact_mut(width))
+    {
+        for x in 0..width {
+            target[x] = SIDE * source[x.saturating_sub(1)]
+                + CENTER * source[x]
+                + SIDE * source[(x + 1).min(width - 1)];
+        }
+    }
+    for y in 0..height {
+        let above = y.saturating_sub(1) * width;
+        let current = y * width;
+        let below = (y + 1).min(height - 1) * width;
+        for x in 0..width {
+            response[current + x] = SIDE * horizontal[above + x]
+                + CENTER * horizontal[current + x]
+                + SIDE * horizontal[below + x];
+        }
     }
 }
 

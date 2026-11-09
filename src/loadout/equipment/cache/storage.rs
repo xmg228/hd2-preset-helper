@@ -1,4 +1,4 @@
-//! Disposable JSON cache: complete orders plus Base64-encoded PNG foreground signatures.
+//! Complete orders and native PNG text crops with their sampling geometry.
 use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use image::ImageFormat;
@@ -11,11 +11,12 @@ use std::{
 };
 
 use super::{Category, EquipmentCache};
-use crate::vision::{equipment::EquipmentText, text::TextSignature};
+use crate::vision::{
+    equipment::EquipmentText,
+    text::{TextGeometry, TextSample},
+};
 
-// Also bump when text extraction/geometry changes incompatibly.
-// Rebuild unscoped maps that may contain mixed category orders.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize)]
 struct File {
@@ -25,12 +26,18 @@ struct File {
 
 #[derive(Serialize, Deserialize)]
 struct SavedCategory {
-    title: String,
-    names: Vec<String>,
+    title: SavedText,
+    names: Vec<SavedText>,
     order: Vec<usize>,
     previous: Option<usize>,
     next: Option<usize>,
     circular: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedText {
+    image: String,
+    geometry: TextGeometry,
 }
 
 impl EquipmentCache {
@@ -41,16 +48,18 @@ impl EquipmentCache {
                 Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Self::default()),
                 Err(error) => return Err(error).context("failed to read equipment cache"),
             };
-            let file: File =
+            let value: serde_json::Value =
                 serde_json::from_slice(&bytes).context("failed to parse equipment cache")?;
-            if file.version != VERSION {
+            let saved_version = value["version"].as_u64();
+            if saved_version != Some(VERSION as u64) {
                 tracing::info!(
-                    saved_version = file.version,
+                    saved_version,
                     expected_version = VERSION,
                     "equipment cache format changed; categories will be learned again"
                 );
                 return Ok(Self::default());
             }
+            let file: File = serde_json::from_value(value).context("invalid equipment cache")?;
             let mut cache = Self::default();
             for (scale, saved_kinds) in file.scales {
                 let kinds = cache.scales.entry(scale).or_default();
@@ -151,23 +160,26 @@ impl EquipmentCache {
     }
 }
 
-fn encode(signature: &TextSignature) -> Result<String> {
+fn encode(sample: &TextSample) -> Result<SavedText> {
     let mut bytes = Cursor::new(Vec::new());
-    signature
-        .foreground()
+    sample
+        .image
         .write_to(&mut bytes, ImageFormat::Png)
-        .context("failed to encode equipment cache signature")?;
-    Ok(STANDARD.encode(bytes.into_inner()))
+        .context("failed to encode equipment cache image")?;
+    Ok(SavedText {
+        image: STANDARD.encode(bytes.into_inner()),
+        geometry: sample.geometry,
+    })
 }
 
-fn decode(png: &str, field: EquipmentText) -> Result<TextSignature> {
-    let bytes = STANDARD.decode(png)?;
-    let image = image::load_from_memory_with_format(&bytes, ImageFormat::Png)?.into_luma8();
-    let signature = TextSignature::from_foreground(image);
-    let signature = match field {
-        EquipmentText::Name => signature.retain_left_group(),
-        EquipmentText::Category => signature,
+fn decode(saved: &SavedText, field: EquipmentText) -> Result<TextSample> {
+    let bytes = STANDARD.decode(&saved.image)?;
+    let image = image::load_from_memory_with_format(&bytes, ImageFormat::Png)?.into_rgba8();
+    let sample = TextSample::from_image(image, saved.geometry)?;
+    let sample = match field {
+        EquipmentText::Name => sample.retain_left_group(),
+        EquipmentText::Category => sample,
     };
-    ensure!(signature.has_text(), "empty equipment cache signature");
-    Ok(signature)
+    ensure!(sample.has_text(), "empty equipment cache foreground");
+    Ok(sample)
 }
