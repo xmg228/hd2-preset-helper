@@ -193,11 +193,7 @@ impl Session<'_> {
         let mut cursor: Option<(u32, u32)> = None;
         loop {
             self.check_active()?;
-            if started.elapsed() >= NAVIGATION_TIMEOUT {
-                self.evidence
-                    .checkpoint(&self.frame, &self.page, "hover-timeout");
-                bail!("equipment target hover was not confirmed; no click was sent");
-            }
+            let mut move_to = None;
             if self.page.ready() {
                 let row = self.page.slots[self.page.focus.unwrap()].row;
                 let (index, slot) = self
@@ -216,14 +212,22 @@ impl Session<'_> {
                     point.0.abs_diff(old.0).max(point.1.abs_diff(old.1)) as f64
                         > 3.0 * self.page.scale
                 }) {
-                    self.automation.move_cursor(point)?;
-                    cursor = Some(point);
+                    move_to = Some(point);
                 } else if self.page.hover == Some(index) {
                     let point = cursor.unwrap();
                     self.evidence
                         .checkpoint(&self.frame, &self.page, "equipment-hover-confirmed");
                     return Ok(point);
                 }
+            }
+            if started.elapsed() >= NAVIGATION_TIMEOUT {
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "hover-timeout");
+                bail!("equipment target hover was not confirmed; no click was sent");
+            }
+            if let Some(point) = move_to {
+                self.automation.move_cursor(point)?;
+                cursor = Some(point);
             }
             self.refresh()?;
         }

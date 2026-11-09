@@ -69,7 +69,7 @@ pub(super) struct WgcCapture {
     texture_read: TextureReadCache,
 }
 
-const WGC_FRAME_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
+const WGC_FRAME_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct WgcFrameBus {
     shared: Arc<(Mutex<WgcFrameBusState>, Condvar)>,

@@ -32,9 +32,9 @@ const CLICK_HOLD_MS: u64 = 45;
 const MAX_TARGET_CLICK_ATTEMPTS: usize = 3;
 const MAX_HOVER_ATTEMPTS: usize = 4;
 const TARGET_POSITION_TOLERANCE: u32 = 2;
-const POST_CLICK_CONFIRM_TIMEOUT: Duration = Duration::from_millis(400);
+const POST_CLICK_CONFIRM_TIMEOUT: Duration = Duration::from_millis(1500);
 const POST_CLICK_MIN_OBSERVATIONS: u32 = 2;
-const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(600);
+const TERMINAL_SETTLE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoosterApplyOutcome {
