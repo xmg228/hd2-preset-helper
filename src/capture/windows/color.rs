@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use anyhow::{Result, ensure};
 use half::f16;
+use rayon::prelude::*;
 use tracing::{debug, warn};
 
 use super::{CapturePixelFormat, display::DisplayColorInfo};
@@ -21,6 +22,7 @@ const SCRGB_NITS: f32 = 80.0;
 const PQ_MAX_NITS: f32 = 10_000.0;
 const HDR_TONE_LUT_SEGMENTS: usize = 8192;
 const MATCHER_GAMMA: f32 = 0.4545;
+const CONVERSION_GRAIN_PIXELS: usize = 64 * 1024;
 
 pub(in crate::capture) struct ColorNormalizer {
     mode: NormalizationMode,
@@ -131,7 +133,27 @@ impl ColorNormalizer {
 }
 
 impl ColorNormalizer {
-    pub(super) fn convert_bgra8_row(&self, source: &[u8], destination: &mut [u8]) {
+    pub(super) fn convert_rows(
+        &self,
+        source: &[u8],
+        row_pitch: usize,
+        width: usize,
+        destination: &mut [u8],
+    ) {
+        let convert_row = |(source, destination): (&[u8], &mut [u8])| match &self.mode {
+            NormalizationMode::SdrBgra8 { .. } => {
+                self.convert_bgra8_row(&source[..width * 4], destination);
+            }
+            _ => self.convert_rgba16f_row(&source[..width * 8], destination),
+        };
+        source
+            .par_chunks(row_pitch)
+            .zip(destination.par_chunks_mut(width * 4))
+            .with_min_len(CONVERSION_GRAIN_PIXELS.div_ceil(width))
+            .for_each(convert_row);
+    }
+
+    fn convert_bgra8_row(&self, source: &[u8], destination: &mut [u8]) {
         debug_assert_eq!(source.len(), destination.len());
         let NormalizationMode::SdrBgra8 { lut } = &self.mode else {
             unreachable!("BGRA8 capture requires SDR BGRA8 normalization");
@@ -145,7 +167,7 @@ impl ColorNormalizer {
         }
     }
 
-    pub(super) fn convert_rgba16f_row(&self, source: &[u8], destination: &mut [u8]) {
+    fn convert_rgba16f_row(&self, source: &[u8], destination: &mut [u8]) {
         debug_assert_eq!(source.len() / 8, destination.len() / 4);
         for (pixel, output) in source.chunks_exact(8).zip(destination.chunks_exact_mut(4)) {
             let rgb = match &self.mode {
@@ -210,7 +232,7 @@ impl HdrToneLut {
     fn sample(&self, nits: f32) -> f32 {
         let position =
             (nits.clamp(0.0, PQ_MAX_NITS) / PQ_MAX_NITS).sqrt() * HDR_TONE_LUT_SEGMENTS as f32;
-        let lower = (position.floor() as usize).min(HDR_TONE_LUT_SEGMENTS - 1);
+        let lower = (position as usize).min(HDR_TONE_LUT_SEGMENTS - 1);
         let fraction = position - lower as f32;
         self.values[lower] + (self.values[lower + 1] - self.values[lower]) * fraction
     }

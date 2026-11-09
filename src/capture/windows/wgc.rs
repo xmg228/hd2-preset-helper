@@ -635,7 +635,14 @@ fn read_d3d11_texture_region_to_rgba_cached(
     let t_alloc = t.elapsed();
 
     let row_pitch = mapped.RowPitch as usize;
-    let source = mapped.pData as *const u8;
+    let source_row_bytes = width as usize * source_bytes_per_pixel;
+    // The mapping stays valid until Unmap below; omit the last row's trailing padding.
+    let source = unsafe {
+        std::slice::from_raw_parts(
+            mapped.pData.cast::<u8>(),
+            (height as usize - 1) * row_pitch + source_row_bytes,
+        )
+    };
     #[cfg(feature = "diagnostics")]
     let mut f16_dump = (pixel_format == CapturePixelFormat::Rgba16Float
         && cache.f16_dump_dir.is_some()
@@ -643,19 +650,11 @@ fn read_d3d11_texture_region_to_rgba_cached(
         .then(|| Vec::with_capacity(width as usize * height as usize * 8));
 
     let t = Instant::now();
-    for row in 0..height as usize {
-        let row_ptr = unsafe { source.add(row * row_pitch) };
-        let dst_row = &mut rgba[row * width as usize * 4..(row + 1) * width as usize * 4];
-
-        let row_bytes =
-            unsafe { std::slice::from_raw_parts(row_ptr, width as usize * source_bytes_per_pixel) };
-        #[cfg(feature = "diagnostics")]
-        if let Some(dump) = &mut f16_dump {
-            dump.extend_from_slice(row_bytes);
-        }
-        match pixel_format {
-            CapturePixelFormat::Bgra8 => converter.convert_bgra8_row(row_bytes, dst_row),
-            CapturePixelFormat::Rgba16Float => converter.convert_rgba16f_row(row_bytes, dst_row),
+    converter.convert_rows(source, row_pitch, width as usize, &mut rgba);
+    #[cfg(feature = "diagnostics")]
+    if let Some(dump) = &mut f16_dump {
+        for row in source.chunks(row_pitch) {
+            dump.extend_from_slice(&row[..source_row_bytes]);
         }
     }
     let t_convert = t.elapsed();
