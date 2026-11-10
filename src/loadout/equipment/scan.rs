@@ -377,8 +377,8 @@ impl Session<'_> {
                         sampling.observed_slots()
                     },
             );
-            let action = match step {
-                RowStep::Column(col) => InputAction::ClickColumn(col),
+            let (action, wait) = match step {
+                RowStep::Column(col) => (InputAction::ClickColumn(col), NavigationWait::Responsive),
                 RowStep::Complete(names) => {
                     items += names.len();
                     rows.push(ScannedRow {
@@ -394,11 +394,11 @@ impl Session<'_> {
                         break 0;
                     }
                     row = None;
-                    InputAction::Key(Key::Down)
+                    (InputAction::Key(Key::Down), NavigationWait::Settled)
                 }
             };
             let mut before = self.page.scrollbar;
-            let mut input = self.navigate(action, NavigationWait::Settled)?;
+            let mut input = self.navigate(action, wait)?;
             if input.retried && matches!(action, InputAction::Key(Key::Down)) {
                 self.return_to_scanned_row(&rows)?;
                 // Only the confirmed departure contributes a row or a cycle boundary.
