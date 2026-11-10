@@ -20,12 +20,11 @@ impl Session<'_> {
         {
             self.refresh()?;
         }
-        self.check_active()
+        self.automation.check_cancelled()
     }
 
     // Only releases inputs injected by this session; no global key-release operation.
     fn press(&mut self, action: InputAction, point: Option<(u32, u32)>) -> Result<(Instant, f64)> {
-        self.check_active()?;
         let started = Instant::now();
         tracing::debug!(
             action = action.name(),
@@ -53,7 +52,7 @@ impl Session<'_> {
         let mut cursor: Option<(u32, u32)> = None;
         let mut hover_confirmed = false;
         loop {
-            self.check_active()?;
+            self.automation.check_cancelled()?;
             if self.page.ready() && self.page.focus == self.page.hover {
                 if cursor.is_some() && !hover_confirmed {
                     // The category heading can update after the hover border.
@@ -92,7 +91,7 @@ impl Session<'_> {
         self.evidence.begin_item(kind);
         let started = Instant::now();
         let entry = loop {
-            self.check_active()?;
+            self.automation.check_cancelled()?;
             let entry = self.observer.entry(&self.frame);
             // All six positions are fixed once the entry page is confirmed.
             if entry.confirmed() {
@@ -105,7 +104,6 @@ impl Session<'_> {
             }
             self.refresh()?;
         };
-        self.check_active()?;
         let point = entry.point(kind);
         tracing::debug!(x = point.0, y = point.1, "opening equipment list");
         self.automation.click(point, INPUT_HOLD_MS)?;
@@ -148,7 +146,6 @@ impl Session<'_> {
         let started = Instant::now();
         loop {
             // Returning needs only entry evidence, not full list/text recognition each frame.
-            self.check_active()?;
             let frame = self.automation.capture()?;
             let entry = self.observer.entry(&frame);
             if entry.confirmed() {
@@ -196,7 +193,7 @@ impl Session<'_> {
         let started = Instant::now();
         let mut cursor: Option<(u32, u32)> = None;
         loop {
-            self.check_active()?;
+            self.automation.check_cancelled()?;
             let mut move_to = None;
             if self.page.ready() {
                 let row = self.page.slots[self.page.focus.unwrap()].row;
@@ -392,7 +389,6 @@ impl Session<'_> {
                     key @ (Key::Up | Key::Down | Key::Left | Key::Right | Key::Z | Key::C),
                 ) = action
             {
-                self.check_active()?;
                 let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
                 self.automation.tap_key(key, INPUT_HOLD_MS)?;
                 self.last_release = Some(Instant::now());

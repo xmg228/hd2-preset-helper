@@ -1,5 +1,5 @@
 //! Complete row cycles from an arbitrary entry, with boundary-based completion as fallback.
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 
 use super::{
     CATEGORY_MATCH_THRESHOLD, EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, NavigationWait,
@@ -20,6 +20,7 @@ use crate::{
 };
 
 const MAX_SCAN_VISITS: usize = 4096;
+const MAX_RECOVERY_ROWS: usize = 2;
 
 /// One immutable reference. Content position is approximate; row order is discrete.
 struct PositionReference {
@@ -210,18 +211,94 @@ impl Session<'_> {
         }
         let focus = self.page.focus.context("equipment scan focus is missing")?;
         if self.page.slots[focus].col != collection.original.col {
-            let input = self.navigate(
+            self.navigate(
                 InputAction::ClickColumn(collection.original.col),
                 NavigationWait::Settled,
             )?;
-            ensure!(
-                !input.retried,
-                "equipment scan lost continuity while restoring the original column"
-            );
         }
         self.equip_and_return(&original)
             .context("failed to restore the equipment selected before scanning")?;
         Ok(collection.catalog)
+    }
+
+    fn confirm_scanned_row(&mut self, expected: &ScannedRow) -> Result<bool> {
+        self.sync_category()?;
+        let focus = &self.page.slots[self.page.focus.context("equipment scan focus is missing")?];
+        let width = self
+            .page
+            .slots
+            .iter()
+            .filter(|s| s.row == focus.row)
+            .count();
+        if width != expected.names.len()
+            || expected.category.cosine(&self.page.category) < CATEGORY_MATCH_THRESHOLD
+            || expected
+                .names
+                .get(focus.col)
+                .is_none_or(|name| name.cosine(&self.page.name) < NAME_MATCH_THRESHOLD)
+        {
+            return Ok(false);
+        }
+        let anchor_row = focus.row;
+        let mut row = RowScan::new(width, focus.col);
+        let anchor = self.page.clone();
+        loop {
+            let focus =
+                &self.page.slots[self.page.focus.context("equipment scan focus is missing")?];
+            let change = self.page.change_from(&anchor);
+            ensure!(
+                focus.row == anchor_row && !change.geometry_changed && !change.scrollbar_changed,
+                "equipment row moved during scan recovery"
+            );
+            let width = self
+                .page
+                .slots
+                .iter()
+                .filter(|s| s.row == focus.row)
+                .count();
+            match row
+                .advance(width, focus.col, self.page.name.clone())
+                .map_err(|()| anyhow::anyhow!("equipment row width changed during scan recovery"))?
+            {
+                RowStep::Complete(names) => {
+                    return Ok(expected.matches(&self.page.category, &names));
+                }
+                RowStep::Column(col) => {
+                    self.navigate(InputAction::ClickColumn(col), NavigationWait::Settled)?;
+                    self.sync_category()?;
+                }
+            }
+        }
+    }
+
+    fn return_to_scanned_row(&mut self, rows: &[ScannedRow]) -> Result<()> {
+        let (expected, earlier) = rows
+            .split_last()
+            .context("equipment scan has no completed row to return to")?;
+        ensure!(
+            !earlier
+                .iter()
+                .any(|row| row.matches(&expected.category, &expected.names)),
+            "equipment scan recovery cannot distinguish the last completed row"
+        );
+        tracing::info!("returning to the last completed equipment row after a navigation retry");
+        for up_steps in 0..=MAX_RECOVERY_ROWS {
+            if self.confirm_scanned_row(expected)? {
+                self.evidence
+                    .checkpoint(&self.frame, &self.page, "scan-row-recovered");
+                tracing::debug!(up_steps, "equipment scan row recovered");
+                return Ok(());
+            }
+            if up_steps == MAX_RECOVERY_ROWS {
+                break;
+            }
+            let input = self.navigate(InputAction::Key(Key::Up), NavigationWait::Settled)?;
+            ensure!(
+                !input.retried,
+                "equipment scan recovery lost continuity while returning to the completed row"
+            );
+        }
+        bail!("equipment scan could not return to its last completed row");
     }
 
     /// Collect the open type, leaving focus at the returned occurrence for navigation.
@@ -229,7 +306,7 @@ impl Session<'_> {
         &mut self,
         progress: &mut impl FnMut(&TextSample, usize),
     ) -> Result<Collection> {
-        self.check_active()?;
+        self.automation.check_cancelled()?;
         let kind = self.observer.kind();
         let original_col =
             self.page.slots[self.page.focus.context("equipment scan focus is missing")?].col;
@@ -244,7 +321,7 @@ impl Session<'_> {
         let mut visits = 1;
 
         let start = loop {
-            self.check_active()?;
+            self.automation.check_cancelled()?;
             ensure!(
                 visits < MAX_SCAN_VISITS,
                 "equipment scan exceeded {MAX_SCAN_VISITS} observations"
@@ -320,8 +397,14 @@ impl Session<'_> {
                     InputAction::Key(Key::Down)
                 }
             };
-            let before = self.page.scrollbar;
-            let input = self.navigate(action, NavigationWait::Settled)?;
+            let mut before = self.page.scrollbar;
+            let mut input = self.navigate(action, NavigationWait::Settled)?;
+            if input.retried && matches!(action, InputAction::Key(Key::Down)) {
+                self.return_to_scanned_row(&rows)?;
+                // Only the confirmed departure contributes a row or a cycle boundary.
+                before = self.page.scrollbar;
+                input = self.navigate(action, NavigationWait::Settled)?;
+            }
             ensure!(
                 !input.retried,
                 "equipment scan lost input continuity; the current type was not saved"

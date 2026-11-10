@@ -79,7 +79,7 @@ impl PageTurnInput {
     fn scroll_notches(self) -> i32 {
         let magnitude = match self {
             Self::Full(_) => PAGE_SCROLL_NOTCHES,
-            Self::Scan(_) => 2,
+            Self::Scan(_) => 6,
             Self::Retry(_) => PAGE_RETRY_NOTCHES,
             Self::Recovery(_) => PAGE_ALIGNMENT_RECOVERY_NOTCHES,
         };

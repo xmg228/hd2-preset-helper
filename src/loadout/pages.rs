@@ -155,7 +155,6 @@ fn wait_for_page(
     )?;
     let mut confirmed = false;
     loop {
-        target.ensure_input_target()?;
         let frame = region.capture()?;
         let detection = detector.home(frame.clone())?;
         let visible = detection.confirmed();

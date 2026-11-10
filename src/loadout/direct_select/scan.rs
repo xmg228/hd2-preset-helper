@@ -48,13 +48,6 @@ pub(crate) fn scan_icon_list(
     let navigator = PageNavigator::for_scan(recognizer, kind);
     let opened = open_slot_list(automation, recognizer, target)?;
     let mut page = navigator.prepare_page(opened)?;
-    let point = page
-        .roi
-        .slots
-        .first()
-        .context("the opened icon list is empty")?
-        .center();
-    automation.move_cursor(point)?;
     let mut map = ListMap::new(&page, kind, automation.evidence());
     complete_open_list(&navigator, automation, &mut map, &mut page, progress)?;
     let templates = materialize_icons(kind, &map, &selected)?;

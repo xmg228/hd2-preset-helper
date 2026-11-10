@@ -13,7 +13,6 @@ use crate::{
     automation::{AutomationSession, Cancellation},
     capture::CaptureSource,
     game_settings::GameColorSettings,
-    game_window,
     input::Key,
     item::{EquipmentKind, EquipmentSelection},
     item_cache::ItemCache,
@@ -67,9 +66,9 @@ impl InputAction {
     }
 }
 
-const NAVIGATION_TIMEOUT: Duration = Duration::from_millis(1500);
-const NAVIGATION_RETRY_AFTER: Duration = Duration::from_millis(300);
-const EQUIP_TIMEOUT: Duration = Duration::from_millis(1500);
+const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(2);
+const NAVIGATION_RETRY_AFTER: Duration = Duration::from_millis(600);
+const EQUIP_TIMEOUT: Duration = Duration::from_secs(2);
 const INPUT_HOLD_MS: u64 = 45;
 const INPUT_RELEASE_INTERVAL: Duration = Duration::from_millis(20);
 const PAGE_STABLE_INTERVAL: Duration = Duration::from_millis(40);
@@ -138,17 +137,7 @@ impl<'a> Session<'a> {
         })
     }
 
-    fn check_active(&self) -> Result<()> {
-        self.automation.check_cancelled()?;
-        ensure!(
-            game_window::is_game_foreground(),
-            "game lost foreground; equipment operation stopped"
-        );
-        Ok(())
-    }
-
     fn refresh(&mut self) -> Result<()> {
-        self.check_active()?;
         let started = Instant::now();
         self.frame = self.automation.capture()?;
         let capture_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -188,13 +177,13 @@ impl<'a> Session<'a> {
             let span = tracing::info_span!("equipment_item", ?kind);
             let _guard = span.enter();
             let item = (|| -> Result<CapturedEquipmentItem> {
-                self.check_active()?;
+                self.automation.check_cancelled()?;
 
                 self.open(kind)?;
                 let item = self.sample_current()?;
 
                 self.return_to_entry()?;
-                self.check_active()?;
+                self.automation.check_cancelled()?;
                 Ok(item)
             })()
             .with_context(|| {
@@ -203,7 +192,7 @@ impl<'a> Session<'a> {
             items[kind.index()] = Some(item);
             tracing::debug!(completed = index + 1, "equipped item sampled");
         }
-        self.check_active()?;
+        self.automation.check_cancelled()?;
 
         Ok(items)
     }

@@ -105,6 +105,8 @@ pub struct EquipmentObservation {
 #[derive(Debug, Serialize)]
 pub struct PageChange {
     pub geometry_changed: bool,
+    /// Thumb motion may precede the list's focus and geometry changes.
+    pub scrollbar_changed: bool,
     pub focus_changed: bool,
     pub name_cosine: f32,
     pub name_changed: bool,
@@ -114,7 +116,11 @@ pub struct PageChange {
 
 impl PageChange {
     pub fn observed(&self) -> bool {
-        self.geometry_changed || self.focus_changed || self.name_changed || self.category_changed
+        self.geometry_changed
+            || self.scrollbar_changed
+            || self.focus_changed
+            || self.name_changed
+            || self.category_changed
     }
 }
 
@@ -134,6 +140,16 @@ impl EquipmentObservation {
                 .iter()
                 .zip(&previous.slots)
                 .any(|(a, b)| moved(a, b));
+        let scrollbar_changed = self
+            .scrollbar
+            .zip(previous.scrollbar)
+            .is_some_and(|(a, b)| {
+                f64::from(
+                    (a.upper_y - b.upper_y)
+                        .abs()
+                        .max((a.lower_y - b.lower_y).abs()),
+                ) > 3.0 * self.scale
+            });
         let focus_changed = match (self.focus, previous.focus) {
             (Some(a), Some(b)) => moved(&self.slots[a], &previous.slots[b]),
             _ => self.focus != previous.focus,
@@ -142,6 +158,7 @@ impl EquipmentObservation {
         let category_cosine = self.category.native_cosine(&previous.category);
         PageChange {
             geometry_changed,
+            scrollbar_changed,
             focus_changed,
             name_cosine,
             // Provisional temporal-change threshold, deliberately not an identity threshold.
