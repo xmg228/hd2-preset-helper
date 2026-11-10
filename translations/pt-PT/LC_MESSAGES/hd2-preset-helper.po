@@ -341,7 +341,7 @@ msgid "Edit loadout"
 msgstr "Editar configuração"
 
 msgid "Randomize Stratagems & Booster"
-msgstr "Sortear estratagemas e reforço"
+msgstr "Sortear estratagemas e impulsionador"
 
 msgid "Offensive"
 msgstr "Ofensivo"

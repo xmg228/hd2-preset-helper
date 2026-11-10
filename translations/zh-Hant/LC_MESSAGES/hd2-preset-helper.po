@@ -341,7 +341,7 @@ msgid "Edit loadout"
 msgstr "編輯配裝"
 
 msgid "Randomize Stratagems & Booster"
-msgstr "隨機戰略配備與強化資源"
+msgstr "隨機戰略配備與強化套件"
 
 msgid "Offensive"
 msgstr "進攻"
@@ -368,7 +368,7 @@ msgid "Set up your loadout in the game, select a preset, then choose “{}”."
 msgstr "在遊戲中配好後，選擇預設，點擊「{}」。"
 
 msgid "To use it later, select the preset and choose “{}”, or use its shortcut."
-msgstr "之後選取預設，點擊「{}」或使用快捷鍵。"
+msgstr "之後選取預設，點擊「{}」或使用快速鍵。"
 
 msgid "You can also use “{}” to change items or randomize your loadout. Required lists are scanned automatically when you first apply each item type, or you can scan them in advance."
 msgstr "也可以透過「{}」更換物品或隨機搭配。所需清單會在首次套用對應類型時自動掃描，也可以提前掃描。"

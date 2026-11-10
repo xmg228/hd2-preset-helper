@@ -341,7 +341,7 @@ msgid "Edit loadout"
 msgstr "装備構成を編集"
 
 msgid "Randomize Stratagems & Booster"
-msgstr "ストラタジェムとブースターをランダム選択"
+msgstr "戦略支援とブースターをランダム選択"
 
 msgid "Offensive"
 msgstr "攻撃タイプ"

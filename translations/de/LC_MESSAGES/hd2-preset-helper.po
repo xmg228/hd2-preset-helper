@@ -110,7 +110,7 @@ msgid "Rename preset"
 msgstr "Preset umbenennen"
 
 msgid "Duplicate preset"
-msgstr "Voreinstellung duplizieren"
+msgstr "Preset duplizieren"
 
 msgid "Delete preset"
 msgstr "Preset löschen"

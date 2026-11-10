@@ -380,7 +380,7 @@ msgid "Save changes"
 msgstr "Guardar cambios"
 
 msgid "Randomize equipment"
-msgstr "Elegir equipo al azar"
+msgstr "Elegir equipamiento al azar"
 
 msgid "Scan all missing lists"
 msgstr "Escanear todas las listas que faltan"

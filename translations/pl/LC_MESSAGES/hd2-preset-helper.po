@@ -316,7 +316,7 @@ msgstr "Automatycznie sprawdzaj aktualizacje"
 
 # Item scanning.
 msgid "Item cache"
-msgstr "Pamięć przedmiotów"
+msgstr "Pamięć podręczna przedmiotów"
 
 msgid "All items"
 msgstr "Wszystkie przedmioty"
@@ -341,7 +341,7 @@ msgid "Edit loadout"
 msgstr "Edytuj zestaw"
 
 msgid "Randomize Stratagems & Booster"
-msgstr "Losuj fortele i dopalacz"
+msgstr "Losuj manewry i premię"
 
 msgid "Offensive"
 msgstr "Ofensywny"
