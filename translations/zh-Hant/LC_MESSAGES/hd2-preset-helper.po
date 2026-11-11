@@ -179,6 +179,12 @@ msgstr "記住備用強化套件"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "已儲存的強化套件被佔用時，記住你的替代選擇。"
 
+msgid "Keep panel open"
+msgstr "保持面板顯示"
+
+msgid "Stays visible when you switch to another window."
+msgstr "切換到其他視窗時不自動隱藏。"
+
 msgid "Display"
 msgstr "螢幕"
 

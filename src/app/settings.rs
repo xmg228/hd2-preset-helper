@@ -19,6 +19,7 @@ impl AppController {
         self.ui.open_settings(
             SettingsDraft {
                 shortcuts: self.shortcut_bindings.clone(),
+                keep_panel_open_on_focus_loss: self.keep_panel_open_on_focus_loss,
                 monitor: self.ui.monitor().to_owned(),
                 language: self.ui.language(),
                 apply_in_saved_order: self.settings.apply_in_saved_order,
@@ -89,6 +90,7 @@ impl AppController {
         self.hotkeys = hotkeys;
         self.panel_hotkey = panel;
         self.shortcut_bindings = draft.shortcuts;
+        self.keep_panel_open_on_focus_loss = draft.keep_panel_open_on_focus_loss;
         self.settings = PresetActionOptions {
             apply_in_saved_order: draft.apply_in_saved_order,
             auto_ready_up: draft.auto_ready_up,

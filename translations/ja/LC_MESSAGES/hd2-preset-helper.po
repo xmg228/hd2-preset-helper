@@ -179,6 +179,12 @@ msgstr "予備のブースターを記憶"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "保存済みのブースターがすべて使用中の場合、選び直したものを記憶します。"
 
+msgid "Keep panel open"
+msgstr "パネルを表示したままにする"
+
+msgid "Stays visible when you switch to another window."
+msgstr "別のウィンドウに切り替えても表示を維持します。"
+
 msgid "Display"
 msgstr "ディスプレイ"
 

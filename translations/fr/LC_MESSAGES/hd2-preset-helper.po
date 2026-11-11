@@ -179,6 +179,12 @@ msgstr "Mémoriser un bonus de secours"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Mémorise votre choix de remplacement si les bonus enregistrés sont déjà pris."
 
+msgid "Keep panel open"
+msgstr "Garder le panneau ouvert"
+
+msgid "Stays visible when you switch to another window."
+msgstr "Reste visible lors du passage à une autre fenêtre."
+
 msgid "Display"
 msgstr "Écran"
 

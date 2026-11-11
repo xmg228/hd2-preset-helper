@@ -149,6 +149,7 @@ fn run_with_config(
         panel_hotkey,
         shortcut_bindings,
         scope: config.presets.scope,
+        keep_panel_open_on_focus_loss: config.ui.keep_panel_open_on_focus_loss,
         worker,
         settings,
         state: ActionState::Idle,
@@ -261,6 +262,7 @@ struct AppController {
     panel_hotkey: input::Hotkeys,
     shortcut_bindings: ShortcutBindings,
     scope: PresetScope,
+    keep_panel_open_on_focus_loss: bool,
     worker: ActionWorker,
     settings: PresetActionOptions,
     state: ActionState,
@@ -373,9 +375,10 @@ impl AppController {
             self.cancel_action_check()?;
             self.close_panel()?;
         }
-        // Hide idle browsing whenever focus leaves the panel, including to the game.
+        // Idle browsing can remain visible without owning input focus.
         // Waiting actions keep their separate focus/release handling below.
         if self.ui.is_panel_open()
+            && !self.keep_panel_open_on_focus_loss
             && !self.ui.is_panel_active()
             && matches!(self.state, ActionState::Idle)
         {

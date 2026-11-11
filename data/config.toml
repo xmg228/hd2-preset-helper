@@ -7,6 +7,9 @@ panel_shortcut = "Ctrl + Shift + Space"
 # Panel size and work-area-relative position are in logical pixels.
 panel = { size = [900, 620] }
 
+# Keep the panel visible when another window gains focus.
+keep_panel_open_on_focus_loss = false
+
 # "auto" follows the game, or uses the primary display when the game is not in front.
 # To use a fixed display, select it in Settings > General.
 monitor = "auto"

@@ -179,6 +179,12 @@ msgstr "Запоминать запасной усилитель"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Запоминает выбранную вами замену, если все сохранённые усилители заняты."
 
+msgid "Keep panel open"
+msgstr "Не закрывать панель"
+
+msgid "Stays visible when you switch to another window."
+msgstr "Остаётся видимой при переключении на другое окно."
+
 msgid "Display"
 msgstr "Монитор"
 

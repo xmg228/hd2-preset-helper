@@ -179,6 +179,12 @@ msgstr "Zapamiętaj premię zapasową"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Zapamiętuje twój wybór zastępczy, gdy wszystkie zapisane premie są zajęte."
 
+msgid "Keep panel open"
+msgstr "Pozostaw panel otwarty"
+
+msgid "Stays visible when you switch to another window."
+msgstr "Pozostaje widoczny po przełączeniu na inne okno."
+
 msgid "Display"
 msgstr "Monitor"
 

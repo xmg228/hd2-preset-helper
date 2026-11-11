@@ -16,6 +16,7 @@ export component SettingsDialog inherits Rectangle {
     in-out property <int> selected-monitor;
     in-out property <int> selected-language;
     in property <[string]> language-fonts;
+    in-out property <bool> keep-panel-open-on-focus-loss;
     in property <bool> startup-available;
     in-out property <bool> start-with-windows;
     in-out property <bool> apply-in-saved-order;
@@ -162,6 +163,12 @@ export component SettingsDialog inherits Rectangle {
                             enabled: root.enabled && !root.saving;
                         }
                         Text { text: @tr("Screen for the interface."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+                    }
+                    SettingToggle {
+                        text: @tr("Keep panel open");
+                        description: @tr("Stays visible when you switch to another window.");
+                        checked <=> root.keep-panel-open-on-focus-loss;
+                        enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
                         text: @tr("Start with Windows");

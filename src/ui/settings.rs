@@ -109,6 +109,7 @@ pub(super) fn connect(
         let _ = send.send(UiRequest::SaveSettings {
             draft: SettingsDraft {
                 shortcuts: bindings(&panel),
+                keep_panel_open_on_focus_loss: panel.get_draft_keep_panel_open_on_focus_loss(),
                 monitor: monitor.id.to_string(),
                 language: UiLanguage::ALL[panel.get_selected_language() as usize],
                 apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
@@ -265,6 +266,7 @@ pub(super) fn open(
             .position(|&language| language == draft.language)
             .unwrap_or_default() as i32,
     );
+    panel.set_draft_keep_panel_open_on_focus_loss(draft.keep_panel_open_on_focus_loss);
     panel.set_startup_available(startup_state.is_some());
     panel.set_initial_start_with_windows(startup_state.unwrap_or_default());
     panel.set_draft_start_with_windows(panel.get_initial_start_with_windows());

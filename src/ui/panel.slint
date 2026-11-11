@@ -340,6 +340,7 @@ export component PresetPanel inherits Window {
     in property <[string]> language-fonts;
     in property <bool> startup-available;
     in property <bool> initial-start-with-windows;
+    in-out property <bool> draft-keep-panel-open-on-focus-loss;
     in-out property <bool> draft-start-with-windows;
     in-out property <bool> draft-apply-in-saved-order;
     in-out property <bool> draft-auto-ready-up;
@@ -1532,6 +1533,7 @@ export component PresetPanel inherits Window {
             selected-monitor <=> root.selected-monitor;
             selected-language <=> root.selected-language;
             language-fonts: root.language-fonts;
+            keep-panel-open-on-focus-loss <=> root.draft-keep-panel-open-on-focus-loss;
             startup-available: root.startup-available;
             start-with-windows <=> root.draft-start-with-windows;
             apply-in-saved-order <=> root.draft-apply-in-saved-order;

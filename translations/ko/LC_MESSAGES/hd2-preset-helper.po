@@ -179,6 +179,12 @@ msgstr "대체 부스터 기억"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "저장된 부스터가 모두 사용 중이면 직접 선택한 부스터를 기억합니다."
 
+msgid "Keep panel open"
+msgstr "패널 표시 유지"
+
+msgid "Stays visible when you switch to another window."
+msgstr "다른 창으로 전환해도 계속 표시됩니다."
+
 msgid "Display"
 msgstr "디스플레이"
 

@@ -179,6 +179,12 @@ msgstr "记住备选强化资源"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "已保存的强化资源被占用时，记住你的替代选择。"
 
+msgid "Keep panel open"
+msgstr "保持面板显示"
+
+msgid "Stays visible when you switch to another window."
+msgstr "切换到其他窗口时不自动隐藏。"
+
 msgid "Display"
 msgstr "显示器"
 

@@ -7,6 +7,7 @@ use super::{ShortcutBindings, UiLanguage};
 
 pub struct SettingsDraft {
     pub shortcuts: ShortcutBindings,
+    pub keep_panel_open_on_focus_loss: bool,
     pub monitor: String,
     pub language: UiLanguage,
     pub apply_in_saved_order: bool,
@@ -25,6 +26,12 @@ impl SettingsDraft {
             "ui",
             "panel_shortcut",
             self.shortcuts.panel.as_str(),
+        )?;
+        super::write_setting(
+            &mut document,
+            "ui",
+            "keep_panel_open_on_focus_loss",
+            self.keep_panel_open_on_focus_loss,
         )?;
         super::write_setting(&mut document, "ui", "monitor", self.monitor.as_str())?;
         super::write_setting(

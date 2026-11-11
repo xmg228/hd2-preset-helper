@@ -179,6 +179,12 @@ msgstr "Memorizar um impulsionador alternativo"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Memoriza a tua alternativa quando os impulsionadores guardados estão em uso."
 
+msgid "Keep panel open"
+msgstr "Manter painel aberto"
+
+msgid "Stays visible when you switch to another window."
+msgstr "Permanece visível ao mudar para outra janela."
+
 msgid "Display"
 msgstr "Ecrã"
 

@@ -200,6 +200,7 @@ impl Default for PanelPlacement {
 pub struct UiSettings {
     pub panel_shortcut: String,
     pub panel: PanelPlacement,
+    pub keep_panel_open_on_focus_loss: bool,
     pub monitor: String,
     pub language: UiLanguage,
     pub compact_preset_list: bool,
@@ -211,6 +212,7 @@ impl Default for UiSettings {
         Self {
             panel_shortcut: "Ctrl + Shift + Space".into(),
             panel: PanelPlacement::default(),
+            keep_panel_open_on_focus_loss: false,
             monitor: AUTO_MONITOR.to_string(),
             language: UiLanguage::default(),
             compact_preset_list: false,

@@ -179,6 +179,12 @@ msgstr "Recordar un potenciador alternativo"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Recuerda tu alternativa si los potenciadores guardados ya están en uso."
 
+msgid "Keep panel open"
+msgstr "Mantener el panel abierto"
+
+msgid "Stays visible when you switch to another window."
+msgstr "Permanece visible al cambiar a otra ventana."
+
 msgid "Display"
 msgstr "Pantalla"
 
