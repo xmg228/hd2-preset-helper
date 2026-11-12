@@ -275,7 +275,8 @@ component PresetCard inherits Rectangle {
 
 export component PresetPanel inherits Window {
     title: "HD2 Preset Helper";
-    always-on-top: true;
+    in property <bool> panel-always-on-top: true;
+    always-on-top: root.panel-always-on-top;
     no-frame: true;
     resize-border-width: 5px;
     private property <length> ideal-width: 900px;
@@ -340,7 +341,8 @@ export component PresetPanel inherits Window {
     in property <[string]> language-fonts;
     in property <bool> startup-available;
     in property <bool> initial-start-with-windows;
-    in-out property <bool> draft-keep-panel-open-on-focus-loss;
+    in-out property <bool> draft-keep-panel-open;
+    in-out property <bool> draft-always-on-top;
     in-out property <bool> draft-start-with-windows;
     in-out property <bool> draft-apply-in-saved-order;
     in-out property <bool> draft-auto-ready-up;
@@ -525,7 +527,6 @@ export component PresetPanel inherits Window {
     }
     public function prepare-hide() {
         root.quick-start-open = false;
-        root.cancel-scan-confirmation();
         root.delete-open = false;
         root.recording-shortcut = -1;
         root.finish-reorder();
@@ -1533,7 +1534,8 @@ export component PresetPanel inherits Window {
             selected-monitor <=> root.selected-monitor;
             selected-language <=> root.selected-language;
             language-fonts: root.language-fonts;
-            keep-panel-open-on-focus-loss <=> root.draft-keep-panel-open-on-focus-loss;
+            keep-panel-open <=> root.draft-keep-panel-open;
+            always-on-top <=> root.draft-always-on-top;
             startup-available: root.startup-available;
             start-with-windows <=> root.draft-start-with-windows;
             apply-in-saved-order <=> root.draft-apply-in-saved-order;

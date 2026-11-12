@@ -179,14 +179,23 @@ msgstr "記住備用強化套件"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "已儲存的強化套件被佔用時，記住你的替代選擇。"
 
+msgid "Always on top"
+msgstr "永遠置頂"
+
+msgid "Keeps the panel above other windows."
+msgstr "讓面板顯示在其他視窗上方。"
+
 msgid "Keep panel open"
 msgstr "保持面板顯示"
 
-msgid "Stays visible when you switch to another window."
-msgstr "切換到其他視窗時不自動隱藏。"
+msgid "Stays visible when you switch windows or run an action."
+msgstr "切換視窗或執行操作時保持顯示。"
 
 msgid "Display"
 msgstr "螢幕"
+
+msgid "Status window"
+msgstr "狀態視窗"
 
 msgid "Follow game (automatic)"
 msgstr "跟隨遊戲（自動）"
@@ -197,8 +206,8 @@ msgstr "已儲存的螢幕（無法使用）"
 msgid "Primary display"
 msgstr "主要螢幕"
 
-msgid "Screen for the interface."
-msgstr "介面所在的螢幕。"
+msgid "Screen for the status window."
+msgstr "狀態視窗所在的螢幕。"
 
 msgid "Language"
 msgstr "語言"

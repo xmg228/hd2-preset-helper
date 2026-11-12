@@ -109,8 +109,9 @@ pub(super) fn connect(
         let _ = send.send(UiRequest::SaveSettings {
             draft: SettingsDraft {
                 shortcuts: bindings(&panel),
-                keep_panel_open_on_focus_loss: panel.get_draft_keep_panel_open_on_focus_loss(),
-                monitor: monitor.id.to_string(),
+                keep_panel_open: panel.get_draft_keep_panel_open(),
+                always_on_top: panel.get_draft_always_on_top(),
+                status_monitor: monitor.id.to_string(),
                 language: UiLanguage::ALL[panel.get_selected_language() as usize],
                 apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
                 auto_ready_up: panel.get_draft_auto_ready_up(),
@@ -249,10 +250,10 @@ pub(super) fn open(
     }
     let selected = monitors
         .iter()
-        .position(|monitor| monitor.id.eq_ignore_ascii_case(&draft.monitor))
+        .position(|monitor| monitor.id.eq_ignore_ascii_case(&draft.status_monitor))
         .unwrap_or_else(|| {
             monitors.push(MonitorChoice {
-                id: draft.monitor.as_str().into(),
+                id: draft.status_monitor.as_str().into(),
                 role: MonitorRole::Unavailable,
                 ..Default::default()
             });
@@ -266,7 +267,8 @@ pub(super) fn open(
             .position(|&language| language == draft.language)
             .unwrap_or_default() as i32,
     );
-    panel.set_draft_keep_panel_open_on_focus_loss(draft.keep_panel_open_on_focus_loss);
+    panel.set_draft_keep_panel_open(draft.keep_panel_open);
+    panel.set_draft_always_on_top(draft.always_on_top);
     panel.set_startup_available(startup_state.is_some());
     panel.set_initial_start_with_windows(startup_state.unwrap_or_default());
     panel.set_draft_start_with_windows(panel.get_initial_start_with_windows());

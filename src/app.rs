@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use tracing::{Level, error, info, warn};
 
+use crate::app_events::{AppEvent, PresetCompletion};
 use crate::app_paths::AppPaths;
 use crate::automation::Cancellation;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
@@ -134,7 +135,7 @@ fn run_with_config(
     let worker = ActionWorker::start(paths.clone())?;
     let ui = ui::AppUi::new(
         library,
-        config.ui.monitor,
+        config.ui.status_monitor,
         config.ui.language,
         config.ui.panel,
         paths.presets.clone(),
@@ -142,6 +143,7 @@ fn run_with_config(
     ui.set_scope(config.presets.scope);
     ui.set_compact_list(config.ui.compact_preset_list);
     ui.set_panel_shortcut(&shortcut_bindings.panel);
+    ui.set_always_on_top(config.ui.always_on_top)?;
     let mut app = AppController {
         paths: paths.clone(),
         bindings,
@@ -149,7 +151,8 @@ fn run_with_config(
         panel_hotkey,
         shortcut_bindings,
         scope: config.presets.scope,
-        keep_panel_open_on_focus_loss: config.ui.keep_panel_open_on_focus_loss,
+        keep_panel_open: config.ui.keep_panel_open,
+        always_on_top: config.ui.always_on_top,
         worker,
         settings,
         state: ActionState::Idle,
@@ -235,7 +238,7 @@ struct PendingAction {
     action: GameAction,
     target: crate::window::WindowIdentity,
     hotkey_id: Option<i32>,
-    from_panel: bool,
+    panel_was_open: bool,
 }
 
 enum ActionState {
@@ -262,7 +265,8 @@ struct AppController {
     panel_hotkey: input::Hotkeys,
     shortcut_bindings: ShortcutBindings,
     scope: PresetScope,
-    keep_panel_open_on_focus_loss: bool,
+    keep_panel_open: bool,
+    always_on_top: bool,
     worker: ActionWorker,
     settings: PresetActionOptions,
     state: ActionState,
@@ -277,6 +281,11 @@ struct AppController {
 
 impl AppController {
     fn tick(&mut self) -> Result<ControlFlow<Option<PathBuf>>> {
+        if matches!(self.state, ActionState::Confirming(_))
+            && (!self.ui.is_panel_open() || self.ui.is_panel_minimized())
+        {
+            self.cancel_current_action("confirmation closed")?;
+        }
         // Handle UI requests before shortcuts that use the updated settings.
         self.poll_ui()?;
         if let Some(executable) = self.poll_updates()? {
@@ -310,8 +319,8 @@ impl AppController {
             })?;
         self.panel_hotkey.set_enabled_where(|key| {
             !self.exiting
-                && ((input_enabled && !self.ui.panel_shortcut_blocked())
-                    || matches!(self.state, ActionState::Running { .. }))
+                && !self.updates.installing()
+                && (!panel_active || !self.ui.panel_shortcut_blocked())
                 && (!panel_active || !ui::uses_shortcut(key))
         })?;
         self.ui.set_shortcut_warning(
@@ -328,23 +337,16 @@ impl AppController {
             self.handle_preset_hotkey(id)?;
         }
         while self.panel_hotkey.next_trigger().is_some() {
-            if let ActionState::Running { cancel } = &self.state {
-                cancel.cancel();
+            // A confirmation is still browsing; no game action has been accepted yet.
+            if !matches!(self.state, ActionState::Confirming(_))
+                && self.cancel_current_action("cancelled by user")?
+            {
+                continue;
             }
-            if matches!(
-                self.state,
-                ActionState::Checking(_) | ActionState::Confirming(_)
-            ) {
-                self.cancel_action_check()?;
-                if self.ui.is_panel_open() {
-                    self.close_panel()?;
-                }
-            } else if matches!(self.state, ActionState::Idle) {
-                if self.ui.is_panel_open() {
-                    self.close_panel()?;
-                } else {
-                    self.open_panel()?;
-                }
+            if self.ui.is_panel_active() {
+                self.close_panel()?;
+            } else {
+                self.open_panel()?;
             }
         }
         // Preparation starts before opening a window that may take foreground.
@@ -366,21 +368,20 @@ impl AppController {
                 })?;
             }
         }
-        let check_lost_focus = match &self.state {
-            ActionState::Checking(Some(request)) => !self.action_check_owns_focus(request),
-            ActionState::Confirming(_) => !self.ui.is_panel_active(),
-            _ => false,
-        };
-        if check_lost_focus {
-            self.cancel_action_check()?;
-            self.close_panel()?;
+        if let ActionState::Checking(Some(request)) = &self.state
+            && !self.action_owns_focus(request)
+        {
+            self.cancel_current_action("focus changed")?;
+            if !self.keep_panel_open {
+                self.close_panel()?;
+            }
         }
         // Idle browsing can remain visible without owning input focus.
         // Waiting actions keep their separate focus/release handling below.
         if self.ui.is_panel_open()
-            && !self.keep_panel_open_on_focus_loss
+            && !self.keep_panel_open
             && !self.ui.is_panel_active()
-            && matches!(self.state, ActionState::Idle)
+            && matches!(self.state, ActionState::Idle | ActionState::Confirming(_))
         {
             self.close_panel()?;
         }
@@ -393,7 +394,19 @@ impl AppController {
         loop {
             match self.worker.events.try_recv() {
                 Ok(WorkerEvent::Progress(event)) => {
+                    let refresh = matches!(
+                        &event,
+                        AppEvent::PresetDone {
+                            completion: PresetCompletion::Saved
+                                | PresetCompletion::FallbackBoosterSaved,
+                            ..
+                        } | AppEvent::PresetFailed { .. }
+                            | AppEvent::PresetCancelled { .. }
+                    );
                     self.ui.event(event)?;
+                    if refresh && self.ui.is_panel_open() {
+                        self.worker.send(Work::LoadPreviews)?;
+                    }
                 }
                 Ok(WorkerEvent::PreviewsLoaded(result)) => match result {
                     Ok(previews) => self.ui.set_previews(previews),
@@ -417,6 +430,7 @@ impl AppController {
                 Ok(WorkerEvent::PresetChecked(result)) => self.finish_action_check(result)?,
                 Ok(WorkerEvent::ScanProgress(progress)) => self.ui.scan_progress(progress)?,
                 Ok(WorkerEvent::Finished(completion)) => {
+                    let cancelled = matches!(&self.state, ActionState::Running { cancel } if cancel.is_cancelled());
                     self.hotkeys.discard_pending();
                     self.panel_hotkey.discard_pending();
                     self.state = ActionState::Idle;
@@ -428,7 +442,7 @@ impl AppController {
                         )) => {
                             platform::notify_preset_saved();
                         }
-                        WorkCompletion::Scan(result) => self.finish_scan(result, false)?,
+                        WorkCompletion::Scan(result) => self.finish_scan(result, cancelled)?,
                         WorkCompletion::ScanCancelled => {
                             self.finish_scan(Err("Scan stopped".into()), true)?
                         }
@@ -441,6 +455,13 @@ impl AppController {
                 }
             }
         }
+        self.ui.set_always_on_top(
+            self.always_on_top
+                && !matches!(
+                    self.state,
+                    ActionState::Activating { .. } | ActionState::Running { .. }
+                ),
+        )?;
         if self.exiting
             && !matches!(self.state, ActionState::Running { .. })
             && !self.updates.installing()
@@ -473,21 +494,11 @@ impl AppController {
         self.exiting = true;
         self.hotkeys.set_enabled(false)?;
         self.panel_hotkey.set_enabled(false)?;
-        self.cancel_action_check()?;
-        if let ActionState::Running { cancel } = &self.state {
-            cancel.cancel();
-        }
+        self.cancel_current_action("application exiting")?;
         // Keep installation visible while replacement finishes; never exit
         // midway through replacing program files.
         if !self.updates.installing() {
             self.ui.hide_panel()?;
-        }
-        if matches!(
-            self.state,
-            ActionState::Waiting { .. } | ActionState::Activating { .. }
-        ) {
-            self.state = ActionState::Idle;
-            self.worker.send(Work::Discard)?;
         }
         Ok(())
     }

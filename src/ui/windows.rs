@@ -19,8 +19,9 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, SPI_SETWORKAREA,
-            STYLESTRUCT, SetWindowLongPtrW, WM_DISPLAYCHANGE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+            GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
+            SPI_SETWORKAREA, STYLESTRUCT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SetWindowLongPtrW, SetWindowPos, WM_DISPLAYCHANGE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
             WM_NCDESTROY, WM_SETTINGCHANGE, WM_SIZING, WM_STYLECHANGING, WMSZ_BOTTOM,
             WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT,
             WMSZ_TOPRIGHT, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -28,10 +29,10 @@ use windows::Win32::{
     },
 };
 
-#[derive(Clone, Copy)]
 pub(super) struct PanelChange {
     pub size: [Option<u32>; 2],
     pub position: [i32; 2],
+    pub monitor: String,
 }
 
 #[derive(Clone, Copy)]
@@ -139,6 +140,25 @@ pub(super) fn prepare_window(window: &Window, role: super::WindowRole) -> Result
     Ok(())
 }
 
+pub(super) fn raise_window(window: &Window) -> Result<()> {
+    let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
+        unreachable!("Windows UI has a Win32 handle");
+    };
+    unsafe {
+        SetWindowPos(
+            HWND(handle.hwnd.get() as *mut _),
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+        .context("could not raise the status window")?;
+    }
+    Ok(())
+}
+
 fn role_ex_style(style: u32, passive: bool) -> u32 {
     let style = (style | WS_EX_TOOLWINDOW.0) & !(WS_EX_APPWINDOW.0 | WS_EX_NOACTIVATE.0);
     style | if passive { WS_EX_NOACTIVATE.0 } else { 0 }
@@ -224,6 +244,7 @@ fn read_panel_change(hwnd: HWND, rect: RECT, initial: PanelInteraction) -> Resul
         size: initial.size_change(size),
         position: [rect.left - left, rect.top - top]
             .map(|offset| (f64::from(offset) / scale).round() as i32),
+        monitor: crate::platform::monitors::window_id(hwnd)?,
     })
 }
 

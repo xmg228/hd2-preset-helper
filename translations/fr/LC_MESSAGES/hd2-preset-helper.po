@@ -179,14 +179,23 @@ msgstr "Mémoriser un bonus de secours"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Mémorise votre choix de remplacement si les bonus enregistrés sont déjà pris."
 
+msgid "Always on top"
+msgstr "Toujours au premier plan"
+
+msgid "Keeps the panel above other windows."
+msgstr "Maintient le panneau au-dessus des autres fenêtres."
+
 msgid "Keep panel open"
 msgstr "Garder le panneau ouvert"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Reste visible lors du passage à une autre fenêtre."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Reste visible lorsque vous changez de fenêtre ou exécutez une action."
 
 msgid "Display"
 msgstr "Écran"
+
+msgid "Status window"
+msgstr "Fenêtre d'état"
 
 msgid "Follow game (automatic)"
 msgstr "Suivre le jeu (automatique)"
@@ -197,8 +206,8 @@ msgstr "Écran enregistré (indisponible)"
 msgid "Primary display"
 msgstr "Écran principal"
 
-msgid "Screen for the interface."
-msgstr "Écran de l'interface."
+msgid "Screen for the status window."
+msgstr "Écran de la fenêtre d'état."
 
 msgid "Language"
 msgstr "Langue"

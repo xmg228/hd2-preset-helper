@@ -9,6 +9,7 @@ use slint::{ComponentHandle, Model, VecModel};
 
 use super::{ActionStatus, StatusItem, StatusTone, placement};
 use crate::app_events::{AppEvent, PresetCompletion};
+use crate::config::AUTO_MONITOR;
 use crate::preset::PresetMetadata;
 use crate::scan::{ScanKind, ScanProgress, ScanSummary};
 
@@ -38,10 +39,6 @@ impl Status {
             presets,
             preset: String::new(),
         })
-    }
-
-    pub fn message(&self) -> String {
-        self.window.get_message().into()
     }
 
     pub fn set_font_family(&self, family: &str) {
@@ -236,17 +233,34 @@ impl Status {
                 .transpose()?;
             self.reposition(monitor, anchor)?;
         }
+        self.raise()
+    }
+
+    pub fn raise(&self) -> Result<()> {
+        #[cfg(target_os = "windows")]
+        if self.window.window().is_visible() {
+            self.window
+                .window()
+                .with_winit_window(super::windows::raise_window)
+                .transpose()?;
+        }
         Ok(())
     }
 
     pub fn reposition(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {
         if self.window.window().is_visible() {
-            placement::place(self.window.window(), monitor, anchor, 16.0, None)?;
+            placement::place(
+                self.window.window(),
+                (monitor != AUTO_MONITOR).then_some(monitor),
+                anchor,
+                16.0,
+                None,
+            )?;
         }
         Ok(())
     }
 
-    pub fn hide(&mut self) -> Result<()> {
+    fn hide(&mut self) -> Result<()> {
         self.hide_at = None;
         self.window.hide()?;
         Ok(())

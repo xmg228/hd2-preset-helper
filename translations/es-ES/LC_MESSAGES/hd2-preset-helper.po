@@ -179,14 +179,23 @@ msgstr "Recordar un potenciador alternativo"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Recuerda tu alternativa si los potenciadores guardados ya están en uso."
 
+msgid "Always on top"
+msgstr "Siempre en primer plano"
+
+msgid "Keeps the panel above other windows."
+msgstr "Mantiene el panel por encima de las demás ventanas."
+
 msgid "Keep panel open"
 msgstr "Mantener el panel abierto"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Permanece visible al cambiar a otra ventana."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Permanece visible al cambiar de ventana o ejecutar una acción."
 
 msgid "Display"
 msgstr "Pantalla"
+
+msgid "Status window"
+msgstr "Ventana de estado"
 
 msgid "Follow game (automatic)"
 msgstr "Seguir al juego (automático)"
@@ -197,8 +206,8 @@ msgstr "Pantalla guardada (no disponible)"
 msgid "Primary display"
 msgstr "Pantalla principal"
 
-msgid "Screen for the interface."
-msgstr "Pantalla para la interfaz."
+msgid "Screen for the status window."
+msgstr "Pantalla para la ventana de estado."
 
 msgid "Language"
 msgstr "Idioma"

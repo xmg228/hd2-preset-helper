@@ -179,14 +179,23 @@ msgstr "Запоминать запасной усилитель"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Запоминает выбранную вами замену, если все сохранённые усилители заняты."
 
+msgid "Always on top"
+msgstr "Поверх всех окон"
+
+msgid "Keeps the panel above other windows."
+msgstr "Отображает панель поверх других окон."
+
 msgid "Keep panel open"
 msgstr "Не закрывать панель"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Остаётся видимой при переключении на другое окно."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Остаётся видимой при переключении окон или выполнении действия."
 
 msgid "Display"
 msgstr "Монитор"
+
+msgid "Status window"
+msgstr "Окно состояния"
 
 msgid "Follow game (automatic)"
 msgstr "Как в игре (автоматически)"
@@ -197,8 +206,8 @@ msgstr "Сохранённый монитор (недоступен)"
 msgid "Primary display"
 msgstr "Основной монитор"
 
-msgid "Screen for the interface."
-msgstr "Экран для интерфейса."
+msgid "Screen for the status window."
+msgstr "Экран для окна состояния."
 
 msgid "Language"
 msgstr "Язык"

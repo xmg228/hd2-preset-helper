@@ -21,17 +21,27 @@ use crate::{
 
 impl AppController {
     pub(super) fn open_panel(&mut self) -> Result<()> {
-        if let ActionState::Running { cancel } = &self.state {
-            cancel.cancel();
+        if self.exiting
+            || !matches!(
+                self.state,
+                ActionState::Idle | ActionState::Checking(None) | ActionState::Confirming(_)
+            )
+        {
             return Ok(());
         }
-        if self.exiting || !matches!(self.state, ActionState::Idle) {
+        if self.ui.is_panel_active() {
             return Ok(());
         }
         // Closing returns to the game only if opening the panel took its focus.
         // Applying or saving resolves its own target, even when opened elsewhere.
         let game = game_window::foreground_game_window().ok();
         self.panel_return_target = game.as_ref().map(|target| target.identity());
+        if self.ui.is_panel_open() {
+            if let Some(game) = &game {
+                self.ui.set_game_anchor(game.client_origin())?;
+            }
+            return self.ui.activate_panel();
+        }
         let anchor = game.as_ref().map(|target| target.client_origin());
         self.ui.show_panel(anchor)?;
         if !self.updates.installing() {
@@ -44,7 +54,9 @@ impl AppController {
     }
 
     pub(super) fn close_panel(&mut self) -> Result<()> {
-        self.cancel_action_check()?;
+        if matches!(self.state, ActionState::Confirming(_)) {
+            self.cancel_current_action("confirmation closed")?;
+        }
         // Never reclaim focus after the user has switched to another application.
         if self.ui.is_panel_active()
             && let Some(target) = &self.panel_return_target
@@ -128,14 +140,12 @@ impl AppController {
         debug!(?action, "game action requested");
         let from_panel = self.ui.is_panel_active();
         let target = if hotkey_id.is_some() && !from_panel {
-            game_window::foreground_game_window().map(|window| {
-                self.ui.set_anchor(Some(window.client_origin()));
-                window.identity()
-            })
+            game_window::foreground_game_window()
+                .map(|window| (window.identity(), Some(window.client_origin())))
         } else {
-            game_window::find_game_window()
+            game_window::find_game_window().map(|target| (target, None))
         };
-        let target = match target {
+        let (target, anchor) = match target {
             Ok(target) => target,
             Err(error) => {
                 error!(?action, error = %format!("{error:#}"), "could not locate game window");
@@ -144,11 +154,14 @@ impl AppController {
                 return Ok(());
             }
         };
+        if let Some(anchor) = anchor {
+            self.ui.set_game_anchor(anchor)?;
+        }
         let request = PendingAction {
             action,
             target,
             hotkey_id,
-            from_panel,
+            panel_was_open: self.ui.is_panel_open(),
         };
         if let GameAction::Preset {
             preset,
@@ -188,30 +201,45 @@ impl AppController {
         Ok(())
     }
 
-    pub(super) fn action_check_owns_focus(&self, request: &PendingAction) -> bool {
-        if request.from_panel {
-            self.ui.is_panel_active()
-        } else {
-            game_window::foreground_game_window()
+    pub(super) fn action_owns_focus(&self, request: &PendingAction) -> bool {
+        self.ui.is_panel_active()
+            || game_window::foreground_game_window()
                 .is_ok_and(|window| window.identity() == request.target)
-        }
     }
 
     pub(super) fn finish_action_check(
         &mut self,
         result: std::result::Result<usize, String>,
     ) -> Result<()> {
+        let cancel_reason = match &self.state {
+            ActionState::Checking(Some(request)) if !self.action_owns_focus(request) => {
+                Some("focus changed")
+            }
+            ActionState::Checking(Some(request))
+                if matches!(result, Ok(1..))
+                    && request.panel_was_open
+                    && (!self.ui.is_panel_open() || self.ui.is_panel_minimized()) =>
+            {
+                Some("panel closed")
+            }
+            _ => None,
+        };
+        if let Some(reason) = cancel_reason {
+            self.cancel_current_action(reason)?;
+        }
         let ActionState::Checking(request) = &mut self.state else {
             return Ok(());
         };
         let request = request.take();
         self.state = ActionState::Idle;
         self.ui.set_pending(false);
-        let Some(request) =
-            request.filter(|request| !self.exiting && self.action_check_owns_focus(request))
-        else {
+        let Some(request) = request.filter(|_| !self.exiting) else {
             return Ok(());
         };
+        if matches!(result, Ok(0)) {
+            return self.wait_for_action(request);
+        }
+        self.worker.send(Work::Discard)?;
         let count = match result {
             Ok(count) => count,
             Err(error) => {
@@ -225,9 +253,6 @@ impl AppController {
                 return self.present_action_problem(&request.action, error, false);
             }
         };
-        if count == 0 {
-            return self.wait_for_action(request);
-        }
         let target = match WindowTarget::from_identity(request.target) {
             Ok(target) => target,
             Err(error) => {
@@ -238,36 +263,43 @@ impl AppController {
         let GameAction::Preset { preset, .. } = &request.action else {
             unreachable!("only preset application requests a cache check");
         };
-        if !request.from_panel {
+        if !self.ui.is_panel_active() {
             self.panel_return_target = Some(request.target);
         }
-        self.ui
-            .show_scan_confirmation(preset, count, Some(target.client_origin()))?;
+        self.ui.show_panel(Some(target.client_origin()))?;
+        self.ui.set_scan_confirmation(preset, count);
         self.state = ActionState::Confirming(request);
         Ok(())
     }
 
-    pub(super) fn cancel_action_check(&mut self) -> Result<bool> {
-        let hide_panel = match &mut self.state {
-            ActionState::Checking(request) => {
-                if request.take().is_none() {
-                    return Ok(false);
-                }
-                false
+    pub(super) fn cancel_current_action(&mut self, reason: &str) -> Result<bool> {
+        let action = match &mut self.state {
+            ActionState::Idle | ActionState::Checking(None) => return Ok(false),
+            ActionState::Running { cancel } => {
+                cancel.cancel();
+                return Ok(true);
             }
-            ActionState::Confirming(request) => !request.from_panel,
-            _ => return Ok(false),
+            ActionState::Checking(request) => request.take().unwrap().action,
+            ActionState::Confirming(request)
+            | ActionState::Waiting { request, .. }
+            | ActionState::Activating { request, .. } => {
+                let action = request.action.clone();
+                self.state = ActionState::Idle;
+                action
+            }
         };
-        if matches!(self.state, ActionState::Confirming(_)) {
-            self.state = ActionState::Idle;
-        }
+        debug!(?action, reason, "game action cancelled");
         self.ui.dismiss_scan_confirmation();
-        self.ui.set_pending(false);
+        self.ui
+            .set_pending(matches!(self.state, ActionState::Checking(_)));
         self.hotkeys.discard_pending();
         self.panel_hotkey.discard_pending();
         self.ready_after = Instant::now() + ACTION_COOLDOWN;
         self.worker.send(Work::Discard)?;
-        Ok(hide_panel)
+        if !self.exiting {
+            self.present_action_problem(&action, reason.into(), true)?;
+        }
+        Ok(true)
     }
 
     fn confirm_scan(&mut self) -> Result<()> {
@@ -310,16 +342,16 @@ impl AppController {
         if self.exiting {
             return Ok(());
         }
-        if self.ui.is_editing_items() {
-            self.panel_return_target = game_window::foreground_game_window()
-                .ok()
-                .map(|target| target.identity());
-            self.ui
-                .resume_item_editor(result.as_ref().err().map(String::as_str))?;
-            self.worker.send(Work::LoadItemCandidates)?;
-        } else {
-            self.ui.scan_finished(result, cancelled)?;
+        if !cancelled && let Ok(game) = game_window::foreground_game_window() {
+            self.panel_return_target = Some(game.identity());
+            self.ui.show_panel(Some(game.client_origin()))?;
         }
+        if self.ui.is_editing_items() {
+            self.ui
+                .resume_item_editor(result.as_ref().err().map(String::as_str));
+            self.worker.send(Work::LoadItemCandidates)?;
+        }
+        self.ui.scan_finished(result, cancelled)?;
         self.worker.send(Work::LoadPreviews)
     }
 
@@ -342,32 +374,15 @@ impl AppController {
             match request {
                 UiRequest::OpenPanel => self.open_panel()?,
                 UiRequest::Exit => self.request_exit()?,
-                UiRequest::HidePanel => {
-                    if matches!(self.state, ActionState::Activating { .. }) {
-                        // Cancelling activation must not request foreground again.
-                        self.panel_return_target = None;
-                    }
-                    if let ActionState::Waiting {
-                        request: PendingAction { action, .. },
-                        ..
-                    }
-                    | ActionState::Activating {
-                        request: PendingAction { action, .. },
-                        ..
-                    } = &self.state
-                    {
-                        debug!(?action, reason = "panel closed", "game action cancelled");
-                        self.state = ActionState::Idle;
-                        self.worker.send(Work::Discard)?;
-                        self.ready_after = Instant::now() + ACTION_COOLDOWN;
-                        self.ui.cancel_pending_action();
-                    }
-                    self.close_panel()?;
-                }
+                UiRequest::HidePanel => self.close_panel()?,
                 UiRequest::ConfirmScan => self.confirm_scan()?,
                 UiRequest::CancelScan => {
-                    if self.cancel_action_check()? {
-                        self.close_panel()?;
+                    if let ActionState::Confirming(request) = &self.state {
+                        let hide_panel = !request.panel_was_open;
+                        self.cancel_current_action("scan cancelled")?;
+                        if hide_panel {
+                            self.close_panel()?;
+                        }
                     }
                 }
                 UiRequest::Action {
@@ -641,33 +656,31 @@ impl AppController {
     }
 
     pub(super) fn finish_pending_action(&mut self) -> Result<()> {
-        let (action, target) = match &self.state {
+        let (action, target, keep_panel_open) = match &self.state {
             ActionState::Waiting { request, deadline } => {
                 let PendingAction {
                     action,
                     target,
                     hotkey_id,
+                    panel_was_open,
                     ..
                 } = request;
-                let owned_focus = self.ui.is_panel_active() || game_window::is_game_foreground();
+                let owned_focus = self.action_owns_focus(request);
                 if !owned_focus || Instant::now() >= *deadline {
-                    let action = action.clone();
+                    let hide_panel = !self.keep_panel_open || !panel_was_open;
                     let reason = if owned_focus {
                         "input was not released in time"
                     } else {
                         "focus changed"
                     };
-                    debug!(?action, reason, "game action cancelled");
-                    if self.ui.is_editing_items() {
-                        self.ui.hide_panel()?;
-                    } else {
-                        self.close_panel()?;
+                    self.cancel_current_action(reason)?;
+                    if hide_panel {
+                        if self.ui.is_editing_items() {
+                            self.ui.hide_panel()?;
+                        } else {
+                            self.close_panel()?;
+                        }
                     }
-                    self.ui.set_pending(false);
-                    self.present_action_problem(&action, reason.into(), true)?;
-                    self.worker.send(Work::Discard)?;
-                    self.state = ActionState::Idle;
-                    self.ready_after = Instant::now() + ACTION_COOLDOWN;
                     return Ok(());
                 }
                 if !input::activation_released()
@@ -675,6 +688,8 @@ impl AppController {
                 {
                     return Ok(());
                 }
+                self.ui.set_always_on_top(false)?;
+                self.panel_return_target = None;
                 let result = target.request_activation();
                 if matches!(result, Ok(false)) {
                     self.state = ActionState::Activating {
@@ -687,10 +702,16 @@ impl AppController {
                 (
                     action.clone(),
                     result.and_then(|_| WindowTarget::from_identity(*target)),
+                    self.keep_panel_open && *panel_was_open,
                 )
             }
             ActionState::Activating { request, started } => {
-                let PendingAction { action, target, .. } = request;
+                let PendingAction {
+                    action,
+                    target,
+                    panel_was_open,
+                    ..
+                } = request;
                 let result = if started.elapsed() < ACTIVATION_CONFIRM_TIMEOUT {
                     target.confirm_activation()
                 } else {
@@ -713,7 +734,11 @@ impl AppController {
                     confirmation_wait_s = started.elapsed().as_secs_f64(),
                     "game window activation confirmation finished"
                 );
-                (action.clone(), target)
+                (
+                    action.clone(),
+                    target,
+                    self.keep_panel_open && *panel_was_open,
+                )
             }
             _ => return Ok(()),
         };
@@ -722,8 +747,9 @@ impl AppController {
             Err(error) => {
                 error!(?action, error = %format!("{error:#}"), "could not activate game window");
                 save_failure_report(&self.paths.last_failure, &action, &error, None);
-                self.ui.hide_panel()?;
-                self.panel_return_target = None;
+                if !keep_panel_open {
+                    self.ui.hide_panel()?;
+                }
                 self.present_action_problem(&action, format!("{error:#}"), false)?;
                 self.ui.set_pending(false);
                 self.worker.send(Work::Discard)?;
@@ -732,9 +758,10 @@ impl AppController {
                 return Ok(());
             }
         };
-        self.ui.set_anchor(Some(target.client_origin()));
-        self.ui.hide_panel()?;
-        self.panel_return_target = None;
+        self.ui.set_game_anchor(target.client_origin())?;
+        if !keep_panel_open {
+            self.ui.hide_panel()?;
+        }
         // Unregister before the worker can inject its first key, not on the next tick.
         self.hotkeys.set_enabled(false)?;
         let cancel = match &action {

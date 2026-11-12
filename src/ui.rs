@@ -8,7 +8,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use slint::winit_030::{WinitWindowAccessor, winit::event::WindowEvent};
+use slint::winit_030::{
+    WinitWindowAccessor,
+    winit::{event::WindowEvent, window::WindowLevel},
+};
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
@@ -120,10 +123,10 @@ pub struct AppUi {
     requests: Receiver<UiRequest>,
     preset_info: Vec<PresetMetadata>,
     status: status::Status,
-    monitor: String,
+    status_monitor: String,
     language: UiLanguage,
     panel_placement: PanelPlacement,
-    anchor: Option<(i32, i32)>,
+    game_anchor: Option<(i32, i32)>,
     placement_dirty: Rc<Cell<bool>>,
     panel_hide_at: Option<Instant>,
 }
@@ -131,7 +134,7 @@ pub struct AppUi {
 impl AppUi {
     pub fn new(
         library: LibraryMetadata,
-        monitor: String,
+        status_monitor: String,
         language: UiLanguage,
         panel_placement: PanelPlacement,
         presets: PathBuf,
@@ -295,10 +298,10 @@ impl AppUi {
         });
         let mut ui = Self {
             status: status::Status::new(presets)?,
-            monitor,
+            status_monitor,
             language,
             panel_placement,
-            anchor: None,
+            game_anchor: None,
             placement_dirty,
             panel_hide_at: None,
             window,
@@ -321,25 +324,21 @@ impl AppUi {
     pub fn show_panel(&mut self, anchor: Option<(i32, i32)>) -> Result<()> {
         let installing = self.window.get_update_installing();
         self.panel_hide_at = None;
-        self.anchor = anchor;
-        self.status.hide()?;
-        self.window.set_pending(false);
+        if let Some(anchor) = anchor {
+            self.set_game_anchor(anchor)?;
+        }
         self.window.set_loading(!installing);
         self.window.set_status("".into());
         // Evaluate the initial hidden value before changing the lazy animation binding.
         let _ = self.window.get_panel_opacity();
         self.window.show()?;
-        self.reposition()?;
+        self.reposition(anchor)?;
         self.window.set_presented(true);
         self.window
             .window()
-            .with_winit_window(|window| -> Result<()> {
-                window.set_cursor_hittest(true)?;
-                window.set_minimized(false);
-                window.focus_window();
-                Ok(())
-            })
+            .with_winit_window(|window| window.set_cursor_hittest(true))
             .transpose()?;
+        self.activate_panel()?;
         if installing {
             self.window.set_settings_open(true);
             self.window.invoke_focus_settings(true);
@@ -349,13 +348,15 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn show_scan_confirmation(
-        &mut self,
-        preset: &str,
-        count: usize,
-        anchor: Option<(i32, i32)>,
-    ) -> Result<()> {
-        self.show_panel(anchor)?;
+    pub fn activate_panel(&self) -> Result<()> {
+        self.window.window().with_winit_window(|window| {
+            window.set_minimized(false);
+            window.focus_window();
+        });
+        self.status.raise()
+    }
+
+    pub fn set_scan_confirmation(&self, preset: &str, count: usize) {
         self.window.set_loading(false);
         if let Some(index) = self
             .window
@@ -368,7 +369,6 @@ impl AppUi {
         self.window.set_scan_confirm_count(count as i32);
         self.window.set_scan_confirm_open(true);
         self.window.invoke_focus_scan_confirm();
-        Ok(())
     }
 
     pub fn dismiss_scan_confirmation(&self) {
@@ -434,12 +434,11 @@ impl AppUi {
             && !self.window.get_editor_loading()
     }
 
-    pub fn resume_item_editor(&mut self, error: Option<&str>) -> Result<()> {
-        self.show_panel(self.anchor)?;
+    pub fn resume_item_editor(&self, error: Option<&str>) {
         self.window.set_loading(false);
         self.window.set_editor_loading(true);
         self.window.set_editor_error(error.unwrap_or("").into());
-        Ok(())
+        self.window.invoke_focus_item_editor();
     }
 
     pub fn is_panel_open(&self) -> bool {
@@ -450,29 +449,51 @@ impl AppUi {
         self.window.window().is_visible()
     }
 
-    pub fn set_anchor(&mut self, anchor: Option<(i32, i32)>) {
-        self.anchor = anchor;
+    pub fn is_panel_minimized(&self) -> bool {
+        self.window
+            .window()
+            .with_winit_window(|window| window.is_minimized() == Some(true))
+            .unwrap_or(false)
     }
 
-    pub fn set_monitor(&mut self, monitor: String) -> Result<()> {
-        self.monitor = monitor;
-        if self.is_panel_visible() {
-            self.reposition()?;
+    pub fn set_game_anchor(&mut self, anchor: (i32, i32)) -> Result<()> {
+        if self.game_anchor != Some(anchor) {
+            self.game_anchor = Some(anchor);
+            self.status
+                .reposition(&self.status_monitor, self.game_anchor)?;
         }
-        self.status.reposition(&self.monitor, self.anchor)
+        Ok(())
     }
 
-    fn reposition(&self) -> Result<()> {
-        self.position_panel(&self.monitor, self.anchor)
+    pub fn set_always_on_top(&self, enabled: bool) -> Result<()> {
+        if self.window.get_panel_always_on_top() == enabled || self.is_panel_minimized() {
+            return Ok(());
+        }
+        self.window.set_panel_always_on_top(enabled);
+        // Apply before automation starts; Slint retains the same level on later updates.
+        self.window.window().with_winit_window(|window| {
+            window.set_window_level(if enabled {
+                WindowLevel::AlwaysOnTop
+            } else {
+                WindowLevel::Normal
+            });
+        });
+        self.status.raise()
     }
 
-    fn position_panel(&self, monitor: &str, anchor: Option<(i32, i32)>) -> Result<()> {
+    pub fn set_status_monitor(&mut self, monitor: String) -> Result<()> {
+        self.status_monitor = monitor;
+        self.status
+            .reposition(&self.status_monitor, self.game_anchor)
+    }
+
+    fn reposition(&self, anchor: Option<(i32, i32)>) -> Result<()> {
         if let Some(available) = placement::place(
             self.window.window(),
-            monitor,
+            self.panel_placement.monitor.as_deref(),
             anchor,
             24.0,
-            Some(self.panel_placement),
+            Some(&self.panel_placement),
         )? {
             self.window.set_available_width(available.width);
             self.window.set_available_height(available.height);
@@ -480,8 +501,8 @@ impl AppUi {
         Ok(())
     }
 
-    pub fn monitor(&self) -> &str {
-        &self.monitor
+    pub fn status_monitor(&self) -> &str {
+        &self.status_monitor
     }
 
     pub fn language(&self) -> UiLanguage {
@@ -516,16 +537,17 @@ impl AppUi {
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {
-        let failed = matches!(
-            &event,
-            AppEvent::PresetFailed { .. } | AppEvent::PresetCancelled { .. }
-        );
         match &event {
+            AppEvent::PresetStarted { .. } | AppEvent::HotkeyReleaseRequested { .. } => {
+                self.set_status("");
+                self.window.set_failure_details("".into());
+            }
             AppEvent::PresetFailed { preset, error }
             | AppEvent::PresetCancelled {
                 preset,
                 reason: error,
             } => {
+                self.set_status("");
                 self.window.set_failure_scan(false);
                 let label = self
                     .preset_info
@@ -545,28 +567,17 @@ impl AppUi {
             _ => {}
         }
         self.status.update(event, &self.preset_info);
-        if self.is_panel_open() {
-            if failed {
-                self.set_status("");
-            } else {
-                self.set_status(&self.status.message());
-            }
-        } else {
-            if self.panel_hide_at.is_some() {
-                self.hide_panel()?;
-            }
-            self.status.show(&self.monitor, self.anchor)?;
-        }
-        Ok(())
+        self.status.show(&self.status_monitor, self.game_anchor)
     }
 
     pub fn scan_waiting(&mut self) -> Result<()> {
+        self.set_status("");
         self.window.set_failure_details("".into());
         if self.window.get_editor_open() {
             self.window.set_editor_loading(true);
         }
         self.status.scan_waiting();
-        self.present_scan_status(false)
+        self.status.show(&self.status_monitor, self.game_anchor)
     }
 
     pub fn scan_progress(&mut self, progress: ScanProgress) -> Result<()> {
@@ -578,7 +589,7 @@ impl AppUi {
             self.window.invoke_close_dialogs();
         }
         self.status.scan_progress(progress);
-        self.present_scan_status(false)
+        self.status.show(&self.status_monitor, self.game_anchor)
     }
 
     pub fn scan_finished(
@@ -587,35 +598,24 @@ impl AppUi {
         cancelled: bool,
     ) -> Result<()> {
         let failed = result.is_err() && !cancelled;
+        if failed {
+            self.set_status("");
+        }
         self.window.set_failure_scan(true);
         self.window.set_failure_details(match &result {
             Err(error) if failed => error.as_str().into(),
             _ => "".into(),
         });
         self.status.scan_finished(&result, cancelled);
-        self.present_scan_status(failed)
-    }
-
-    fn present_scan_status(&mut self, failed: bool) -> Result<()> {
-        if self.is_panel_open() {
-            if failed {
-                self.set_status("");
-            } else {
-                self.set_status(&self.status.message());
-            }
-        } else {
-            if self.panel_hide_at.is_some() {
-                self.hide_panel()?;
-            }
-            self.status.show(&self.monitor, self.anchor)?;
-        }
-        Ok(())
+        self.status.show(&self.status_monitor, self.game_anchor)
     }
 
     pub fn tick(&mut self) -> Result<Option<PanelPlacement>> {
         #[cfg(target_os = "windows")]
         if windows::take_display_change() {
             self.placement_dirty.set(true);
+            self.status
+                .reposition(&self.status_monitor, self.game_anchor)?;
         }
         #[cfg(target_os = "windows")]
         let placement = self.remember_panel_placement();
@@ -633,11 +633,11 @@ impl AppUi {
         let interacting = windows::panel_interacting();
         #[cfg(not(target_os = "windows"))]
         let interacting = false;
-        if !interacting && self.placement_dirty.replace(false) {
+        if !interacting && self.placement_dirty.get() && !self.is_panel_minimized() {
+            self.placement_dirty.set(false);
             if self.is_panel_visible() {
-                self.position_panel("auto", None)?;
+                self.reposition(None)?;
             }
-            self.status.reposition(&self.monitor, self.anchor)?;
         }
         self.status.tick()?;
         Ok(placement)
@@ -646,18 +646,22 @@ impl AppUi {
     #[cfg(target_os = "windows")]
     fn remember_panel_placement(&mut self) -> Option<PanelPlacement> {
         let change = windows::take_panel_change()?;
-        let mut placement = self.panel_placement;
+        let mut size = self.panel_placement.size;
         let minimum = PanelPlacement::default().size;
-        for (axis, size) in change.size.into_iter().enumerate() {
-            if let Some(size) = size {
-                placement.size[axis] = size.max(minimum[axis]);
+        for (axis, changed) in change.size.into_iter().enumerate() {
+            if let Some(changed) = changed {
+                size[axis] = changed.max(minimum[axis]);
             }
         }
-        placement.position = Some(change.position);
+        let placement = PanelPlacement {
+            size,
+            position: Some(change.position),
+            monitor: Some(change.monitor),
+        };
         if placement == self.panel_placement {
             return None;
         }
-        self.panel_placement = placement;
+        self.panel_placement = placement.clone();
         self.placement_dirty.set(true);
         Some(placement)
     }
@@ -940,13 +944,6 @@ impl AppUi {
         self.window.set_pending(pending);
     }
 
-    pub fn cancel_pending_action(&self) {
-        self.window.set_pending(false);
-        if self.window.get_editor_open() {
-            self.window.set_editor_loading(false);
-        }
-    }
-
     pub fn set_previews(&self, mut previews: BTreeMap<String, PresetPreview>) {
         self.window.set_loading(false);
         let current = self.window.get_presets();
@@ -986,9 +983,6 @@ impl AppUi {
         self.window
             .set_presets(Rc::new(VecModel::from(rows)).into());
         self.window.set_current_index(index);
-        if !self.window.get_pending() {
-            self.set_status("");
-        }
     }
 }
 

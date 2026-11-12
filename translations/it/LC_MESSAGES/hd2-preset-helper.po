@@ -179,14 +179,23 @@ msgstr "Ricorda un potenziamento di riserva"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Ricorda la tua scelta alternativa se i potenziamenti salvati sono già in uso."
 
+msgid "Always on top"
+msgstr "Sempre in primo piano"
+
+msgid "Keeps the panel above other windows."
+msgstr "Mantiene il pannello sopra le altre finestre."
+
 msgid "Keep panel open"
 msgstr "Mantieni il pannello aperto"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Resta visibile quando passi a un'altra finestra."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Resta visibile quando cambi finestra o esegui un'azione."
 
 msgid "Display"
 msgstr "Schermo"
+
+msgid "Status window"
+msgstr "Finestra di stato"
 
 msgid "Follow game (automatic)"
 msgstr "Segui il gioco (automatico)"
@@ -197,8 +206,8 @@ msgstr "Schermo salvato (non disponibile)"
 msgid "Primary display"
 msgstr "Schermo principale"
 
-msgid "Screen for the interface."
-msgstr "Schermo per l'interfaccia."
+msgid "Screen for the status window."
+msgstr "Schermo per la finestra di stato."
 
 msgid "Language"
 msgstr "Lingua"

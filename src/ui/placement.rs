@@ -11,10 +11,10 @@ use crate::config::PanelPlacement;
 
 pub(super) fn place(
     window: &slint::Window,
-    monitor: &str,
+    monitor: Option<&str>,
     anchor: Option<(i32, i32)>,
     margin: f64,
-    panel: Option<PanelPlacement>,
+    panel: Option<&PanelPlacement>,
 ) -> Result<Option<slint::LogicalSize>> {
     window
         .with_winit_window(|native| -> Result<Option<slint::LogicalSize>> {
@@ -31,6 +31,8 @@ pub(super) fn place(
                     })
                 })
                 .cloned()
+                .or_else(|| panel.and_then(|_| native.current_monitor()))
+                .or_else(|| native.primary_monitor())
                 .or_else(|| native.current_monitor());
             let Some(screen) = screen else {
                 return Ok(None);
@@ -39,7 +41,7 @@ pub(super) fn place(
             let s = screen.size();
             let mut bounds = (p.x, p.y, s.width as i32, s.height as i32);
             #[cfg(target_os = "windows")]
-            if monitor != "auto" {
+            if let Some(monitor) = monitor {
                 bounds = windows::monitor_bounds(monitor)?;
             }
             let scale = screens

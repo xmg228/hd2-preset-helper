@@ -179,14 +179,23 @@ msgstr "Zapamiętaj premię zapasową"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Zapamiętuje twój wybór zastępczy, gdy wszystkie zapisane premie są zajęte."
 
+msgid "Always on top"
+msgstr "Zawsze na wierzchu"
+
+msgid "Keeps the panel above other windows."
+msgstr "Utrzymuje panel nad innymi oknami."
+
 msgid "Keep panel open"
 msgstr "Pozostaw panel otwarty"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Pozostaje widoczny po przełączeniu na inne okno."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Pozostaje widoczny podczas przełączania okien lub wykonywania akcji."
 
 msgid "Display"
 msgstr "Monitor"
+
+msgid "Status window"
+msgstr "Okno stanu"
 
 msgid "Follow game (automatic)"
 msgstr "Jak w grze (automatycznie)"
@@ -197,8 +206,8 @@ msgstr "Zapisany monitor (niedostępny)"
 msgid "Primary display"
 msgstr "Monitor główny"
 
-msgid "Screen for the interface."
-msgstr "Ekran interfejsu."
+msgid "Screen for the status window."
+msgstr "Ekran, na którym wyświetlane jest okno stanu."
 
 msgid "Language"
 msgstr "Język"

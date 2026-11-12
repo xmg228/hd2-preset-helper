@@ -179,11 +179,12 @@ impl UiLanguage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PanelPlacement {
     pub size: [u32; 2],
     pub position: Option<[i32; 2]>,
+    pub monitor: Option<String>,
 }
 
 impl Default for PanelPlacement {
@@ -191,6 +192,7 @@ impl Default for PanelPlacement {
         Self {
             size: [900, 620],
             position: None,
+            monitor: None,
         }
     }
 }
@@ -200,8 +202,11 @@ impl Default for PanelPlacement {
 pub struct UiSettings {
     pub panel_shortcut: String,
     pub panel: PanelPlacement,
-    pub keep_panel_open_on_focus_loss: bool,
-    pub monitor: String,
+    #[serde(alias = "keep_panel_open_on_focus_loss")]
+    pub keep_panel_open: bool,
+    pub always_on_top: bool,
+    #[serde(alias = "monitor")]
+    pub status_monitor: String,
     pub language: UiLanguage,
     pub compact_preset_list: bool,
     pub notice_revision: u32,
@@ -212,8 +217,9 @@ impl Default for UiSettings {
         Self {
             panel_shortcut: "Ctrl + Shift + Space".into(),
             panel: PanelPlacement::default(),
-            keep_panel_open_on_focus_loss: false,
-            monitor: AUTO_MONITOR.to_string(),
+            keep_panel_open: false,
+            always_on_top: true,
+            status_monitor: AUTO_MONITOR.to_string(),
             language: UiLanguage::default(),
             compact_preset_list: false,
             notice_revision: 0,
@@ -281,6 +287,9 @@ pub fn save_panel_placement(config_path: &Path, placement: PanelPlacement) -> Re
     let mut value = toml_edit::InlineTable::new();
     let size: toml_edit::Array = placement.size.into_iter().map(i64::from).collect();
     value.insert("size", size.into());
+    if let Some(monitor) = placement.monitor {
+        value.insert("monitor", monitor.into());
+    }
     if let Some(position) = placement.position {
         let position: toml_edit::Array = position.into_iter().map(i64::from).collect();
         value.insert("position", position.into());

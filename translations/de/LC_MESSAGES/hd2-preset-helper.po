@@ -179,14 +179,23 @@ msgstr "Ersatz-Booster merken"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Merkt sich deine Ersatzauswahl, wenn die gespeicherten Booster belegt sind."
 
+msgid "Always on top"
+msgstr "Immer im Vordergrund"
+
+msgid "Keeps the panel above other windows."
+msgstr "Hält das Panel über anderen Fenstern."
+
 msgid "Keep panel open"
 msgstr "Panel geöffnet lassen"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Bleibt beim Wechsel zu einem anderen Fenster sichtbar."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Bleibt beim Wechsel zwischen Fenstern oder beim Ausführen einer Aktion sichtbar."
 
 msgid "Display"
 msgstr "Monitor"
+
+msgid "Status window"
+msgstr "Statusfenster"
 
 msgid "Follow game (automatic)"
 msgstr "Wie im Spiel (automatisch)"
@@ -197,8 +206,8 @@ msgstr "Gespeicherter Monitor (nicht verfügbar)"
 msgid "Primary display"
 msgstr "Hauptmonitor"
 
-msgid "Screen for the interface."
-msgstr "Bildschirm für die Oberfläche."
+msgid "Screen for the status window."
+msgstr "Bildschirm für das Statusfenster."
 
 msgid "Language"
 msgstr "Sprache"

@@ -16,7 +16,8 @@ export component SettingsDialog inherits Rectangle {
     in-out property <int> selected-monitor;
     in-out property <int> selected-language;
     in property <[string]> language-fonts;
-    in-out property <bool> keep-panel-open-on-focus-loss;
+    in-out property <bool> keep-panel-open;
+    in-out property <bool> always-on-top;
     in property <bool> startup-available;
     in-out property <bool> start-with-windows;
     in-out property <bool> apply-in-saved-order;
@@ -65,6 +66,12 @@ export component SettingsDialog inherits Rectangle {
     TouchArea { }
     keys := FocusScope {
         enabled: root.enabled;
+        capture-key-pressed(event) => {
+            return !root.enabled || root.saving ? accept : reject;
+        }
+        capture-key-released(event) => {
+            return !root.enabled || root.saving ? accept : reject;
+        }
         key-pressed(event) => {
             if (event.text == Key.Escape && !root.saving) {
                 if (root.recording >= 0) { root.recording = -1; }
@@ -156,18 +163,24 @@ export component SettingsDialog inherits Rectangle {
                     VerticalLayout {
                         padding: 8px;
                         spacing: 6px;
-                        Text { text: @tr("Display"); color: Theme.text; font-size: 14px; }
+                        Text { text: @tr("Status window"); color: Theme.text; font-size: 14px; }
                         PanelComboBox {
                             model: root.monitor-labels;
                             current-index <=> root.selected-monitor;
                             enabled: root.enabled && !root.saving;
                         }
-                        Text { text: @tr("Screen for the interface."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
+                        Text { text: @tr("Screen for the status window."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
                     }
                     SettingToggle {
                         text: @tr("Keep panel open");
-                        description: @tr("Stays visible when you switch to another window.");
-                        checked <=> root.keep-panel-open-on-focus-loss;
+                        description: @tr("Stays visible when you switch windows or run an action.");
+                        checked <=> root.keep-panel-open;
+                        enabled: root.enabled && !root.saving;
+                    }
+                    SettingToggle {
+                        text: @tr("Always on top");
+                        description: @tr("Keeps the panel above other windows.");
+                        checked <=> root.always-on-top;
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {

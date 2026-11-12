@@ -89,6 +89,16 @@ pub fn available() -> Result<Vec<Monitor>> {
     Ok(monitors)
 }
 
+pub fn window_id(window: HWND) -> Result<String> {
+    let info = monitor_info(unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) })?;
+    let source = wide_string(&info.szDevice);
+    available()?
+        .into_iter()
+        .find(|monitor| monitor.source.eq_ignore_ascii_case(&source))
+        .map(|monitor| monitor.id)
+        .context("could not identify the window display")
+}
+
 /// Resolve a saved device interface path afresh; never replace the saved choice on fallback.
 pub fn resolve_bounds(id: Option<&str>, fallback_window: Option<HWND>) -> Result<RECT> {
     if let Some(id) = id {

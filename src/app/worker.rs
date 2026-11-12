@@ -93,9 +93,9 @@ impl ActionWorker {
                 let cache_path = paths.presets.with_file_name("item-cache.json");
                 let mut item_cache = ItemCache::load(&cache_path);
                 while let Ok(mut command) = receiver.recv() {
-                    // Only the latest pending preparation hint matters. Other
-                    // commands are boundaries and are never coalesced away.
-                    while matches!(command, Work::Prepare(_) | Work::Discard) {
+                    // Queued work can supersede preparation, but Discard must
+                    // release capture before any later command runs.
+                    while matches!(command, Work::Prepare(_)) {
                         match receiver.try_recv() {
                             Ok(next) => command = next,
                             Err(_) => break,

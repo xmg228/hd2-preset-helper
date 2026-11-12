@@ -179,14 +179,23 @@ msgstr "대체 부스터 기억"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "저장된 부스터가 모두 사용 중이면 직접 선택한 부스터를 기억합니다."
 
+msgid "Always on top"
+msgstr "항상 위에 표시"
+
+msgid "Keeps the panel above other windows."
+msgstr "패널을 다른 창 위에 표시합니다."
+
 msgid "Keep panel open"
 msgstr "패널 표시 유지"
 
-msgid "Stays visible when you switch to another window."
-msgstr "다른 창으로 전환해도 계속 표시됩니다."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "창을 전환하거나 작업을 실행해도 계속 표시됩니다."
 
 msgid "Display"
 msgstr "디스플레이"
+
+msgid "Status window"
+msgstr "상태 창"
 
 msgid "Follow game (automatic)"
 msgstr "게임에 맞춤 (자동)"
@@ -197,8 +206,8 @@ msgstr "저장된 디스플레이 (사용 불가)"
 msgid "Primary display"
 msgstr "기본 디스플레이"
 
-msgid "Screen for the interface."
-msgstr "인터페이스를 표시할 화면입니다."
+msgid "Screen for the status window."
+msgstr "상태 창을 표시할 화면입니다."
 
 msgid "Language"
 msgstr "언어"

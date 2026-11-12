@@ -19,8 +19,9 @@ impl AppController {
         self.ui.open_settings(
             SettingsDraft {
                 shortcuts: self.shortcut_bindings.clone(),
-                keep_panel_open_on_focus_loss: self.keep_panel_open_on_focus_loss,
-                monitor: self.ui.monitor().to_owned(),
+                keep_panel_open: self.keep_panel_open,
+                always_on_top: self.always_on_top,
+                status_monitor: self.ui.status_monitor().to_owned(),
                 language: self.ui.language(),
                 apply_in_saved_order: self.settings.apply_in_saved_order,
                 auto_ready_up: self.settings.auto_ready_up,
@@ -52,6 +53,10 @@ impl AppController {
         draft: SettingsDraft,
         startup_change: Option<bool>,
     ) -> Result<()> {
+        ensure!(
+            !self.exiting && matches!(self.state, ActionState::Idle),
+            "settings cannot be saved during an action or shutdown"
+        );
         ensure!(
             !self.updates.installing(),
             "settings cannot be saved while installing an update"
@@ -90,7 +95,8 @@ impl AppController {
         self.hotkeys = hotkeys;
         self.panel_hotkey = panel;
         self.shortcut_bindings = draft.shortcuts;
-        self.keep_panel_open_on_focus_loss = draft.keep_panel_open_on_focus_loss;
+        self.keep_panel_open = draft.keep_panel_open;
+        self.always_on_top = draft.always_on_top;
         self.settings = PresetActionOptions {
             apply_in_saved_order: draft.apply_in_saved_order,
             auto_ready_up: draft.auto_ready_up,
@@ -105,12 +111,12 @@ impl AppController {
                 "Settings saved, but language change failed: {error:#}"
             ));
         }
-        if self.ui.monitor() != draft.monitor
-            && let Err(error) = self.ui.set_monitor(draft.monitor)
+        if self.ui.status_monitor() != draft.status_monitor
+            && let Err(error) = self.ui.set_status_monitor(draft.status_monitor)
         {
-            tracing::warn!(error = %format!("{error:#}"), "settings saved but window placement failed");
+            tracing::warn!(error = %format!("{error:#}"), "settings saved but status window placement failed");
             self.ui.set_status(&format!(
-                "Settings saved, but window placement failed: {error:#}"
+                "Settings saved, but status window placement failed: {error:#}"
             ));
         }
         if let Some(enabled) = startup_change

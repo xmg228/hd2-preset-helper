@@ -390,7 +390,10 @@ impl AppUi {
             return;
         }
         match result {
-            Ok(()) => self.window.invoke_close_dialogs(),
+            Ok(()) => {
+                self.set_status("");
+                self.window.invoke_close_dialogs();
+            }
             Err(error) if self.window.get_editor_open() => {
                 self.window.set_editor_error(error.as_str().into())
             }

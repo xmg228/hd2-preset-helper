@@ -7,8 +7,9 @@ use super::{ShortcutBindings, UiLanguage};
 
 pub struct SettingsDraft {
     pub shortcuts: ShortcutBindings,
-    pub keep_panel_open_on_focus_loss: bool,
-    pub monitor: String,
+    pub keep_panel_open: bool,
+    pub always_on_top: bool,
+    pub status_monitor: String,
     pub language: UiLanguage,
     pub apply_in_saved_order: bool,
     pub auto_ready_up: bool,
@@ -27,13 +28,16 @@ impl SettingsDraft {
             "panel_shortcut",
             self.shortcuts.panel.as_str(),
         )?;
+        super::section_table(&mut document, "ui")?.remove("keep_panel_open_on_focus_loss");
+        super::write_setting(&mut document, "ui", "keep_panel_open", self.keep_panel_open)?;
+        super::write_setting(&mut document, "ui", "always_on_top", self.always_on_top)?;
+        super::section_table(&mut document, "ui")?.remove("monitor");
         super::write_setting(
             &mut document,
             "ui",
-            "keep_panel_open_on_focus_loss",
-            self.keep_panel_open_on_focus_loss,
+            "status_monitor",
+            self.status_monitor.as_str(),
         )?;
-        super::write_setting(&mut document, "ui", "monitor", self.monitor.as_str())?;
         super::write_setting(
             &mut document,
             "ui",

@@ -179,14 +179,23 @@ msgstr "Memorizar um reforçador alternativo"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "Memoriza sua alternativa quando os reforçadores salvos estão em uso."
 
+msgid "Always on top"
+msgstr "Sempre no topo"
+
+msgid "Keeps the panel above other windows."
+msgstr "Mantém o painel acima das outras janelas."
+
 msgid "Keep panel open"
 msgstr "Manter painel aberto"
 
-msgid "Stays visible when you switch to another window."
-msgstr "Permanece visível ao mudar para outra janela."
+msgid "Stays visible when you switch windows or run an action."
+msgstr "Permanece visível ao mudar de janela ou executar uma ação."
 
 msgid "Display"
 msgstr "Monitor"
+
+msgid "Status window"
+msgstr "Janela de status"
 
 msgid "Follow game (automatic)"
 msgstr "Acompanhar o jogo (automático)"
@@ -197,8 +206,8 @@ msgstr "Monitor salvo (indisponível)"
 msgid "Primary display"
 msgstr "Monitor principal"
 
-msgid "Screen for the interface."
-msgstr "Tela para a interface."
+msgid "Screen for the status window."
+msgstr "Tela para a janela de status."
 
 msgid "Language"
 msgstr "Idioma"

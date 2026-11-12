@@ -63,7 +63,7 @@ pub(super) fn prepare(document: &mut toml_edit::DocumentMut) -> Result<Format> {
             {
                 match key {
                     "enabled" => {} // Action feedback is always shown now.
-                    "monitor" => ui["monitor"] = value.clone(),
+                    "monitor" => ui["status_monitor"] = value.clone(),
                     _ => anyhow::bail!("unknown overlay setting: {key}"),
                 }
             }

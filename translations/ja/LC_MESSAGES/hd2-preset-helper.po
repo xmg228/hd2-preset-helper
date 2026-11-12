@@ -179,14 +179,23 @@ msgstr "予備のブースターを記憶"
 msgid "Remembers your replacement when saved Boosters are taken."
 msgstr "保存済みのブースターがすべて使用中の場合、選び直したものを記憶します。"
 
+msgid "Always on top"
+msgstr "常に最前面に表示"
+
+msgid "Keeps the panel above other windows."
+msgstr "パネルを他のウィンドウより前に表示します。"
+
 msgid "Keep panel open"
 msgstr "パネルを表示したままにする"
 
-msgid "Stays visible when you switch to another window."
-msgstr "別のウィンドウに切り替えても表示を維持します。"
+msgid "Stays visible when you switch windows or run an action."
+msgstr "ウィンドウの切り替え中や操作の実行中も表示を維持します。"
 
 msgid "Display"
 msgstr "ディスプレイ"
+
+msgid "Status window"
+msgstr "ステータスウィンドウ"
 
 msgid "Follow game (automatic)"
 msgstr "ゲームに合わせる（自動）"
@@ -197,8 +206,8 @@ msgstr "保存済みのディスプレイ（使用不可）"
 msgid "Primary display"
 msgstr "メインディスプレイ"
 
-msgid "Screen for the interface."
-msgstr "インターフェースを表示する画面。"
+msgid "Screen for the status window."
+msgstr "ステータスウィンドウを表示する画面。"
 
 msgid "Language"
 msgstr "言語"
