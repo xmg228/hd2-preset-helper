@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "hd2-preset-helper"
-version = "0.5.1-rc.1"
+version = "0.5.1-rc.2"
 dependencies = [
  "anyhow",
  "auto-launch",
