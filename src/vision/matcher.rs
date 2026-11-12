@@ -106,7 +106,7 @@ pub struct MatchResult {
 pub fn prepare_template(
     template: &SemanticImage,
     template_physical_size: f32,
-    env_candidates: &[SemanticImage],
+    env_candidates: impl ExactSizeIterator<Item = SemanticImage>,
     candidate_physical_size: f32,
     domain: MatchDomain,
     absorb_cw_difference: bool,
@@ -121,11 +121,11 @@ pub fn prepare_template(
     );
     let domain = CanonicalDomain::new(domain);
     let basis = TemplateBasis::new(template, template_physical_size);
-    let mut residuals = env_candidates.iter().map(|candidate| {
+    let mut residuals = env_candidates.map(|candidate| {
         register(
             &basis,
             &domain,
-            candidate,
+            &candidate,
             candidate_physical_size,
             false,
             false,
@@ -135,7 +135,7 @@ pub fn prepare_template(
     let first = residuals
         .next()
         .expect("Env5 state count was checked above");
-    let mut envelope = NuisanceEnvelope::from_residual(&first);
+    let mut envelope = NuisanceEnvelope::from_residual(first);
     for residual in residuals {
         envelope.include(&residual);
     }
@@ -323,14 +323,14 @@ struct NuisanceEnvelope {
 }
 
 impl NuisanceEnvelope {
-    fn from_residual(residual: &Residual) -> Self {
+    fn from_residual(residual: Residual) -> Self {
         Self {
             global_white: residual.white.global,
             local_white: residual.white.local,
             global_class: residual.class.global,
             local_class: residual.class.local,
-            white_map: residual.white.map.clone(),
-            class_map: residual.class.map.clone(),
+            white_map: residual.white.map,
+            class_map: residual.class.map,
         }
     }
 
@@ -905,7 +905,7 @@ fn channel_residual(
         weight_sum += weight as f64;
     }
 
-    let mut map = local_filter(&effective);
+    let mut map = local_filter(effective);
     for (value, &weight) in map.iter_mut().zip(&domain.weights) {
         *value *= weight;
     }
@@ -949,7 +949,7 @@ fn gradient(field: &[f32]) -> Vec<f32> {
     output
 }
 
-fn local_filter(field: &[f32]) -> Vec<f32> {
+fn local_filter(mut field: Vec<f32>) -> Vec<f32> {
     const KERNEL: [f32; 5] = [0.14, 0.24, 0.24, 0.24, 0.14];
 
     let mut horizontal = vec![0.0; CANONICAL_PIXELS];
@@ -964,7 +964,6 @@ fn local_filter(field: &[f32]) -> Vec<f32> {
         }
     }
 
-    let mut output = vec![0.0; CANONICAL_PIXELS];
     for y in 0..CANONICAL_SIDE {
         for x in 0..CANONICAL_SIDE {
             let mut sum = 0.0;
@@ -972,10 +971,10 @@ fn local_filter(field: &[f32]) -> Vec<f32> {
                 let source_y = reflect101(y as i32 + kernel_index as i32 - 2, CANONICAL_SIDE);
                 sum += weight * horizontal[source_y * CANONICAL_SIDE + x];
             }
-            output[y * CANONICAL_SIDE + x] = sum;
+            field[y * CANONICAL_SIDE + x] = sum;
         }
     }
-    output
+    field
 }
 
 fn reflect101(position: i32, length: usize) -> usize {

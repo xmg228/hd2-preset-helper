@@ -1,5 +1,9 @@
 //! Native PNG samples and logical list orders in one atomically published file.
-use std::{fs, io::ErrorKind, path::Path};
+use std::{
+    fs,
+    io::{BufWriter, ErrorKind},
+    path::Path,
+};
 
 use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -116,7 +120,9 @@ impl ItemCache {
                 .map(encode_catalog_icons)
                 .transpose()?,
         };
-        crate::persistence::write(path, &serde_json::to_vec(&file)?)?;
+        let mut writer = BufWriter::new(crate::persistence::temporary(path)?);
+        serde_json::to_writer(&mut writer, &file)?;
+        crate::persistence::publish(writer.into_inner()?, path)?;
         self.dirty = false;
         tracing::debug!("item cache saved");
         Ok(())

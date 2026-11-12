@@ -78,7 +78,7 @@ fn rank_targets(catalog: &EquipmentCatalog, target: &TextSignature) -> Option<Na
 
 impl Category {
     /// Intern names only while materializing a completed scan.
-    pub(super) fn identify(&mut self, name: &TextSample) -> Option<Name> {
+    pub(super) fn identify(&mut self, name: TextSample) -> Option<Name> {
         if let Some(ranking) = rank_names(
             name.signature(),
             self.names
@@ -90,7 +90,7 @@ impl Category {
         {
             return ranking.accepts().then_some(ranking.best);
         }
-        self.names.push(name.clone());
+        self.names.push(name);
         Some(self.names.len() - 1)
     }
 }

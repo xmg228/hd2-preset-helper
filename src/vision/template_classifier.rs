@@ -450,22 +450,21 @@ fn prepare_icon_template(
     physical_size: f32,
     candidate: &ImageSample,
 ) -> Result<PreparedTemplate> {
-    let mut env_candidates = Vec::with_capacity(25);
-    for phase_y in ENV_PHASES {
-        for phase_x in ENV_PHASES {
-            env_candidates.push(render_to_raster(
-                semantic,
-                physical_size,
-                (
-                    candidate.image.width() as usize,
-                    candidate.image.height() as usize,
-                ),
-                (candidate.geometry.center_x, candidate.geometry.center_y),
-                candidate.geometry.physical_size,
-                (phase_x, phase_y),
-            ));
-        }
-    }
+    let env_candidates = (0..ENV_PHASES.len().pow(2)).map(|index| {
+        let phase_y = ENV_PHASES[index / ENV_PHASES.len()];
+        let phase_x = ENV_PHASES[index % ENV_PHASES.len()];
+        render_to_raster(
+            semantic,
+            physical_size,
+            (
+                candidate.image.width() as usize,
+                candidate.image.height() as usize,
+            ),
+            (candidate.geometry.center_x, candidate.geometry.center_y),
+            candidate.geometry.physical_size,
+            (phase_x, phase_y),
+        )
+    });
     let domain = match kind {
         ItemKind::Stratagem => MatchDomain::Full,
         ItemKind::Booster => MatchDomain::InsetHex {
@@ -475,7 +474,7 @@ fn prepare_icon_template(
     prepare_template(
         semantic,
         physical_size,
-        &env_candidates,
+        env_candidates,
         candidate.geometry.physical_size,
         domain,
         kind == ItemKind::Stratagem,

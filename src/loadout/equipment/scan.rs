@@ -152,7 +152,7 @@ fn complete_categories(
         }
         for sample in row.names {
             let name = category
-                .identify(&sample)
+                .identify(sample)
                 .context("equipment scan found ambiguous item names")?;
             category.order.push(name);
         }

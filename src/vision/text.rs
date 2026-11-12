@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 
 pub(crate) fn render_text(sample: &TextTemplate) -> RgbaImage {
-    let foreground = sample.foreground();
-    let (width, height) = foreground.dimensions();
+    let (width, height) = sample.size;
     // Keep the captured extent; presentation scales by height and clips overflow.
     // Use response as alpha only, so strokes are not dimmed twice.
     RgbaImage::from_fn(width, height, |x, y| {
-        Rgba([255, 255, 255, foreground.get_pixel(x, y)[0]])
+        let response = sample.response[y as usize * width as usize + x as usize];
+        Rgba([255, 255, 255, (response * 255.0).round() as u8])
     })
 }
 
