@@ -333,6 +333,120 @@ msgstr "Автоматически проверять обновления"
 msgid "Item cache"
 msgstr "Кэш предметов"
 
+msgid "Migrate presets"
+msgstr "Перенести наборы"
+
+msgid "Scan item lists"
+msgstr "Сканировать списки предметов"
+
+msgid "Check presets"
+msgstr "Проверить наборы"
+
+msgid "Check new lists"
+msgstr "Проверить новые списки"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "Обновите изображения в сохранённых наборах после смены языка игры или обновления значков стратагем."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "Требуются полные кэши выбранных типов предметов, созданные при предыдущем сканировании. Доступные предметы должны остаться прежними."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "Сопоставьте сохранённые изображения с существующим кэшем, затем отсканируйте новые списки."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "Сопоставьте старые и новые списки, затем подтвердите перенос."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "В существующем кэше найдено сохранённых элементов: {}; наборов: {}."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "Сохранённые элементы не найдены в существующем кэше."
+
+msgid "Scan new lists"
+msgstr "Сканировать новые списки"
+
+msgid "Checking presets…"
+msgstr "Проверка наборов…"
+
+msgid "Could not check presets."
+msgstr "Не удалось проверить наборы."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "Можно перенести сохранённые элементы: {}; наборов: {}."
+
+msgid "No saved slots can be migrated."
+msgstr "Нет сохранённых элементов для переноса."
+
+msgid "{} saved slots could not be matched."
+msgstr "Не удалось сопоставить сохранённые элементы: {}."
+
+msgid "Saved preset"
+msgstr "Сохранённый набор"
+
+msgid "Existing cache"
+msgstr "Существующий кэш"
+
+msgid "New scan"
+msgstr "Новое сканирование"
+
+msgid "Used by {} presets"
+msgstr "В {} наборах"
+
+msgid "Matched"
+msgstr "Сопоставлено"
+
+msgid "Conflicting matches"
+msgstr "Конфликт сопоставлений"
+
+msgid "No correspondence"
+msgstr "Нет соответствия"
+
+msgid "{} / {} matched"
+msgstr "Сопоставлено {} / {}"
+
+msgid "{} old · {} new"
+msgstr "{} прежних · {} новых"
+
+msgid "Only unmatched"
+msgstr "Только без соответствия"
+
+msgid "Loading comparison…"
+msgstr "Загрузка сравнения…"
+
+msgid "No unmatched items."
+msgstr "Нет предметов без соответствия."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "Без изменений останутся сохранённые элементы: {}."
+
+msgid "{} slots unchanged"
+msgstr "Элементов без изменений: {}"
+
+msgid "Show full list"
+msgstr "Показать полный список"
+
+msgid "No saved items in the selected scope."
+msgstr "В выбранной области нет сохранённых предметов."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "Нет предметов, используемых в наборах. Покажите полный список, чтобы просмотреть этот кэш."
+
+msgid "Nothing to compare."
+msgstr "Нечего сравнивать."
+
+msgid "List structure changed"
+msgstr "Структура списка изменилась"
+
+msgid "No previous cache"
+msgstr "Нет прежнего кэша"
+
+msgid "Update cache only"
+msgstr "Только обновить кэш"
+
+msgid "Migrate and update cache"
+msgstr "Перенести и обновить кэш"
+
 msgid "All items"
 msgstr "Все предметы"
 

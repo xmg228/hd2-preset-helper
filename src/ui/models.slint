@@ -2,9 +2,21 @@
 export enum ActionScope { selected, stratagems, equipment }
 export enum PreviewRole { stratagem, booster, fallback-booster, helmet, armor, cape, primary, secondary, throwable }
 export enum PreviewState { missing, ready, invalid }
+export enum CandidateGroupRole { title, offensive, supply, defensive, all }
+export enum MigrationPhase { preflight, review }
+export enum MigrationPairState { matched, unmatched, missing, incompatible, duplicate }
+export struct MigrationGroupRow {
+    label: string, number: string, role: PreviewRole, is-preset: bool,
+    matched: int, total: int, old-count: int, new-count: int, state: MigrationPairState,
+}
+export struct MigrationPairRow {
+    role: PreviewRole, number: int, left: image, right: image,
+    has-left: bool, has-right: bool, state: MigrationPairState, references: int,
+    is-category: bool, category: CandidateGroupRole, source: bool,
+    source-label: string, source-number: string,
+}
 export struct PreviewRow { role: PreviewRole, number: int, state: PreviewState, picture: image, error: string }
 export struct PreviewSection { items: [PreviewRow], summary: image, error: string, ready: bool, saved: bool }
-export enum CandidateGroupRole { title, offensive, supply, defensive, all }
 export struct CandidateRow { category: int, item: int, picture: image }
 export struct CandidateGroupRow { title: image, role: CandidateGroupRole, items: [CandidateRow] }
 export struct CandidateCatalogRow { groups: [CandidateGroupRow] }

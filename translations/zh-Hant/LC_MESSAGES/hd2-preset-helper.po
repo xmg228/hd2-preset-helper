@@ -333,6 +333,120 @@ msgstr "自動檢查更新"
 msgid "Item cache"
 msgstr "物品快取"
 
+msgid "Migrate presets"
+msgstr "遷移預設"
+
+msgid "Scan item lists"
+msgstr "掃描物品列表"
+
+msgid "Check presets"
+msgstr "核對預設"
+
+msgid "Check new lists"
+msgstr "核對新列表"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "變更遊戲語言或戰略配備圖示後，用新掃描結果更新預設中的圖片。"
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "需要先前掃描取得的對應類型完整快取，且可用物品未變更。"
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "核對已儲存圖片與現有快取的對應關係，再掃描新列表。"
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "核對新舊列表的對應關係，再確認遷移。"
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "已在現有快取中對應 {} 項儲存內容，涉及 {} 個預設。"
+
+msgid "No saved slots were found in the existing cache."
+msgstr "現有快取中沒有找到已儲存的配裝內容。"
+
+msgid "Scan new lists"
+msgstr "掃描新清單"
+
+msgid "Checking presets…"
+msgstr "正在檢查預設…"
+
+msgid "Could not check presets."
+msgstr "無法檢查預設。"
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "可遷移 {} 項儲存內容，涉及 {} 個預設。"
+
+msgid "No saved slots can be migrated."
+msgstr "沒有可遷移的儲存內容。"
+
+msgid "{} saved slots could not be matched."
+msgstr "另有 {} 項儲存內容無法對應。"
+
+msgid "Saved preset"
+msgstr "已儲存預設"
+
+msgid "Existing cache"
+msgstr "現有快取"
+
+msgid "New scan"
+msgstr "新掃描結果"
+
+msgid "Used by {} presets"
+msgstr "用於 {} 個預設"
+
+msgid "Matched"
+msgstr "已對應"
+
+msgid "Conflicting matches"
+msgstr "對應衝突"
+
+msgid "No correspondence"
+msgstr "未建立對應"
+
+msgid "{} / {} matched"
+msgstr "{} / {} 項已對應"
+
+msgid "{} old · {} new"
+msgstr "舊 {} · 新 {}"
+
+msgid "Only unmatched"
+msgstr "僅看未對應"
+
+msgid "Loading comparison…"
+msgstr "正在載入對照…"
+
+msgid "No unmatched items."
+msgstr "沒有未對應的物品。"
+
+msgid "{} saved slots will remain unchanged."
+msgstr "{} 項儲存內容將保持原樣。"
+
+msgid "{} slots unchanged"
+msgstr "{} 項保持原樣"
+
+msgid "Show full list"
+msgstr "顯示完整列表"
+
+msgid "No saved items in the selected scope."
+msgstr "所選範圍內沒有已儲存的物品。"
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "沒有預設用到的物品，可顯示完整列表查看快取。"
+
+msgid "Nothing to compare."
+msgstr "暫無核對內容。"
+
+msgid "List structure changed"
+msgstr "清單結構不同"
+
+msgid "No previous cache"
+msgstr "沒有舊快取"
+
+msgid "Update cache only"
+msgstr "僅更新快取"
+
+msgid "Migrate and update cache"
+msgstr "遷移並更新快取"
+
 msgid "All items"
 msgstr "所有物品"
 

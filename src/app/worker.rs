@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -16,6 +17,7 @@ use crate::item_cache::{
     preview::{ItemCandidates, item_candidates},
 };
 use crate::preset::{
+    MigrationGroupSummary, MigrationPair, MigrationReport, MigrationSelection, PresetMigration,
     PresetScope,
     preview::{self, PresetPreview},
 };
@@ -32,10 +34,20 @@ pub(super) enum Work {
         preset: String,
         scope: PresetScope,
     },
+    InspectMigration(scan::ScanScope),
+    LoadMigrationPreview {
+        migration: Arc<PresetMigration>,
+        scanned: Option<Arc<ItemCache>>,
+        selection: MigrationSelection,
+    },
     LoadItemCandidates,
     SaveItemChoices {
         preset: String,
         choices: Box<CachedChoices>,
+    },
+    CommitMigration {
+        draft: Box<MigrationDraft>,
+        migrate_presets: bool,
     },
     Run {
         action: GameAction,
@@ -50,6 +62,11 @@ pub(super) enum WorkerEvent {
     Finished(WorkCompletion),
     PreviewsLoaded(std::result::Result<BTreeMap<String, PresetPreview>, String>),
     PresetChecked(std::result::Result<usize, String>),
+    MigrationInspected(std::result::Result<MigrationInspection, String>),
+    MigrationPreviewLoaded {
+        selection: MigrationSelection,
+        result: std::result::Result<Vec<MigrationPair>, String>,
+    },
     ItemCandidatesLoaded(std::result::Result<ItemCandidates, String>),
     ItemChoicesSaved {
         preset: String,
@@ -61,6 +78,37 @@ pub(super) enum WorkCompletion {
     Preset(std::result::Result<PresetActionOutcome, String>),
     Scan(std::result::Result<ScanSummary, String>),
     ScanCancelled,
+    MigrationReady(Box<MigrationDraft>),
+}
+
+pub(super) struct MigrationDraft {
+    scanned: Arc<ItemCache>,
+    migration: Arc<PresetMigration>,
+    groups: Vec<MigrationGroupSummary>,
+    summary: ScanSummary,
+}
+
+pub(super) struct MigrationInspection {
+    pub migration: Arc<PresetMigration>,
+    pub groups: Vec<MigrationGroupSummary>,
+}
+
+impl MigrationDraft {
+    pub fn report(&self) -> &MigrationReport {
+        self.migration.report()
+    }
+
+    pub fn groups(&self) -> &[MigrationGroupSummary] {
+        &self.groups
+    }
+
+    pub fn preview_work(&self, selection: MigrationSelection) -> Work {
+        Work::LoadMigrationPreview {
+            migration: self.migration.clone(),
+            scanned: Some(self.scanned.clone()),
+            selection,
+        }
+    }
 }
 
 pub(super) struct ActionWorker {
@@ -119,6 +167,22 @@ impl ActionWorker {
                                 .map_err(|error| format!("{error:#}"));
                             if event_tx.send(WorkerEvent::PresetChecked(result)).is_err() { break; }
                         }
+                        Work::InspectMigration(scope) => {
+                            let result = PresetMigration::inspect(&paths.presets, &item_cache, &scope.kinds(&item_cache))
+                                .map(|migration| MigrationInspection {
+                                    groups: migration.groups(&item_cache, None),
+                                    migration: Arc::new(migration),
+                                }).map_err(|error| format!("{error:#}"));
+                            if let Err(error) = &result {
+                                warn!(%error, "could not check presets for migration");
+                            }
+                            if event_tx.send(WorkerEvent::MigrationInspected(result)).is_err() { break; }
+                        }
+                        Work::LoadMigrationPreview { migration, scanned, selection } => {
+                            let result = migration.preview(&paths.presets, &item_cache, scanned.as_deref(), &selection)
+                                .map_err(|error| format!("{error:#}"));
+                            if event_tx.send(WorkerEvent::MigrationPreviewLoaded { selection, result }).is_err() { break; }
+                        }
                         Work::SaveItemChoices { preset, choices } => {
                             let result = crate::preset::save_cached(
                                 &paths.presets, &preset, &item_cache, &choices,
@@ -127,6 +191,31 @@ impl ActionWorker {
                                 warn!(%preset, %error, "could not save selected items");
                             }
                             if event_tx.send(WorkerEvent::ItemChoicesSaved { preset, result }).is_err() { break; }
+                        }
+                        Work::CommitMigration { draft, migrate_presets } => {
+                            let result = (|| -> Result<ScanSummary> {
+                                let migration = if migrate_presets {
+                                    Some(Arc::try_unwrap(draft.migration).map_err(|_| anyhow::anyhow!("migration previews are still in use"))?)
+                                } else {
+                                    None
+                                };
+                                let scanned = Arc::try_unwrap(draft.scanned)
+                                    .map_err(|_| anyhow::anyhow!("scanned item previews are still in use"))?;
+                                item_cache.commit_scanned(&cache_path, scanned)
+                                    .context("could not update the scanned item cache")?;
+                                let mut summary = draft.summary;
+                                if let Some(migration) = migration {
+                                    summary.migrated_items = Some(
+                                        migration.apply(&paths.presets, &item_cache)
+                                            .context("item cache updated; preset migration did not complete")?,
+                                    );
+                                }
+                                Ok(summary)
+                            })().map_err(|error| format!("{error:#}"));
+                            if let Err(error) = &result {
+                                error!(%error, "could not finish preset migration");
+                            }
+                            if event_tx.send(WorkerEvent::Finished(WorkCompletion::Scan(result))).is_err() { break; }
                         }
                         Work::Shutdown => break,
                         Work::Run { action, target } => {
@@ -169,14 +258,41 @@ impl ActionWorker {
                                     }
                                     WorkCompletion::Preset(outcome)
                                 }
-                                GameAction::Scan { scope, cancel } => {
+                                GameAction::Scan { scope, migration, cancel } => {
                                     let progress = event_tx.clone();
+                                    let kinds = scope.kinds(&item_cache);
+                                    let mut scanned = ItemCache::default();
                                     let result = scan::execute(
-                                        &runtime, &mut item_cache, &cache_path, &mut capture_session,
-                                        target, *scope, cancel,
+                                        &runtime, &mut capture_session,
+                                        target, &kinds, cancel,
                                         move |event| { let _ = progress.send(WorkerEvent::ScanProgress(event)); },
                                         &evidence,
-                                    );
+                                        |list| {
+                                            if migration.is_some() {
+                                                list.store(&mut scanned);
+                                                Ok(())
+                                            } else {
+                                                list.commit(&mut item_cache, &cache_path)
+                                            }
+                                        },
+                                    ).and_then(|summary| {
+                                        if let Some(migration) = migration {
+                                            let migration = migration.as_ref().clone().check(&item_cache, &scanned);
+                                            cancel.check()?;
+                                            let groups = migration.groups(&item_cache, Some(&scanned));
+                                            Ok(WorkCompletion::MigrationReady(Box::new(MigrationDraft {
+                                                scanned: Arc::new(scanned), migration: Arc::new(migration), groups, summary,
+                                            })))
+                                        } else {
+                                            Ok(WorkCompletion::Scan(Ok(summary)))
+                                        }
+                                    }).map_err(|error| {
+                                        if migration.is_some() {
+                                            error.context("migration scan failed; cache and presets were not changed")
+                                        } else {
+                                            error
+                                        }
+                                    });
                                     let cancelled = result.is_err() && cancel.is_cancelled();
                                     if !cancelled && let Err(error) = &result {
                                         error!(elapsed_s = start.elapsed().as_secs_f64(), error = %format!("{error:#}"), "item scan failed");
@@ -185,7 +301,7 @@ impl ActionWorker {
                                     if cancelled {
                                         WorkCompletion::ScanCancelled
                                     } else {
-                                        WorkCompletion::Scan(result.map_err(|error| format!("{error:#}")))
+                                        result.unwrap_or_else(|error| WorkCompletion::Scan(Err(format!("{error:#}"))))
                                     }
                                 }
                             };

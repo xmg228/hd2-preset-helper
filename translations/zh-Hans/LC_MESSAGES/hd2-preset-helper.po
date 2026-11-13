@@ -333,6 +333,120 @@ msgstr "自动检查更新"
 msgid "Item cache"
 msgstr "物品缓存"
 
+msgid "Migrate presets"
+msgstr "迁移预设"
+
+msgid "Scan item lists"
+msgstr "扫描物品列表"
+
+msgid "Check presets"
+msgstr "核对预设"
+
+msgid "Check new lists"
+msgstr "核对新列表"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "更换游戏语言或战略配备图标后，用新扫描结果更新预设中的图片。"
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "需要此前扫描得到的对应类型完整缓存，且可用物品未变。"
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "核对已保存图片与现有缓存的对应关系，再扫描新列表。"
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "核对新旧列表的对应关系，再确认迁移。"
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "已在现有缓存中对应 {} 项保存内容，涉及 {} 个预设。"
+
+msgid "No saved slots were found in the existing cache."
+msgstr "现有缓存中没有找到已保存的配装内容。"
+
+msgid "Scan new lists"
+msgstr "扫描新列表"
+
+msgid "Checking presets…"
+msgstr "正在检查预设…"
+
+msgid "Could not check presets."
+msgstr "无法检查预设。"
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "可迁移 {} 项保存内容，涉及 {} 个预设。"
+
+msgid "No saved slots can be migrated."
+msgstr "没有可迁移的保存内容。"
+
+msgid "{} saved slots could not be matched."
+msgstr "另有 {} 项保存内容无法对应。"
+
+msgid "Saved preset"
+msgstr "已保存预设"
+
+msgid "Existing cache"
+msgstr "现有缓存"
+
+msgid "New scan"
+msgstr "新扫描结果"
+
+msgid "Used by {} presets"
+msgstr "用于 {} 个预设"
+
+msgid "Matched"
+msgstr "已对应"
+
+msgid "Conflicting matches"
+msgstr "对应冲突"
+
+msgid "No correspondence"
+msgstr "未建立对应"
+
+msgid "{} / {} matched"
+msgstr "{} / {} 项已对应"
+
+msgid "{} old · {} new"
+msgstr "旧 {} · 新 {}"
+
+msgid "Only unmatched"
+msgstr "仅看未对应"
+
+msgid "Loading comparison…"
+msgstr "正在加载对照…"
+
+msgid "No unmatched items."
+msgstr "没有未对应的物品。"
+
+msgid "{} saved slots will remain unchanged."
+msgstr "{} 项保存内容将保持原样。"
+
+msgid "{} slots unchanged"
+msgstr "{} 项保持原样"
+
+msgid "Show full list"
+msgstr "显示完整列表"
+
+msgid "No saved items in the selected scope."
+msgstr "所选范围内没有已保存的物品。"
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "没有预设用到的物品，可显示完整列表查看缓存。"
+
+msgid "Nothing to compare."
+msgstr "暂无核对内容。"
+
+msgid "List structure changed"
+msgstr "列表结构不同"
+
+msgid "No previous cache"
+msgstr "没有旧缓存"
+
+msgid "Update cache only"
+msgstr "仅更新缓存"
+
+msgid "Migrate and update cache"
+msgstr "迁移并更新缓存"
+
 msgid "All items"
 msgstr "全部物品"
 

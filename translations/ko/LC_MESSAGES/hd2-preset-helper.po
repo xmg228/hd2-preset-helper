@@ -333,6 +333,120 @@ msgstr "자동으로 업데이트 확인"
 msgid "Item cache"
 msgstr "아이템 캐시"
 
+msgid "Migrate presets"
+msgstr "프리셋 이전"
+
+msgid "Scan item lists"
+msgstr "아이템 목록 스캔"
+
+msgid "Check presets"
+msgstr "프리셋 확인"
+
+msgid "Check new lists"
+msgstr "새 목록 확인"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "게임 언어 변경이나 스트라타젬 아이콘 업데이트 후 저장된 프리셋 이미지를 갱신합니다."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "선택한 아이템 유형을 이전에 스캔해 만든 완전한 캐시가 필요하며, 사용 가능한 아이템이 바뀌지 않아야 합니다."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "저장된 이미지와 기존 캐시의 대응을 확인한 뒤 새 목록을 스캔하세요."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "기존 목록과 새 목록의 대응을 확인한 뒤 이전을 확정하세요."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "저장된 항목 {}개(프리셋 {}개)를 기존 캐시에서 찾았습니다."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "기존 캐시에서 저장된 항목을 찾지 못했습니다."
+
+msgid "Scan new lists"
+msgstr "새 목록 스캔"
+
+msgid "Checking presets…"
+msgstr "프리셋 확인 중…"
+
+msgid "Could not check presets."
+msgstr "프리셋을 확인하지 못했습니다."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "저장된 항목 {}개(프리셋 {}개)를 이전할 수 있습니다."
+
+msgid "No saved slots can be migrated."
+msgstr "이전할 수 있는 저장된 항목이 없습니다."
+
+msgid "{} saved slots could not be matched."
+msgstr "저장된 항목 {}개를 대응시키지 못했습니다."
+
+msgid "Saved preset"
+msgstr "저장된 프리셋"
+
+msgid "Existing cache"
+msgstr "기존 캐시"
+
+msgid "New scan"
+msgstr "새 스캔 결과"
+
+msgid "Used by {} presets"
+msgstr "프리셋 {}개에서 사용"
+
+msgid "Matched"
+msgstr "대응 완료"
+
+msgid "Conflicting matches"
+msgstr "대응 충돌"
+
+msgid "No correspondence"
+msgstr "대응 없음"
+
+msgid "{} / {} matched"
+msgstr "{} / {} 대응 완료"
+
+msgid "{} old · {} new"
+msgstr "기존 {} · 신규 {}"
+
+msgid "Only unmatched"
+msgstr "미대응 항목만"
+
+msgid "Loading comparison…"
+msgstr "비교 불러오는 중…"
+
+msgid "No unmatched items."
+msgstr "미대응 아이템이 없습니다."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "저장된 항목 {}개는 그대로 유지됩니다."
+
+msgid "{} slots unchanged"
+msgstr "항목 {}개 그대로 유지"
+
+msgid "Show full list"
+msgstr "전체 목록 표시"
+
+msgid "No saved items in the selected scope."
+msgstr "선택한 범위에 저장된 아이템이 없습니다."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "프리셋에서 사용하는 아이템이 없습니다. 전체 목록을 표시하면 이 캐시를 볼 수 있습니다."
+
+msgid "Nothing to compare."
+msgstr "비교할 내용이 없습니다."
+
+msgid "List structure changed"
+msgstr "목록 구조가 변경됨"
+
+msgid "No previous cache"
+msgstr "이전 캐시 없음"
+
+msgid "Update cache only"
+msgstr "캐시만 업데이트"
+
+msgid "Migrate and update cache"
+msgstr "이전 및 캐시 업데이트"
+
 msgid "All items"
 msgstr "모든 아이템"
 

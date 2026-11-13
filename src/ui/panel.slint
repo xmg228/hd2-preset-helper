@@ -5,6 +5,7 @@ import { PanelButton, IconButton, DeletePresetDialog, ScanConfirmationDialog, Na
 import { SettingsDialog } from "settings.slint";
 import { ItemEditor } from "editor.slint";
 import { QuickStartDialog } from "quick-start.slint";
+import { MigrationPage } from "migration.slint";
 import { UpdatePhase } from "updates.slint";
 export { UpdatePhase }
 import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, ShortcutRow, MonitorRole, MonitorChoice } from "models.slint";
@@ -12,8 +13,10 @@ import { UiText } from "text.slint";
 import { FolderHeader } from "library.slint";
 import { LibraryEntryRow, EntryDropTarget } from "models.slint";
 import { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole } from "models.slint";
+import { MigrationPhase, MigrationGroupRow, MigrationPairRow, MigrationPairState } from "models.slint";
 export { LibraryEntryRow, EntryDropTarget }
 export { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole }
+export { MigrationPhase, MigrationGroupRow, MigrationPairRow, MigrationPairState }
 export { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
 export { ActionStatus, StatusItem, StatusTone } from "status.slint";
@@ -317,6 +320,19 @@ export component PresetPanel inherits Window {
     in-out property <bool> delete-open;
     in-out property <bool> scan-confirm-open;
     in property <int> scan-confirm-count;
+    in-out property <bool> migration-open;
+    in property <MigrationPhase> migration-phase;
+    in property <int> migration-preset-count;
+    in property <int> migration-item-count;
+    in property <int> migration-unmatched-count;
+    in property <string> migration-error;
+    in property <string> migration-preview-error;
+    in property <bool> migration-preview-loading;
+    in-out property <int> migration-group-index;
+    in-out property <bool> migration-all-items;
+    in-out property <bool> migration-only-unmatched;
+    in-out property <[MigrationGroupRow]> migration-groups;
+    in-out property <[MigrationPairRow]> migration-pairs;
     in-out property <bool> editor-open;
     in-out property <bool> editor-busy;
     in-out property <bool> editor-loading;
@@ -382,9 +398,9 @@ export component PresetPanel inherits Window {
     out property <bool> available: root.action-available(false, ActionScope.selected);
     private property <PresetRow> current: presets[current-index];
     private property <int> hovered-index: -1;
-    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && !editor-open && !scan-confirm-open && !quick-start-open && hovered-index >= 0 ? hovered-index : current-index];
+    private property <PresetRow> preview: presets[!editing-name && !reordering-entry && !editor-open && !scan-confirm-open && !migration-open && !quick-start-open && hovered-index >= 0 ? hovered-index : current-index];
     private property <bool> interactive: presented && !pending && !loading && !settings-open && !delete-open
-        && !scan-confirm-open && !quick-start-open && !editor-open && !editor-busy && !update-installing
+        && !scan-confirm-open && !migration-open && !quick-start-open && !editor-open && !editor-busy && !update-installing
         && reorder-phase != ReorderPhase.committing;
     private property <string> editing-preset;
     private property <string> name-draft;
@@ -432,6 +448,8 @@ export component PresetPanel inherits Window {
     callback refresh-items();
     callback confirm-scan();
     callback cancel-scan();
+    callback resolve-migration(int);
+    callback load-migration-preview();
     callback save-items();
     pure callback selected-equipment-state([bool], [PreviewRow]) -> PreviewState;
     pure callback project-entries([PresetRow], [LibraryEntryRow], string, string, float) -> [LibraryEntryRow];
@@ -462,6 +480,7 @@ export component PresetPanel inherits Window {
     callback view-quick-start();
     callback acknowledge-quick-start();
     callback scan-items(int);
+    callback inspect-migration(int);
     callback license-text() -> string;
     callback clear-shortcut(int);
     callback add-preset();
@@ -470,7 +489,7 @@ export component PresetPanel inherits Window {
     pure callback project-monitor-labels([MonitorChoice], string, string, string, string) -> [string];
     public function focus-list() {
         root.finish-reorder();
-        if (!root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.quick-start-open && !root.editor-open) { keyboard.focus(); }
+        if (!root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.migration-open && !root.quick-start-open && !root.editor-open) { keyboard.focus(); }
     }
     public function focus-search-results() {
         if (root.current-visible-index < 0 && root.visible-presets.length > 0) {
@@ -518,8 +537,19 @@ export component PresetPanel inherits Window {
             root.cancel-scan();
         }
     }
+    public function focus-migration() {
+        root.hovered-index = -1;
+        root.apply-key-down = false;
+        migration-page.focus-page();
+    }
+    function complete-migration(choice: int) {
+        if (root.migration-open) {
+            root.resolve-migration(choice);
+        }
+    }
     public function focus-current-view() {
         if (root.quick-start-open) { root.focus-quick-start(); }
+        else if (root.migration-open) { root.focus-migration(); }
         else if (root.scan-confirm-open) { root.focus-scan-confirm(); }
         else if (root.settings-open) { settings.focus(); }
         else if (root.editor-open) { root.focus-item-editor(); }
@@ -534,6 +564,7 @@ export component PresetPanel inherits Window {
     changed editor-open => { if (!root.editor-open) { item-editor.reset(); } }
     public function close-dialogs() {
         root.quick-start-open = false;
+        root.complete-migration(0);
         root.cancel-scan-confirmation();
         if (root.settings-open) { settings.focus(); }
         if (root.delete-open) { delete-dialog.focus(); }
@@ -649,8 +680,9 @@ export component PresetPanel inherits Window {
             border-color: #ffffff20;
         }
         keyboard := FocusScope {
-            enabled: root.presented && !root.settings-open && !root.delete-open && !root.scan-confirm-open && !root.quick-start-open;
+            enabled: root.presented && (!root.settings-open || root.migration-open) && !root.delete-open && !root.scan-confirm-open && !root.quick-start-open;
             key-pressed(event) => {
+                if (root.migration-open) { return reject; }
                 if (root.editor-open) {
                     if (event.text == Key.Escape) { item-editor.back-or-cancel(); return accept; }
                     if (event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta
@@ -687,6 +719,7 @@ export component PresetPanel inherits Window {
                 return reject;
             }
             key-released(event) => {
+                if (root.migration-open) { return reject; }
                 if (root.editor-open) { return reject; }
                 if (event.text == Key.Return) {
                     // Editing may end on key-down; its key-up must not apply a preset.
@@ -729,7 +762,7 @@ export component PresetPanel inherits Window {
                             }
                         }
                     }
-                    if (!root.editor-open && root.update-phase == UpdatePhase.ready): PanelButton {
+                    if (!root.editor-open && !root.migration-open && root.update-phase == UpdatePhase.ready): PanelButton {
                         text: @tr("Restart to update");
                         height: 28px;
                         horizontal-stretch: 0;
@@ -742,7 +775,7 @@ export component PresetPanel inherits Window {
                             root.install-update();
                         }
                     }
-                    if (!root.editor-open && root.update-version != "" && root.update-phase != UpdatePhase.ready): IconButton {
+                    if (!root.editor-open && !root.migration-open && root.update-version != "" && root.update-phase != UpdatePhase.ready): IconButton {
                         label: @tr("View available update");
                         icon: Icons.update;
                         enabled: root.interactive;
@@ -754,7 +787,7 @@ export component PresetPanel inherits Window {
                         }
                     }
                     IconButton {
-                        visible: !root.editor-open;
+                        visible: !root.editor-open && !root.migration-open;
                         label: @tr("Settings");
                         icon: Icons.settings;
                         enabled: root.interactive;
@@ -769,7 +802,7 @@ export component PresetPanel inherits Window {
                             label: @tr("Hide panel");
                             clicked => { root.dismiss(); }
                         }
-                        Text { text: root.editor-open ? "" : "Esc"; color: Theme.text-secondary; font-size: 9px; height: 12px; horizontal-alignment: center; }
+                        Text { text: root.editor-open || root.migration-open ? "" : "Esc"; color: Theme.text-secondary; font-size: 9px; height: 12px; horizontal-alignment: center; }
                     }
                 }
                 Rectangle { height: 1px; background: Theme.border; }
@@ -781,7 +814,7 @@ export component PresetPanel inherits Window {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     browse-page := Rectangle {
-                        visible: !root.editor-open;
+                        visible: !root.editor-open && !root.migration-open;
                         x: 0px; y: 0px;
                         width: parent.width;
                         height: parent.height;
@@ -1468,8 +1501,8 @@ export component PresetPanel inherits Window {
                         }
                     }
                     item-editor := ItemEditor {
-                        visible: root.editor-open;
-                        enabled: root.editor-open && !root.quick-start-open;
+                        visible: root.editor-open && !root.migration-open;
+                        enabled: root.editor-open && !root.migration-open && !root.quick-start-open;
                         preset-title: UiText.preset-title(root.current.label, root.current.number);
                         missing: root.editor-missing;
                         x: 0px; y: 0px;
@@ -1497,6 +1530,29 @@ export component PresetPanel inherits Window {
                         save => { root.save-items(); }
                         cancel => { if (!root.editor-busy) { root.close-dialogs(); } }
                     }
+                    migration-page := MigrationPage {
+                        visible: root.migration-open;
+                        enabled: root.migration-open && !root.quick-start-open;
+                        x: 0px; y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        phase: root.migration-phase;
+                        busy: root.pending;
+                        checking: root.pending && root.migration-phase == MigrationPhase.preflight && root.migration-groups.length == 0;
+                        preset-count: root.migration-preset-count;
+                        item-count: root.migration-item-count;
+                        unmatched-count: root.migration-unmatched-count;
+                        error: root.migration-error;
+                        preview-error: root.migration-preview-error;
+                        preview-loading: root.migration-preview-loading;
+                        groups: root.migration-groups;
+                        pairs: root.migration-pairs;
+                        group-index <=> root.migration-group-index;
+                        all-items <=> root.migration-all-items;
+                        only-unmatched <=> root.migration-only-unmatched;
+                        load-preview => { root.load-migration-preview(); }
+                        resolve(choice) => { root.complete-migration(choice); root.focus-current-view(); }
+                    }
                 }
             }
         }
@@ -1516,14 +1572,14 @@ export component PresetPanel inherits Window {
             }
             dropped(event) => { return self.can-drop(event); }
         }
-        if (root.settings-open): Rectangle {
+        if (root.settings-open && !root.migration-open): Rectangle {
             background: #00000099;
             border-radius: 8px;
             TouchArea { }
         }
         settings := SettingsDialog {
-            visible: root.settings-open;
-            enabled: root.settings-open && !root.pending && !root.scan-confirm-open && !root.quick-start-open && !root.update-installing;
+            visible: root.settings-open && !root.migration-open;
+            enabled: root.settings-open && !root.pending && !root.scan-confirm-open && !root.migration-open && !root.quick-start-open && !root.update-installing;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(root.shortcut-settings-index > 0 ? 440px : 560px, parent.width - 32px);
@@ -1563,6 +1619,7 @@ export component PresetPanel inherits Window {
             view-project => { root.view-project(); }
             view-quick-start => { root.view-quick-start(); }
             scan-items(kind) => { root.scan-items(kind); }
+            inspect-migration(kind) => { root.inspect-migration(kind); }
             license-text => { root.license-text(); }
         }
         if (root.delete-open): Rectangle {
@@ -1572,7 +1629,7 @@ export component PresetPanel inherits Window {
         }
         delete-dialog := DeletePresetDialog {
             visible: root.delete-open;
-            enabled: root.delete-open && !root.scan-confirm-open && !root.quick-start-open;
+            enabled: root.delete-open && !root.scan-confirm-open && !root.migration-open && !root.quick-start-open;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);
@@ -1592,7 +1649,7 @@ export component PresetPanel inherits Window {
         }
         scan-confirm-dialog := ScanConfirmationDialog {
             visible: root.scan-confirm-open;
-            enabled: root.scan-confirm-open && !root.pending && !root.quick-start-open;
+            enabled: root.scan-confirm-open && !root.pending && !root.migration-open && !root.quick-start-open;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: min(420px, parent.width - 32px);

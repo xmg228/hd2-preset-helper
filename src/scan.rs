@@ -9,7 +9,7 @@ use crate::{
     capture::CaptureSessionManager,
     evidence::OperationEvidence,
     item::{EquipmentKind, ItemKind},
-    item_cache::ItemCache,
+    item_cache::{EquipmentCatalog, IconCatalog, ItemCache},
     loadout::{
         bind_loadout_region, equipment,
         pages::{Page, show_page},
@@ -67,7 +67,7 @@ impl ScanScope {
         }
     }
 
-    fn kinds(self, cache: &ItemCache) -> Vec<ScanKind> {
+    pub(crate) fn kinds(self, cache: &ItemCache) -> Vec<ScanKind> {
         match self {
             Self::All => ScanKind::ALL.to_vec(),
             Self::One(kind) => vec![kind],
@@ -89,26 +89,53 @@ pub(crate) struct ScanProgress {
     pub items: usize,
 }
 
+pub(crate) enum ScannedList {
+    Equipment(EquipmentKind, EquipmentCatalog),
+    Icons(ItemKind, IconCatalog),
+}
+
+impl ScannedList {
+    pub(crate) fn store(self, cache: &mut ItemCache) {
+        match self {
+            Self::Equipment(kind, catalog) => cache.set_equipment(kind, catalog),
+            Self::Icons(kind, catalog) => cache.set_icons(kind, catalog),
+        }
+    }
+
+    pub(crate) fn commit(self, cache: &mut ItemCache, path: &Path) -> Result<()> {
+        match self {
+            Self::Equipment(kind, catalog) => cache.commit_equipment(path, kind, catalog),
+            Self::Icons(kind, catalog) => cache.commit_icons(path, kind, catalog),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Equipment(_, catalog) => catalog.categories.iter().map(|c| c.order.len()).sum(),
+            Self::Icons(_, catalog) => catalog.items.len(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ScanSummary {
     pub completed: Vec<ScanKind>,
     pub items: usize,
+    pub migrated_items: Option<usize>,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn execute(
     runtime: &RecognizerRuntime,
-    cache: &mut ItemCache,
-    cache_path: &Path,
     capture_session: &mut CaptureSessionManager,
     expected_window: WindowIdentity,
-    scope: ScanScope,
+    kinds: &[ScanKind],
     cancel: &Cancellation,
     mut progress: impl FnMut(ScanProgress),
     evidence: &OperationEvidence,
+    mut accept: impl FnMut(ScannedList) -> Result<()>,
 ) -> Result<ScanSummary> {
     cancel.check()?;
-    let kinds = scope.kinds(cache);
     let Some(&first) = kinds.first() else {
         return Ok(ScanSummary::default());
     };
@@ -116,7 +143,7 @@ pub(crate) fn execute(
     let target = prepared.target;
     let capture = prepared.source;
     let colors = prepared.colors;
-    evidence.record("scan-context", None, serde_json::json!({"scope": scope, "kinds": kinds, "client_size": target.client_size(), "game_colors": colors}));
+    evidence.record("scan-context", None, serde_json::json!({"kinds": kinds, "client_size": target.client_size(), "game_colors": colors}));
     let first_page = page_for(first);
     let origin = show_page(
         capture, runtime, &target, colors, first_page, evidence, cancel,
@@ -124,7 +151,7 @@ pub(crate) fn execute(
     let mut home = first_page;
     let mut summary = ScanSummary::default();
     let result = (|| -> Result<()> {
-        for kind in kinds {
+        for &kind in kinds {
             cancel.check()?;
             let page = page_for(kind);
             if home != page {
@@ -136,7 +163,7 @@ pub(crate) fn execute(
                 category: None,
                 items: 0,
             });
-            let count = match kind {
+            let list = match kind {
                 ScanKind::Equipment(equipment_kind) => {
                     let categories = equipment::with_session(
                         capture,
@@ -146,16 +173,7 @@ pub(crate) fn execute(
                         cancel.clone(),
                         |session| session.scan(equipment_kind, &mut progress),
                     )?;
-                    let count = categories
-                        .categories
-                        .iter()
-                        .map(|category| category.order.len())
-                        .sum();
-                    cancel.check()?;
-                    cache
-                        .commit_equipment(cache_path, equipment_kind, categories)
-                        .with_context(|| format!("failed to save scanned {}", kind.label()))?;
-                    count
+                    ScannedList::Equipment(equipment_kind, categories)
                 }
                 ScanKind::Stratagems | ScanKind::Booster => {
                     let bound = bind_loadout_region(capture, runtime.calibration(), colors)?;
@@ -179,14 +197,12 @@ pub(crate) fn execute(
                         observation,
                         &mut progress,
                     )?;
-                    let count = items.items.len();
-                    cancel.check()?;
-                    cache
-                        .commit_icons(cache_path, item_kind, items)
-                        .with_context(|| format!("failed to save scanned {}", kind.label()))?;
-                    count
+                    ScannedList::Icons(item_kind, items)
                 }
             };
+            let count = list.len();
+            cancel.check()?;
+            accept(list).with_context(|| format!("failed to accept scanned {}", kind.label()))?;
             summary.completed.push(kind);
             summary.items += count;
             tracing::info!(
@@ -207,7 +223,7 @@ pub(crate) fn execute(
             error
         } else {
             error.context(format!(
-                "{} item types were saved before scanning stopped ({} items)",
+                "{} item types were scanned before scanning stopped ({} items)",
                 summary.completed.len(),
                 summary.items
             ))

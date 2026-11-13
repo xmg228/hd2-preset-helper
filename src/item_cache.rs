@@ -1,6 +1,10 @@
 //! Captured items and complete list orders, shared by learning and manual scans.
+mod equipment;
+mod icons;
 pub(crate) mod preview;
 mod storage;
+
+pub(crate) use equipment::NAME_MATCH_THRESHOLD;
 
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +132,44 @@ impl ItemCache {
                 ItemKind::Stratagem => self.stratagems = previous,
                 ItemKind::Booster => self.boosters = previous,
             }
+            self.dirty = dirty;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Publish scanned lists together, restoring the active cache if saving fails.
+    pub(crate) fn commit_scanned(
+        &mut self,
+        path: &std::path::Path,
+        mut scanned: Self,
+    ) -> anyhow::Result<()> {
+        let equipment = scanned.equipment.each_ref().map(Option::is_some);
+        let stratagems = scanned.stratagems.is_some();
+        let boosters = scanned.boosters.is_some();
+        let swap = |cache: &mut Self, scanned: &mut Self| {
+            for ((current, next), selected) in cache
+                .equipment
+                .iter_mut()
+                .zip(&mut scanned.equipment)
+                .zip(equipment)
+            {
+                if selected {
+                    std::mem::swap(current, next);
+                }
+            }
+            if stratagems {
+                std::mem::swap(&mut cache.stratagems, &mut scanned.stratagems);
+            }
+            if boosters {
+                std::mem::swap(&mut cache.boosters, &mut scanned.boosters);
+            }
+        };
+        let dirty = self.dirty;
+        swap(self, &mut scanned);
+        self.dirty = true;
+        if let Err(error) = self.save_if_changed(path) {
+            swap(self, &mut scanned);
             self.dirty = dirty;
             return Err(error);
         }

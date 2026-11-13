@@ -176,21 +176,44 @@ impl Status {
         self.window.set_picture(picture);
     }
 
+    pub fn scan_review_ready(&mut self) {
+        self.scan_feedback(
+            "Scan complete · review the results in the panel".into(),
+            StatusTone::Working,
+            Some(3),
+        );
+    }
+
+    pub fn migration_committing(&mut self, migrate_presets: bool) {
+        self.scan_feedback(
+            if migrate_presets {
+                "Updating cache and presets…"
+            } else {
+                "Updating cache…"
+            }
+            .into(),
+            StatusTone::Working,
+            None,
+        );
+    }
+
     pub fn scan_finished(
         &mut self,
         result: &std::result::Result<ScanSummary, String>,
         cancelled: bool,
     ) {
         let (message, tone, seconds) = match result {
-            Ok(summary) => (
-                format!(
-                    "Collected {} items · {} types",
+            Ok(summary) => {
+                let mut message = format!(
+                    "Cache updated · {} items · {} types",
                     summary.items,
                     summary.completed.len()
-                ),
-                StatusTone::Success,
-                3,
-            ),
+                );
+                if let Some(count) = summary.migrated_items {
+                    message.push_str(&format!("\nUpdated {count} preset images"));
+                }
+                (message, StatusTone::Success, 3)
+            }
             Err(_) if cancelled => ("Scan stopped".into(), StatusTone::Warning, 3),
             Err(error) => (
                 format!("Failed: {}", error.lines().next().unwrap_or(error).trim()),

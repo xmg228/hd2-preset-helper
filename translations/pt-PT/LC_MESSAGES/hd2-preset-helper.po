@@ -333,6 +333,120 @@ msgstr "Procurar atualizações automaticamente"
 msgid "Item cache"
 msgstr "Cache de itens"
 
+msgid "Migrate presets"
+msgstr "Migrar predefinições"
+
+msgid "Scan item lists"
+msgstr "Analisar listas de itens"
+
+msgid "Check presets"
+msgstr "Verificar predefinições"
+
+msgid "Check new lists"
+msgstr "Verificar novas listas"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "Atualize as imagens das predefinições guardadas após uma mudança no idioma do jogo ou uma atualização dos ícones de estratagemas."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "Requer caches completas de uma análise anterior dos tipos de itens selecionados, sem alterações nos itens disponíveis."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "Compare as imagens guardadas com a cache existente e analise as novas listas."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "Compare as listas antigas e novas e confirme a migração."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "Itens guardados encontrados na cache existente: {} · Predefinições: {}."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "Nenhum item guardado foi encontrado na cache existente."
+
+msgid "Scan new lists"
+msgstr "Analisar novas listas"
+
+msgid "Checking presets…"
+msgstr "A verificar predefinições…"
+
+msgid "Could not check presets."
+msgstr "Não foi possível verificar as predefinições."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "Itens guardados que podem ser migrados: {} · Predefinições: {}."
+
+msgid "No saved slots can be migrated."
+msgstr "Nenhum item guardado pode ser migrado."
+
+msgid "{} saved slots could not be matched."
+msgstr "Itens guardados sem correspondência: {}."
+
+msgid "Saved preset"
+msgstr "Predefinição guardada"
+
+msgid "Existing cache"
+msgstr "Cache existente"
+
+msgid "New scan"
+msgstr "Nova análise"
+
+msgid "Used by {} presets"
+msgstr "Em {} predefinições"
+
+msgid "Matched"
+msgstr "Correspondência encontrada"
+
+msgid "Conflicting matches"
+msgstr "Correspondências em conflito"
+
+msgid "No correspondence"
+msgstr "Sem correspondência"
+
+msgid "{} / {} matched"
+msgstr "{} / {} identificados"
+
+msgid "{} old · {} new"
+msgstr "{} anteriores · {} novos"
+
+msgid "Only unmatched"
+msgstr "Apenas sem correspondência"
+
+msgid "Loading comparison…"
+msgstr "A carregar comparação…"
+
+msgid "No unmatched items."
+msgstr "Nenhum item sem correspondência."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "Itens guardados que permanecerão inalterados: {}."
+
+msgid "{} slots unchanged"
+msgstr "Itens inalterados: {}"
+
+msgid "Show full list"
+msgstr "Mostrar lista completa"
+
+msgid "No saved items in the selected scope."
+msgstr "Nenhum item guardado no âmbito selecionado."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "Nenhum item utilizado por predefinições. Mostre a lista completa para ver esta cache."
+
+msgid "Nothing to compare."
+msgstr "Nada para comparar."
+
+msgid "List structure changed"
+msgstr "A estrutura da lista mudou"
+
+msgid "No previous cache"
+msgstr "Sem cache anterior"
+
+msgid "Update cache only"
+msgstr "Atualizar apenas a cache"
+
+msgid "Migrate and update cache"
+msgstr "Migrar e atualizar a cache"
+
 msgid "All items"
 msgstr "Todos os itens"
 

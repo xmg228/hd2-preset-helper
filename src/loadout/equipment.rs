@@ -6,7 +6,7 @@ mod row;
 mod scan;
 mod search;
 
-use crate::item_cache::{EquipmentItem, EquipmentSet};
+use crate::item_cache::{EquipmentItem, EquipmentSet, NAME_MATCH_THRESHOLD};
 use evidence::EquipmentEvidence;
 
 use crate::{
@@ -26,8 +26,6 @@ use anyhow::{Context, Result, bail, ensure};
 use search::{Next, Search};
 use std::time::{Duration, Instant};
 
-// One threshold for smoothed name identities and saved-target acceptance.
-const NAME_MATCH_THRESHOLD: f32 = 0.96;
 const CATEGORY_MATCH_THRESHOLD: f32 = 0.80;
 const NAME_CONTINUITY_THRESHOLD: f32 = 0.80;
 

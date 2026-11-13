@@ -6,6 +6,7 @@ mod worker;
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
@@ -16,11 +17,13 @@ use crate::app_events::{AppEvent, PresetCompletion};
 use crate::app_paths::AppPaths;
 use crate::automation::Cancellation;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
-use crate::preset::PresetScope;
+use crate::preset::{PresetMigration, PresetScope};
 use crate::preset_action::{PresetActionOptions, PresetCommand};
 use crate::scan::ScanScope;
 use crate::{game_window, input, platform, ui};
-use worker::{ActionWorker, Work, WorkCompletion, WorkerEvent};
+use worker::{
+    ActionWorker, MigrationDraft, MigrationInspection, Work, WorkCompletion, WorkerEvent,
+};
 
 const HOTKEY_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const ACTIVATION_CONFIRM_TIMEOUT: Duration = Duration::from_millis(200);
@@ -199,6 +202,7 @@ pub(super) enum GameAction {
     },
     Scan {
         scope: ScanScope,
+        migration: Option<Arc<PresetMigration>>,
         cancel: Cancellation,
     },
 }
@@ -213,7 +217,13 @@ impl std::fmt::Debug for GameAction {
                 .field("preset", preset)
                 .field("command", command)
                 .finish(),
-            Self::Scan { scope, .. } => f.debug_tuple("Scan").field(scope).finish(),
+            Self::Scan {
+                scope, migration, ..
+            } => f
+                .debug_struct("Scan")
+                .field("scope", scope)
+                .field("migrate_presets", &migration.is_some())
+                .finish(),
         }
     }
 }
@@ -226,8 +236,10 @@ impl GameAction {
             } => serde_json::json!({
                 "kind": "preset", "preset": preset, "command": format!("{command:?}"),
             }),
-            Self::Scan { scope, .. } => serde_json::json!({
-                "kind": "scan", "scope": format!("{scope:?}"),
+            Self::Scan {
+                scope, migration, ..
+            } => serde_json::json!({
+                "kind": "scan", "scope": format!("{scope:?}"), "migrate_presets": migration.is_some(),
             }),
         }
     }
@@ -245,6 +257,9 @@ enum ActionState {
     Idle,
     Checking(Option<PendingAction>),
     Confirming(PendingAction),
+    InspectingMigration(Option<ScanScope>),
+    ReviewingMigration(MigrationReview),
+    CommittingMigration,
     Waiting {
         request: PendingAction,
         deadline: Instant,
@@ -256,6 +271,14 @@ enum ActionState {
     Running {
         cancel: Cancellation,
     },
+}
+
+enum MigrationReview {
+    Preflight {
+        scope: ScanScope,
+        migration: std::result::Result<Arc<PresetMigration>, String>,
+    },
+    Scanned(Box<MigrationDraft>),
 }
 
 struct AppController {
@@ -297,12 +320,17 @@ impl AppController {
             && !self.updates.installing()
             && !matches!(
                 self.state,
-                ActionState::Activating { .. } | ActionState::Running { .. }
+                ActionState::Activating { .. }
+                    | ActionState::Running { .. }
+                    | ActionState::CommittingMigration
             );
         let shortcuts_enabled = input_enabled
             && !matches!(
                 self.state,
-                ActionState::Checking(_) | ActionState::Confirming(_)
+                ActionState::Checking(_)
+                    | ActionState::InspectingMigration(_)
+                    | ActionState::Confirming(_)
+                    | ActionState::ReviewingMigration(_)
             )
             && !self.ui.shortcuts_blocked();
         self.hotkeys
@@ -337,9 +365,13 @@ impl AppController {
             self.handle_preset_hotkey(id)?;
         }
         while self.panel_hotkey.next_trigger().is_some() {
-            // A confirmation is still browsing; no game action has been accepted yet.
-            if !matches!(self.state, ActionState::Confirming(_))
-                && self.cancel_current_action("cancelled by user")?
+            // Local checks and reviews use the panel shortcut to show or hide.
+            if !matches!(
+                self.state,
+                ActionState::Confirming(_)
+                    | ActionState::InspectingMigration(_)
+                    | ActionState::ReviewingMigration(_)
+            ) && self.cancel_current_action("cancelled by user")?
             {
                 continue;
             }
@@ -381,7 +413,13 @@ impl AppController {
         if self.ui.is_panel_open()
             && !self.keep_panel_open
             && !self.ui.is_panel_active()
-            && matches!(self.state, ActionState::Idle | ActionState::Confirming(_))
+            && matches!(
+                self.state,
+                ActionState::Idle
+                    | ActionState::Confirming(_)
+                    | ActionState::InspectingMigration(_)
+                    | ActionState::ReviewingMigration(_)
+            )
         {
             self.close_panel()?;
         }
@@ -428,6 +466,12 @@ impl AppController {
                     }
                 }
                 Ok(WorkerEvent::PresetChecked(result)) => self.finish_action_check(result)?,
+                Ok(WorkerEvent::MigrationInspected(result)) => {
+                    self.finish_migration_inspection(result)?
+                }
+                Ok(WorkerEvent::MigrationPreviewLoaded { selection, result }) => {
+                    self.ui.migration_preview_loaded(selection, result);
+                }
                 Ok(WorkerEvent::ScanProgress(progress)) => self.ui.scan_progress(progress)?,
                 Ok(WorkerEvent::Finished(completion)) => {
                     let cancelled = matches!(&self.state, ActionState::Running { cancel } if cancel.is_cancelled());
@@ -446,6 +490,12 @@ impl AppController {
                         WorkCompletion::ScanCancelled => {
                             self.finish_scan(Err("Scan stopped".into()), true)?
                         }
+                        WorkCompletion::MigrationReady(draft) if !cancelled && !self.exiting => {
+                            self.review_migration(draft)?;
+                        }
+                        WorkCompletion::MigrationReady(_) => {
+                            self.finish_scan(Err("Scan stopped".into()), true)?;
+                        }
                         WorkCompletion::Preset(_) => {}
                     }
                 }
@@ -463,7 +513,10 @@ impl AppController {
                 ),
         )?;
         if self.exiting
-            && !matches!(self.state, ActionState::Running { .. })
+            && !matches!(
+                self.state,
+                ActionState::Running { .. } | ActionState::CommittingMigration
+            )
             && !self.updates.installing()
         {
             return Ok(ControlFlow::Break(None));

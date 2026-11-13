@@ -333,6 +333,120 @@ msgstr "Verifica automaticamente gli aggiornamenti"
 msgid "Item cache"
 msgstr "Cache degli oggetti"
 
+msgid "Migrate presets"
+msgstr "Migra i preset"
+
+msgid "Scan item lists"
+msgstr "Scansiona gli elenchi di oggetti"
+
+msgid "Check presets"
+msgstr "Verifica i preset"
+
+msgid "Check new lists"
+msgstr "Verifica i nuovi elenchi"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "Aggiorna le immagini dei preset salvati dopo aver cambiato la lingua del gioco o dopo un aggiornamento delle icone degli stratagemmi."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "Richiede cache complete ottenute da una scansione precedente dei tipi di oggetti selezionati, senza modifiche agli oggetti disponibili."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "Confronta le immagini salvate con la cache esistente, poi scansiona i nuovi elenchi."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "Confronta i vecchi e i nuovi elenchi, poi conferma la migrazione."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "Trovate {} voci salvate di {} preset nella cache esistente."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "Nessuna voce salvata trovata nella cache esistente."
+
+msgid "Scan new lists"
+msgstr "Scansiona i nuovi elenchi"
+
+msgid "Checking presets…"
+msgstr "Verifica dei preset…"
+
+msgid "Could not check presets."
+msgstr "Impossibile verificare i preset."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "È possibile migrare {} voci salvate di {} preset."
+
+msgid "No saved slots can be migrated."
+msgstr "Nessuna voce salvata può essere migrata."
+
+msgid "{} saved slots could not be matched."
+msgstr "Non è stato possibile identificare {} voci salvate."
+
+msgid "Saved preset"
+msgstr "Preset salvato"
+
+msgid "Existing cache"
+msgstr "Cache esistente"
+
+msgid "New scan"
+msgstr "Nuova scansione"
+
+msgid "Used by {} presets"
+msgstr "In {} preset"
+
+msgid "Matched"
+msgstr "Corrispondenza trovata"
+
+msgid "Conflicting matches"
+msgstr "Corrispondenze in conflitto"
+
+msgid "No correspondence"
+msgstr "Nessuna corrispondenza"
+
+msgid "{} / {} matched"
+msgstr "{} / {} identificati"
+
+msgid "{} old · {} new"
+msgstr "{} precedenti · {} nuovi"
+
+msgid "Only unmatched"
+msgstr "Solo senza corrispondenza"
+
+msgid "Loading comparison…"
+msgstr "Caricamento confronto…"
+
+msgid "No unmatched items."
+msgstr "Nessun oggetto senza corrispondenza."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "{} voci salvate rimarranno invariate."
+
+msgid "{} slots unchanged"
+msgstr "{} voci invariate"
+
+msgid "Show full list"
+msgstr "Mostra elenco completo"
+
+msgid "No saved items in the selected scope."
+msgstr "Nessun oggetto salvato nell'ambito selezionato."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "Nessun oggetto utilizzato dai preset. Mostra l'elenco completo per visualizzare questa cache."
+
+msgid "Nothing to compare."
+msgstr "Niente da confrontare."
+
+msgid "List structure changed"
+msgstr "Struttura dell'elenco cambiata"
+
+msgid "No previous cache"
+msgstr "Nessuna cache precedente"
+
+msgid "Update cache only"
+msgstr "Aggiorna solo la cache"
+
+msgid "Migrate and update cache"
+msgstr "Migra e aggiorna la cache"
+
 msgid "All items"
 msgstr "Tutti gli oggetti"
 

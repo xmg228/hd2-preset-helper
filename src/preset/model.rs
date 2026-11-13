@@ -43,7 +43,7 @@ pub(super) enum Entry {
     },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub(crate) struct LocalTemplate {
     /// Local template path relative to the directory containing presets.json.
     pub path: String,
@@ -67,7 +67,7 @@ pub(super) struct SavedEquipment {
     pub(super) items: [Option<SavedItem>; 6],
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub(super) struct SavedItem {
     pub(super) name: String,
     /// Partial saves may replace a name at a different resolution from the other items.

@@ -1,0 +1,399 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { PanelButton, SettingToggle } from "controls.slint";
+import { Icon, Icons } from "icons.slint";
+import { MigrationPhase, MigrationGroupRow, MigrationPairRow, MigrationPairState, PreviewRole, CandidateGroupRole } from "models.slint";
+import { UiText } from "text.slint";
+
+component ComparisonPicture inherits Rectangle {
+    in property <image> picture;
+    in property <bool> present;
+    in property <bool> icon-mode;
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    if (root.present && root.icon-mode): Image {
+        width: 44px;
+        height: 44px;
+        y: (parent.height - self.height) / 2;
+        source: root.picture;
+        image-fit: contain;
+    }
+    if (root.present && !root.icon-mode): Image {
+        height: min(20px, parent.width * root.picture.height / max(1, root.picture.width));
+        width: self.height * root.picture.width / max(1, root.picture.height);
+        y: (parent.height - self.height) / 2;
+        source: root.picture;
+        colorize: Theme.text;
+    }
+    if (!root.present): Text {
+        text: "—";
+        color: Theme.inactive;
+        vertical-alignment: center;
+    }
+}
+
+component ComparisonItem inherits Rectangle {
+    in property <MigrationPairRow> item;
+    private property <bool> icon-mode: item.role == PreviewRole.stratagem || item.role == PreviewRole.booster || item.role == PreviewRole.fallback-booster;
+    min-height: root.item.is-category ? 32px : root.icon-mode ? 82px : 66px;
+    background: root.item.is-category ? transparent : Theme.control;
+    border-radius: 4px;
+    VerticalLayout {
+        padding: root.item.is-category ? 0px : 8px;
+        spacing: 4px;
+        if (!root.item.is-category): HorizontalLayout {
+            height: 16px;
+            spacing: 10px;
+            Text {
+                text: root.item.source ? UiText.preset-title(root.item.source-label, root.item.source-number) + " · " + UiText.item-label({role: root.item.role, number: root.item.number})
+                    : root.item.role == PreviewRole.stratagem && root.item.number > 0 ? UiText.item-label({role: root.item.role, number: root.item.number})
+                    : UiText.role-label(root.item.role);
+                color: Theme.text-secondary;
+                font-size: 11px;
+                min-width: 0px;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            if (root.item.source): Text { text: @tr("Saved preset"); color: Theme.text-secondary; font-size: 11px; }
+            if (root.item.references > 0): Text {
+                text: @tr("Used by {} presets", root.item.references);
+                color: Theme.text-secondary;
+                font-size: 11px;
+            }
+            Text {
+                text: root.item.state == MigrationPairState.matched ? @tr("Matched")
+                    : root.item.state == MigrationPairState.duplicate ? @tr("Conflicting matches")
+                    : root.item.state == MigrationPairState.missing ? @tr("No previous cache")
+                    : root.item.state == MigrationPairState.incompatible ? @tr("List structure changed")
+                    : @tr("No correspondence");
+                color: root.item.state == MigrationPairState.matched ? Theme.success : Theme.warning;
+                font-size: 11px;
+            }
+        }
+        if (root.item.is-category && root.item.category != CandidateGroupRole.title): Text {
+            text: UiText.candidate-group-label(root.item.category);
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if (!root.item.is-category || root.item.category == CandidateGroupRole.title): HorizontalLayout {
+            min-height: root.item.is-category ? 24px : root.icon-mode ? 44px : 28px;
+            spacing: 8px;
+            ComparisonPicture { picture: root.item.left; present: root.item.has-left; icon-mode: root.icon-mode && !root.item.is-category; }
+            Rectangle {
+                width: 20px;
+                if (!root.item.is-category && root.item.state == MigrationPairState.matched && root.item.has-left && root.item.has-right): Icon {
+                    icon: Icons.chevron-right;
+                    stroke: Theme.text-secondary;
+                    size: 12px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+            ComparisonPicture { picture: root.item.right; present: root.item.has-right; icon-mode: root.icon-mode && !root.item.is-category; }
+        }
+    }
+}
+
+export component MigrationPage inherits Rectangle {
+    in property <bool> enabled;
+    in property <bool> busy;
+    in property <bool> checking;
+    in property <bool> preview-loading;
+    in property <MigrationPhase> phase;
+    in property <int> preset-count;
+    in property <int> item-count;
+    in property <int> unmatched-count;
+    in property <string> error;
+    in property <string> preview-error;
+    in property <[MigrationGroupRow]> groups;
+    in property <[MigrationPairRow]> pairs;
+    in-out property <int> group-index;
+    in-out property <bool> all-items;
+    in-out property <bool> only-unmatched;
+    private property <bool> interactive: root.enabled && !root.busy && !root.preview-loading;
+    private property <length> group-height: root.phase == MigrationPhase.preflight ? 48px : 60px;
+    private property <length> group-spacing: 2px;
+    private property <length> comparison-gutter: 8px;
+    callback resolve(int);
+    callback load-preview();
+    forward-focus: keys;
+    public function focus-page() { root.reveal-group(); keys.focus(); }
+    function reveal-group() {
+        let top = root.group-index * (root.group-height + root.group-spacing);
+        let bottom = top + root.group-height;
+        if (top < -navigation.content-y) { navigation.content-y = -top; }
+        else if (bottom > -navigation.content-y + navigation.visible-height) {
+            navigation.content-y = navigation.visible-height - bottom;
+        }
+        navigation.content-y = clamp(navigation.content-y, min(0px, navigation.visible-height - navigation.content-height), 0px);
+    }
+    function reload-preview() {
+        root.reveal-group();
+        comparison.content-y = 0px;
+        if (root.enabled && !root.checking) { root.load-preview(); }
+    }
+    changed group-index => { root.reload-preview(); }
+    changed all-items => { root.reload-preview(); }
+    changed only-unmatched => { root.reload-preview(); }
+    changed groups => { root.reveal-group(); }
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (!event.repeat) { root.resolve(0); }
+                return accept;
+            }
+            if (root.interactive && root.groups.length > 0) {
+                if (event.modifiers.control || event.modifiers.shift || event.modifiers.alt || event.modifiers.meta) { return reject; }
+                let up = event.text == Key.UpArrow || event.text == "w" || event.text == "W";
+                let down = event.text == Key.DownArrow || event.text == "s" || event.text == "S";
+                if (up || down) {
+                    root.group-index = clamp(root.group-index + (down ? 1 : -1), 0, root.groups.length - 1);
+                    keys.focus();
+                    return accept;
+                }
+            }
+            return reject;
+        }
+        VerticalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: @tr("Migrate presets");
+                    color: Theme.text;
+                    font-size: 20px;
+                    font-weight: 600;
+                }
+                HorizontalLayout {
+                    height: 22px;
+                    alignment: start;
+                    spacing: 8px;
+                    Text {
+                        text: "1. " + @tr("Check presets");
+                        color: root.phase == MigrationPhase.preflight ? Theme.accent-soft : Theme.text-secondary;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Icon { icon: Icons.chevron-right; stroke: Theme.text-secondary; size: 12px; cross-axis-self-alignment: center; }
+                    Text {
+                        text: "2. " + @tr("Check new lists");
+                        color: root.phase == MigrationPhase.review ? Theme.accent-soft : Theme.text-secondary;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+                if (!root.checking && root.error == "" && root.item-count > 0): Text {
+                    text: root.phase == MigrationPhase.preflight
+                        ? @tr("Check saved images against the existing cache, then scan new lists.")
+                        : @tr("Check the old and new lists, then confirm the migration.");
+                    color: Theme.text;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.checking ? @tr("Checking presets…") : root.error != "" ? @tr("Could not check presets.")
+                        : root.phase == MigrationPhase.preflight
+                            ? root.groups.length == 0 ? @tr("No saved items in the selected scope.")
+                            : root.item-count > 0
+                                ? @tr("{} saved slots across {} presets were located in the existing cache.", root.item-count, root.preset-count)
+                                : @tr("No saved slots were found in the existing cache.")
+                            : root.item-count > 0
+                                ? @tr("{} saved slots across {} presets can migrate.", root.item-count, root.preset-count)
+                                : @tr("No saved slots can be migrated.");
+                    color: Theme.text-secondary;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+                if (!root.checking && root.unmatched-count > 0): Text {
+                    text: root.phase == MigrationPhase.preflight
+                        ? @tr("{} saved slots could not be matched.", root.unmatched-count)
+                        : @tr("{} saved slots will remain unchanged.", root.unmatched-count);
+                    color: Theme.warning;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                min-height: 0px;
+                vertical-stretch: 1;
+                spacing: 18px;
+                navigation := ScrollView {
+                    width: 200px;
+                    content-width: max(0px, self.visible-width - 8px);
+                    VerticalLayout {
+                        spacing: root.group-spacing;
+                        for group[index] in root.groups: Rectangle {
+                            height: root.group-height;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: index == root.group-index ? Theme.accent-soft : transparent;
+                            background: index == root.group-index ? #302e22 : group-touch.has-hover ? Theme.hover : transparent;
+                            accessible-role: list-item;
+                            accessible-label: group.is-preset ? UiText.preset-title(group.label, group.number) : UiText.role-label(group.role);
+                            accessible-item-selectable: true;
+                            accessible-item-selected: index == root.group-index;
+                            accessible-action-default => { if (root.interactive) { root.group-index = index; keys.focus(); } }
+                            VerticalLayout {
+                                padding: 8px;
+                                padding-top: 4px;
+                                padding-bottom: 4px;
+                                spacing: 2px;
+                                alignment: center;
+                                Text {
+                                    text: group.is-preset ? UiText.preset-title(group.label, group.number) : UiText.role-label(group.role);
+                                    color: Theme.text;
+                                    font-size: 13px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: group.is-preset ? @tr("{} / {} matched", group.matched, group.total)
+                                        : @tr("{} old · {} new", group.old-count, group.new-count);
+                                    color: Theme.text-secondary;
+                                    font-size: 11px;
+                                    overflow: elide;
+                                }
+                                if (!group.is-preset && (group.state != MigrationPairState.matched || group.matched < group.total)): Text {
+                                    text: group.state == MigrationPairState.missing ? @tr("No previous cache")
+                                        : group.state == MigrationPairState.incompatible ? @tr("List structure changed")
+                                        : @tr("{} slots unchanged", group.total - group.matched);
+                                    color: Theme.warning;
+                                    font-size: 10px;
+                                    overflow: elide;
+                                }
+                            }
+                            group-touch := TouchArea {
+                                enabled: root.interactive;
+                                mouse-cursor: pointer;
+                                clicked => { root.group-index = index; keys.focus(); }
+                            }
+                        }
+                    }
+                }
+                Rectangle { width: 1px; background: Theme.border; }
+                VerticalLayout {
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        height: 28px;
+                        padding-right: root.comparison-gutter;
+                        spacing: 12px;
+                        Text {
+                            text: root.groups.length == 0 ? ""
+                                : root.groups[root.group-index].is-preset ? UiText.preset-title(root.groups[root.group-index].label, root.groups[root.group-index].number)
+                                : UiText.role-label(root.groups[root.group-index].role);
+                            color: Theme.text;
+                            font-size: 14px;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        if (root.phase == MigrationPhase.preflight): SettingToggle {
+                            horizontal-stretch: 0;
+                            compact: true;
+                            text: @tr("Only unmatched");
+                            checked <=> root.only-unmatched;
+                            enabled: root.interactive;
+                        }
+                        if (root.phase == MigrationPhase.review): SettingToggle {
+                            horizontal-stretch: 0;
+                            compact: true;
+                            text: @tr("Show full list");
+                            checked <=> root.all-items;
+                            enabled: root.interactive;
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 24px;
+                        padding-left: 8px;
+                        padding-right: 8px + root.comparison-gutter;
+                        spacing: 8px;
+                        Text {
+                            text: root.phase == MigrationPhase.preflight ? @tr("Saved preset") : @tr("Existing cache");
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            horizontal-stretch: 1;
+                        }
+                        Rectangle { width: 20px; }
+                        Text {
+                            text: root.phase == MigrationPhase.preflight ? @tr("Existing cache") : @tr("New scan");
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    comparison := ScrollView {
+                        min-height: 0px;
+                        vertical-stretch: 1;
+                        content-width: max(0px, self.visible-width - root.comparison-gutter);
+                        VerticalLayout {
+                            spacing: 8px;
+                            if (root.error != "" || root.preview-error != ""): Text {
+                                text: root.error != "" ? root.error : root.preview-error;
+                                color: Theme.error;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                            if (root.preview-loading): Text {
+                                text: @tr("Loading comparison…");
+                                color: Theme.text-secondary;
+                                font-size: 12px;
+                            }
+                            if (!root.checking && !root.preview-loading && root.error == "" && root.preview-error == "" && root.pairs.length == 0): Text {
+                                text: root.phase == MigrationPhase.review && !root.all-items
+                                    ? @tr("No items used by presets. Show the full list to view this cache.")
+                                    : root.only-unmatched && root.phase == MigrationPhase.preflight ? @tr("No unmatched items.") : @tr("Nothing to compare.");
+                                color: Theme.text-secondary;
+                                font-size: 12px;
+                            }
+                            for item in root.checking || root.preview-loading ? [] : root.pairs: ComparisonItem { item: item; }
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                height: 32px;
+                alignment: end;
+                spacing: 10px;
+                PanelButton { text: @tr("Cancel"); filled: true; enabled: root.enabled; clicked => { root.resolve(0); } }
+                if (root.phase == MigrationPhase.preflight && !root.checking): PanelButton {
+                    text: @tr("Scan new lists");
+                    accent: true;
+                    enabled: root.enabled && !root.busy && root.item-count > 0 && root.error == "";
+                    clicked => { root.resolve(3); }
+                }
+                if (root.phase == MigrationPhase.review): PanelButton {
+                    text: @tr("Update cache only");
+                    filled: true;
+                    accent: root.item-count == 0;
+                    enabled: root.enabled && !root.busy;
+                    clicked => { root.resolve(1); }
+                }
+                if (root.phase == MigrationPhase.review && root.item-count > 0): PanelButton {
+                    text: @tr("Migrate and update cache");
+                    accent: true;
+                    enabled: root.enabled && !root.busy;
+                    clicked => { root.resolve(2); }
+                }
+            }
+        }
+    }
+}

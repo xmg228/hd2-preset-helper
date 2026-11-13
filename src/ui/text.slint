@@ -20,13 +20,17 @@ export global UiText {
     }
     public pure function item-label(item: PreviewRow) -> string {
         if (item.role == PreviewRole.stratagem) { return @tr("Stratagem {}", item.number); }
-        if (item.role == PreviewRole.booster) { return @tr("Booster"); }
-        if (item.role == PreviewRole.fallback-booster) { return @tr("Fallback Booster"); }
-        if (item.role == PreviewRole.helmet) { return @tr("Helmet"); }
-        if (item.role == PreviewRole.armor) { return @tr("Armor"); }
-        if (item.role == PreviewRole.cape) { return @tr("Cape"); }
-        if (item.role == PreviewRole.primary) { return @tr("Primary"); }
-        if (item.role == PreviewRole.secondary) { return @tr("Secondary"); }
+        return root.role-label(item.role);
+    }
+    public pure function role-label(role: PreviewRole) -> string {
+        if (role == PreviewRole.stratagem) { return @tr("Stratagems"); }
+        if (role == PreviewRole.booster) { return @tr("Booster"); }
+        if (role == PreviewRole.fallback-booster) { return @tr("Fallback Booster"); }
+        if (role == PreviewRole.helmet) { return @tr("Helmet"); }
+        if (role == PreviewRole.armor) { return @tr("Armor"); }
+        if (role == PreviewRole.cape) { return @tr("Cape"); }
+        if (role == PreviewRole.primary) { return @tr("Primary"); }
+        if (role == PreviewRole.secondary) { return @tr("Secondary"); }
         return @tr("Throwable");
     }
 }

@@ -4,6 +4,7 @@ mod images;
 mod migration;
 mod model;
 pub(crate) mod preview;
+mod refresh;
 mod storage;
 pub(crate) mod stratagems;
 
@@ -21,6 +22,10 @@ pub(crate) use migration::initialize;
 use model::{Entry, Preset, PresetLibrary};
 pub(crate) use model::{
     EntryMetadata, LibraryMetadata, LocalTemplate, PresetMetadata, StratagemPreset,
+};
+pub(crate) use refresh::{
+    MigrationGroupKey, MigrationGroupSummary, MigrationPair, MigrationReport, MigrationSelection,
+    MigrationStatus, PresetMigration,
 };
 const LOCAL_TEMPLATES_DIR: &str = "local_templates";
 

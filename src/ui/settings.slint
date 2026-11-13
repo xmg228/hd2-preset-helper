@@ -7,7 +7,7 @@ import { ShortcutRow } from "models.slint";
 import { UpdateView, UpdatePhase } from "updates.slint";
 import { UiText } from "text.slint";
 
-enum SettingsPage { general, shortcuts, preset-shortcut, about, licenses }
+enum SettingsPage { general, shortcuts, item-cache, preset-shortcut, about, licenses }
 
 export component SettingsDialog inherits Rectangle {
     in property <bool> enabled;
@@ -40,6 +40,10 @@ export component SettingsDialog inherits Rectangle {
     private property <bool> shortcut-only: page == SettingsPage.preset-shortcut;
     private property <string> notices;
     private property <int> scan-kind;
+    private property <int> migration-kind: 0;
+    private property <[string]> item-kinds: [@tr("All items"), @tr("Stratagems"), @tr("Booster"),
+        @tr("Helmet"), @tr("Armor"), @tr("Cape"),
+        @tr("Primary"), @tr("Secondary"), @tr("Throwable")];
     out property <bool> viewing-licenses: page == SettingsPage.licenses;
     callback clear(int);
     callback save();
@@ -51,6 +55,7 @@ export component SettingsDialog inherits Rectangle {
     callback view-project();
     callback view-quick-start();
     callback scan-items(int);
+    callback inspect-migration(int);
     callback license-text() -> string;
     forward-focus: keys;
     public function focus-dialog(show-about: bool) {
@@ -98,6 +103,11 @@ export component SettingsDialog inherits Rectangle {
                     min-width: 100px; text: @tr("Shortcuts"); filled: root.page == SettingsPage.shortcuts;
                     enabled: root.enabled && !root.saving;
                     clicked => { root.page = SettingsPage.shortcuts; }
+                }
+                PanelButton {
+                    min-width: 100px; text: @tr("Item cache"); filled: root.page == SettingsPage.item-cache;
+                    enabled: root.enabled && !root.saving;
+                    clicked => { root.recording = -1; root.page = SettingsPage.item-cache; }
                 }
                 PanelButton {
                     min-width: 100px; text: @tr("About");
@@ -189,17 +199,21 @@ export component SettingsDialog inherits Rectangle {
                         checked <=> root.start-with-windows;
                         enabled: root.enabled && !root.saving && root.startup-available;
                     }
-                    Rectangle { height: 1px; background: Theme.border; }
+                }
+            }
+            if (root.page == SettingsPage.item-cache): ScrollView {
+                content-width: self.visible-width - 8px;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 10px;
                     VerticalLayout {
                         padding: 8px;
                         spacing: 6px;
-                        Text { text: @tr("Item cache"); color: Theme.text; font-size: 14px; }
+                        Text { text: @tr("Scan item lists"); color: Theme.text; font-size: 14px; font-weight: 600; }
                         HorizontalLayout {
                             spacing: 8px;
                             PanelComboBox {
-                                model: [@tr("All items"), @tr("Stratagems"), @tr("Booster"),
-                                    @tr("Helmet"), @tr("Armor"), @tr("Cape"),
-                                    @tr("Primary"), @tr("Secondary"), @tr("Throwable")];
+                                model: root.item-kinds;
                                 current-index <=> root.scan-kind;
                                 enabled: root.enabled && !root.saving;
                             }
@@ -213,6 +227,34 @@ export component SettingsDialog inherits Rectangle {
                         Text {
                             text: (root.scan-kind == 0 || root.scan-kind == 2 ? UiText.booster-scan-hint + "\n" : "")
                                 + @tr("Open the panel to stop scanning.");
+                            color: Theme.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+                        Text { text: @tr("Migrate presets"); color: Theme.text; font-size: 14px; font-weight: 600; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            PanelComboBox {
+                                model: root.item-kinds;
+                                current-index <=> root.migration-kind;
+                                enabled: root.enabled && !root.saving;
+                            }
+                            PanelButton {
+                                text: @tr("Check presets");
+                                filled: true;
+                                height: 32px;
+                                enabled: root.enabled && !root.saving;
+                                clicked => { root.inspect-migration(root.migration-kind); }
+                            }
+                        }
+                        Text {
+                            text: @tr("Refresh saved preset images after a game language change or Stratagem icon update.")
+                                + "\n" + @tr("Requires complete caches from a previous scan of the selected item types, with no changes to available items.");
                             color: Theme.text-secondary;
                             font-size: 11px;
                             wrap: word-wrap;

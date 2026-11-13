@@ -1,21 +1,23 @@
 //! Panel-to-automation handoff. Only the controller activates the game.
 use anyhow::{Result, ensure};
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, warn};
 
 use super::failure::save_failure_report;
 use super::{
     ACTION_COOLDOWN, ACTIVATION_CONFIRM_TIMEOUT, ActionState, AppController, GameAction,
-    HOTKEY_RELEASE_TIMEOUT, NOTICE_REVISION, PendingAction, Work, preset_hotkeys,
+    HOTKEY_RELEASE_TIMEOUT, MigrationDraft, MigrationInspection, MigrationReview, NOTICE_REVISION,
+    PendingAction, Work, preset_hotkeys,
 };
 use crate::{
     app_events::AppEvent,
     automation::Cancellation,
     game_window, input,
-    preset::{PresetScope, PresetSection},
+    preset::{MigrationReport, PresetMigration, PresetScope, PresetSection},
     preset_action::PresetCommand,
     scan::{ScanScope, ScanSummary},
-    ui::UiRequest,
+    ui::{MigrationPhase, UiRequest},
     window::WindowTarget,
 };
 
@@ -24,7 +26,11 @@ impl AppController {
         if self.exiting
             || !matches!(
                 self.state,
-                ActionState::Idle | ActionState::Checking(None) | ActionState::Confirming(_)
+                ActionState::Idle
+                    | ActionState::Checking(None)
+                    | ActionState::InspectingMigration(_)
+                    | ActionState::Confirming(_)
+                    | ActionState::ReviewingMigration(_)
             )
         {
             return Ok(());
@@ -108,14 +114,70 @@ impl AppController {
         )
     }
 
-    fn begin_scan(&mut self, scope: ScanScope) -> Result<()> {
+    fn begin_scan(
+        &mut self,
+        scope: ScanScope,
+        migration: Option<Arc<PresetMigration>>,
+    ) -> Result<()> {
         self.begin_game_action(
             GameAction::Scan {
                 scope,
+                migration,
                 cancel: Cancellation::default(),
             },
             None,
         )
+    }
+
+    fn inspect_migration(&mut self, scope: ScanScope) -> Result<()> {
+        if self.exiting
+            || self.updates.installing()
+            || !matches!(self.state, ActionState::Idle)
+            || self.ui.is_editing_items()
+            || self.ui.is_quick_start_open()
+            || Instant::now() < self.ready_after
+        {
+            return Ok(());
+        }
+        self.worker.send(Work::InspectMigration(scope))?;
+        self.state = ActionState::InspectingMigration(Some(scope));
+        self.ui.set_pending(true);
+        self.ui.show_migration(
+            Ok(&MigrationReport::default()),
+            MigrationPhase::Preflight,
+            &[],
+        );
+        Ok(())
+    }
+
+    pub(super) fn finish_migration_inspection(
+        &mut self,
+        migration: std::result::Result<MigrationInspection, String>,
+    ) -> Result<()> {
+        let ActionState::InspectingMigration(scope) = &mut self.state else {
+            return Ok(());
+        };
+        let scope = scope.take();
+        self.state = ActionState::Idle;
+        self.ui.set_pending(false);
+        let Some(scope) = scope.filter(|_| !self.exiting) else {
+            return Ok(());
+        };
+        self.ui.show_migration(
+            migration
+                .as_ref()
+                .map(|inspection| inspection.migration.report())
+                .map_err(String::as_str),
+            MigrationPhase::Preflight,
+            migration
+                .as_ref()
+                .map_or(&[], |inspection| inspection.groups.as_slice()),
+        );
+        self.state = ActionState::ReviewingMigration(MigrationReview::Preflight {
+            scope,
+            migration: migration.map(|inspection| inspection.migration),
+        });
+        self.load_migration_preview()
     }
 
     fn begin_game_action(&mut self, action: GameAction, hotkey_id: Option<i32>) -> Result<()> {
@@ -150,7 +212,7 @@ impl AppController {
             Err(error) => {
                 error!(?action, error = %format!("{error:#}"), "could not locate game window");
                 save_failure_report(&self.paths.last_failure, &action, &error, None);
-                self.present_action_problem(&action, format!("{error:#}"), false)?;
+                self.fail_action_start(&action, format!("{error:#}"))?;
                 return Ok(());
             }
         };
@@ -274,7 +336,21 @@ impl AppController {
 
     pub(super) fn cancel_current_action(&mut self, reason: &str) -> Result<bool> {
         let action = match &mut self.state {
-            ActionState::Idle | ActionState::Checking(None) => return Ok(false),
+            ActionState::Idle
+            | ActionState::Checking(None)
+            | ActionState::InspectingMigration(None) => return Ok(false),
+            ActionState::InspectingMigration(scope) => {
+                scope.take();
+                self.ui.set_pending(false);
+                self.ui.dismiss_migration();
+                self.worker.send(Work::Discard)?;
+                return Ok(true);
+            }
+            ActionState::CommittingMigration => return Ok(true),
+            ActionState::ReviewingMigration(_) => {
+                self.resolve_migration(None)?;
+                return Ok(true);
+            }
             ActionState::Running { cancel } => {
                 cancel.cancel();
                 return Ok(true);
@@ -289,6 +365,15 @@ impl AppController {
             }
         };
         debug!(?action, reason, "game action cancelled");
+        if matches!(
+            action,
+            GameAction::Scan {
+                migration: Some(_),
+                ..
+            }
+        ) {
+            self.ui.dismiss_migration();
+        }
         self.ui.dismiss_scan_confirmation();
         self.ui
             .set_pending(matches!(self.state, ActionState::Checking(_)));
@@ -317,6 +402,136 @@ impl AppController {
         self.ui.dismiss_scan_confirmation();
         request.hotkey_id = None;
         self.wait_for_action(request)
+    }
+
+    pub(super) fn review_migration(&mut self, draft: Box<MigrationDraft>) -> Result<()> {
+        let anchor = game_window::foreground_game_window().ok().map(|game| {
+            self.panel_return_target = Some(game.identity());
+            game.client_origin()
+        });
+        self.ui.show_panel(anchor)?;
+        self.ui
+            .show_migration(Ok(draft.report()), MigrationPhase::Review, draft.groups());
+        self.state = ActionState::ReviewingMigration(MigrationReview::Scanned(draft));
+        self.load_migration_preview()
+    }
+
+    fn load_migration_preview(&mut self) -> Result<()> {
+        if !matches!(self.state, ActionState::ReviewingMigration(_)) {
+            return Ok(());
+        }
+        let Some(selection) = self.ui.migration_preview_request() else {
+            return Ok(());
+        };
+        let work = match &self.state {
+            ActionState::ReviewingMigration(MigrationReview::Preflight {
+                migration: Ok(migration),
+                ..
+            }) => Work::LoadMigrationPreview {
+                migration: migration.clone(),
+                scanned: None,
+                selection,
+            },
+            ActionState::ReviewingMigration(MigrationReview::Scanned(draft)) => {
+                draft.preview_work(selection)
+            }
+            _ => return Ok(()),
+        };
+        self.worker.send(work)
+    }
+
+    fn continue_migration(&mut self) -> Result<()> {
+        if !matches!(
+            &self.state,
+            ActionState::ReviewingMigration(MigrationReview::Preflight {
+                migration: Ok(migration),
+                ..
+            }) if migration.report().items > 0
+        ) {
+            return Ok(());
+        }
+        if self.exiting
+            || self.updates.installing()
+            || !self.ui.is_panel_active()
+            || self.ui.is_editing_items()
+            || self.ui.is_quick_start_open()
+            || Instant::now() < self.ready_after
+        {
+            return Ok(());
+        }
+        let ActionState::ReviewingMigration(MigrationReview::Preflight {
+            scope,
+            migration: Ok(migration),
+        }) = std::mem::replace(&mut self.state, ActionState::Idle)
+        else {
+            unreachable!();
+        };
+        self.begin_scan(scope, Some(migration))
+    }
+
+    fn resolve_migration(&mut self, migrate_presets: Option<bool>) -> Result<()> {
+        if migrate_presets.is_none()
+            && matches!(
+                &self.state,
+                ActionState::Waiting { request, .. } | ActionState::Activating { request, .. }
+                    if matches!(request.action, GameAction::Scan { migration: Some(_), .. })
+            )
+        {
+            self.cancel_current_action("cancelled by user")?;
+            return Ok(());
+        }
+        if matches!(self.state, ActionState::InspectingMigration(_)) {
+            if migrate_presets.is_none() {
+                self.cancel_current_action("migration check closed")?;
+            }
+            return Ok(());
+        }
+        if !matches!(self.state, ActionState::ReviewingMigration(_)) {
+            return Ok(());
+        }
+        if migrate_presets.is_some() && !self.ui.is_panel_active() {
+            return Ok(());
+        }
+        let ActionState::ReviewingMigration(review) =
+            std::mem::replace(&mut self.state, ActionState::Idle)
+        else {
+            unreachable!();
+        };
+        self.ui.dismiss_migration();
+        if let (MigrationReview::Scanned(draft), Some(migrate_presets)) = (review, migrate_presets)
+        {
+            self.ui.migration_committing(migrate_presets)?;
+            self.ui.set_pending(true);
+            self.worker.send(Work::CommitMigration {
+                draft,
+                migrate_presets,
+            })?;
+            self.state = ActionState::CommittingMigration;
+        }
+        Ok(())
+    }
+
+    fn fail_action_start(&mut self, action: &GameAction, reason: String) -> Result<()> {
+        self.state = ActionState::Idle;
+        self.ui.set_pending(false);
+        self.hotkeys.discard_pending();
+        self.panel_hotkey.discard_pending();
+        self.ready_after = Instant::now() + ACTION_COOLDOWN;
+        self.worker.send(Work::Discard)?;
+        self.present_action_problem(action, reason, false)?;
+        if !self.exiting
+            && let GameAction::Scan {
+                scope,
+                migration: Some(migration),
+                ..
+            } = action
+        {
+            self.state = ActionState::ReviewingMigration(MigrationReview::Preflight {
+                scope: *scope,
+                migration: Ok(migration.clone()),
+            });
+        }
+        Ok(())
     }
 
     fn present_action_problem(
@@ -385,6 +600,11 @@ impl AppController {
                         }
                     }
                 }
+                UiRequest::ResolveMigration { migrate_presets } => {
+                    self.resolve_migration(migrate_presets)?;
+                }
+                UiRequest::ContinueMigration => self.continue_migration()?,
+                UiRequest::LoadMigrationPreview => self.load_migration_preview()?,
                 UiRequest::Action {
                     preset,
                     saving,
@@ -400,18 +620,24 @@ impl AppController {
                     self.begin_action(preset, saving, scope, None)?;
                 }
                 UiRequest::Action { .. } => {}
-                UiRequest::Scan(scope) if self.ui.is_panel_active() => self.begin_scan(scope)?,
+                UiRequest::Scan(scope) if self.ui.is_panel_active() => {
+                    self.begin_scan(scope, None)?
+                }
                 UiRequest::Scan(_) => {}
+                UiRequest::InspectMigration(scope) if self.ui.is_panel_active() => {
+                    self.inspect_migration(scope)?
+                }
+                UiRequest::InspectMigration(_) => {}
                 UiRequest::ScanMissingItems
                     if self.ui.is_panel_active() && self.ui.can_scan_missing_items() =>
                 {
-                    self.begin_scan(ScanScope::Missing)?;
+                    self.begin_scan(ScanScope::Missing, None)?;
                 }
                 UiRequest::ScanMissingItems => {}
                 UiRequest::RefreshItems(kind)
                     if self.ui.is_panel_active() && self.ui.can_refresh_items() =>
                 {
-                    self.begin_scan(ScanScope::One(kind))?;
+                    self.begin_scan(ScanScope::One(kind), None)?;
                 }
                 UiRequest::RefreshItems(_) => {}
                 UiRequest::EditItems
@@ -668,12 +894,23 @@ impl AppController {
                 let owned_focus = self.action_owns_focus(request);
                 if !owned_focus || Instant::now() >= *deadline {
                     let hide_panel = !self.keep_panel_open || !panel_was_open;
+                    let action = action.clone();
                     let reason = if owned_focus {
                         "input was not released in time"
                     } else {
                         "focus changed"
                     };
-                    self.cancel_current_action(reason)?;
+                    if matches!(
+                        action,
+                        GameAction::Scan {
+                            migration: Some(_),
+                            ..
+                        }
+                    ) {
+                        self.fail_action_start(&action, reason.into())?;
+                    } else {
+                        self.cancel_current_action(reason)?;
+                    }
                     if hide_panel {
                         if self.ui.is_editing_items() {
                             self.ui.hide_panel()?;
@@ -750,11 +987,7 @@ impl AppController {
                 if !keep_panel_open {
                     self.ui.hide_panel()?;
                 }
-                self.present_action_problem(&action, format!("{error:#}"), false)?;
-                self.ui.set_pending(false);
-                self.worker.send(Work::Discard)?;
-                self.state = ActionState::Idle;
-                self.ready_after = Instant::now() + ACTION_COOLDOWN;
+                self.fail_action_start(&action, format!("{error:#}"))?;
                 return Ok(());
             }
         };
@@ -768,6 +1001,15 @@ impl AppController {
             GameAction::Scan { cancel, .. } | GameAction::Preset { cancel, .. } => cancel.clone(),
         };
         self.panel_hotkey.set_enabled(true)?;
+        if matches!(
+            action,
+            GameAction::Scan {
+                migration: Some(_),
+                ..
+            }
+        ) {
+            self.ui.dismiss_migration();
+        }
         self.worker.send(Work::Run {
             action,
             target: target.identity(),

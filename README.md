@@ -61,8 +61,8 @@ Preset shortcuts pause until you save or cancel your edits; hiding the panel kee
   selections.
 - Equipment includes helmet, armor, cape, primary, secondary and throwable, but not
   weapon attachments or separate appearances of items with the same name.
-- Equipment templates work across resolutions. After changing the game language,
-  rescan equipment lists and re-capture affected equipment presets.
+- Equipment templates work across resolutions. If your available items are unchanged,
+  **Settings → Item cache → Migrate presets** can refresh saved templates after a game language change.
 - The app asks before scanning missing item lists on first application.
   Later applications reuse these lists.
 

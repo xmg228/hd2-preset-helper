@@ -333,6 +333,120 @@ msgstr "更新を自動的に確認"
 msgid "Item cache"
 msgstr "アイテムキャッシュ"
 
+msgid "Migrate presets"
+msgstr "プリセットを移行"
+
+msgid "Scan item lists"
+msgstr "アイテムリストをスキャン"
+
+msgid "Check presets"
+msgstr "プリセットを確認"
+
+msgid "Check new lists"
+msgstr "新しいリストを確認"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "ゲームの言語変更や戦略支援アイコンの更新後に、保存済みプリセットの画像を更新します。"
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "選択したアイテム種別を以前にスキャンして作成した完全なキャッシュが必要です。利用可能なアイテムが変わっていないことが条件です。"
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "保存済み画像と既存のキャッシュの対応を確認してから、新しいリストをスキャンします。"
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "新旧リストの対応を確認してから、移行を確定します。"
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "保存済み項目 {} 件（プリセット {} 個）の対応先が既存のキャッシュで見つかりました。"
+
+msgid "No saved slots were found in the existing cache."
+msgstr "既存のキャッシュに保存済み項目の対応先が見つかりませんでした。"
+
+msgid "Scan new lists"
+msgstr "新しいリストをスキャン"
+
+msgid "Checking presets…"
+msgstr "プリセットを確認中…"
+
+msgid "Could not check presets."
+msgstr "プリセットを確認できませんでした。"
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "保存済み項目 {} 件（プリセット {} 個）を移行できます。"
+
+msgid "No saved slots can be migrated."
+msgstr "移行できる保存済み項目はありません。"
+
+msgid "{} saved slots could not be matched."
+msgstr "保存済み項目 {} 件の対応先が見つかりませんでした。"
+
+msgid "Saved preset"
+msgstr "保存済みプリセット"
+
+msgid "Existing cache"
+msgstr "既存のキャッシュ"
+
+msgid "New scan"
+msgstr "新しいスキャン結果"
+
+msgid "Used by {} presets"
+msgstr "{} 個のプリセットで使用"
+
+msgid "Matched"
+msgstr "対応済み"
+
+msgid "Conflicting matches"
+msgstr "対応が競合"
+
+msgid "No correspondence"
+msgstr "対応先なし"
+
+msgid "{} / {} matched"
+msgstr "{} / {} 対応済み"
+
+msgid "{} old · {} new"
+msgstr "旧 {} · 新 {}"
+
+msgid "Only unmatched"
+msgstr "未対応のみ"
+
+msgid "Loading comparison…"
+msgstr "比較を読み込み中…"
+
+msgid "No unmatched items."
+msgstr "未対応のアイテムはありません。"
+
+msgid "{} saved slots will remain unchanged."
+msgstr "保存済み項目 {} 件は変更されません。"
+
+msgid "{} slots unchanged"
+msgstr "{} 件は変更なし"
+
+msgid "Show full list"
+msgstr "リスト全体を表示"
+
+msgid "No saved items in the selected scope."
+msgstr "選択した範囲に保存済みのアイテムはありません。"
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "プリセットで使われているアイテムはありません。リスト全体を表示すると、このキャッシュを確認できます。"
+
+msgid "Nothing to compare."
+msgstr "比較する内容はありません。"
+
+msgid "List structure changed"
+msgstr "リストの構成が異なります"
+
+msgid "No previous cache"
+msgstr "以前のキャッシュがありません"
+
+msgid "Update cache only"
+msgstr "キャッシュのみ更新"
+
+msgid "Migrate and update cache"
+msgstr "移行してキャッシュを更新"
+
 msgid "All items"
 msgstr "すべてのアイテム"
 

@@ -333,6 +333,120 @@ msgstr "Rechercher automatiquement les mises à jour"
 msgid "Item cache"
 msgstr "Cache des objets"
 
+msgid "Migrate presets"
+msgstr "Migrer les préréglages"
+
+msgid "Scan item lists"
+msgstr "Analyser les listes d'objets"
+
+msgid "Check presets"
+msgstr "Vérifier les préréglages"
+
+msgid "Check new lists"
+msgstr "Vérifier les nouvelles listes"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "Actualisez les images des préréglages enregistrés après un changement de langue du jeu ou une mise à jour des icônes de stratagèmes."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "Nécessite des caches complets issus d'une analyse précédente des types d'objets sélectionnés, sans changement des objets disponibles."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "Comparez les images enregistrées au cache existant, puis analysez les nouvelles listes."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "Comparez les anciennes et les nouvelles listes, puis confirmez la migration."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "{} éléments enregistrés dans {} préréglages ont été retrouvés dans le cache existant."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "Aucun élément enregistré n'a été trouvé dans le cache existant."
+
+msgid "Scan new lists"
+msgstr "Analyser les nouvelles listes"
+
+msgid "Checking presets…"
+msgstr "Vérification des préréglages…"
+
+msgid "Could not check presets."
+msgstr "Impossible de vérifier les préréglages."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "{} éléments enregistrés dans {} préréglages peuvent être migrés."
+
+msgid "No saved slots can be migrated."
+msgstr "Aucun élément enregistré ne peut être migré."
+
+msgid "{} saved slots could not be matched."
+msgstr "{} éléments enregistrés n'ont pas pu être identifiés."
+
+msgid "Saved preset"
+msgstr "Préréglage enregistré"
+
+msgid "Existing cache"
+msgstr "Cache existant"
+
+msgid "New scan"
+msgstr "Nouvelle analyse"
+
+msgid "Used by {} presets"
+msgstr "Dans {} préréglages"
+
+msgid "Matched"
+msgstr "Correspondance trouvée"
+
+msgid "Conflicting matches"
+msgstr "Correspondances en conflit"
+
+msgid "No correspondence"
+msgstr "Aucune correspondance"
+
+msgid "{} / {} matched"
+msgstr "{} / {} identifiés"
+
+msgid "{} old · {} new"
+msgstr "{} anciens · {} nouveaux"
+
+msgid "Only unmatched"
+msgstr "Sans correspondance"
+
+msgid "Loading comparison…"
+msgstr "Chargement de la comparaison…"
+
+msgid "No unmatched items."
+msgstr "Aucun objet sans correspondance."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "{} éléments enregistrés resteront inchangés."
+
+msgid "{} slots unchanged"
+msgstr "{} éléments inchangés"
+
+msgid "Show full list"
+msgstr "Afficher la liste complète"
+
+msgid "No saved items in the selected scope."
+msgstr "Aucun objet enregistré dans le périmètre sélectionné."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "Aucun objet utilisé par les préréglages. Affichez la liste complète pour consulter ce cache."
+
+msgid "Nothing to compare."
+msgstr "Rien à comparer."
+
+msgid "List structure changed"
+msgstr "Structure de la liste modifiée"
+
+msgid "No previous cache"
+msgstr "Aucun cache précédent"
+
+msgid "Update cache only"
+msgstr "Mettre à jour uniquement le cache"
+
+msgid "Migrate and update cache"
+msgstr "Migrer et mettre à jour le cache"
+
 msgid "All items"
 msgstr "Tous les objets"
 

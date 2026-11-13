@@ -3,10 +3,10 @@ use super::{CATEGORY_MATCH_THRESHOLD, InputAction, NAME_MATCH_THRESHOLD};
 use crate::{
     input::Key,
     item::EquipmentKind,
-    item_cache::{EquipmentCatalog, EquipmentCategory as Category},
+    item_cache::{EquipmentCatalog, EquipmentChoice},
     vision::{
         equipment::EquipmentObservation,
-        text::{TextSample, TextSignature, TextTemplate},
+        text::{TextSignature, TextTemplate},
     },
 };
 use serde::Serialize;
@@ -20,80 +20,7 @@ pub(super) struct Position {
     pub col: usize,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct Target {
-    category: usize,
-    name: Name,
-}
-
-struct NameRanking<T> {
-    best: T,
-    score: f32,
-    runner_up: Option<f32>,
-}
-
-impl<T> NameRanking<T> {
-    fn accepts(&self) -> bool {
-        self.score >= NAME_MATCH_THRESHOLD
-            && self
-                .runner_up
-                .is_none_or(|score| score < NAME_MATCH_THRESHOLD)
-    }
-}
-
-fn rank_names<'a, T>(
-    target: &TextSignature,
-    candidates: impl Iterator<Item = (T, &'a TextSignature)>,
-) -> Option<NameRanking<T>> {
-    let mut scores = candidates
-        .map(|(id, signature)| (id, signature.cosine(target)))
-        .collect::<Vec<_>>();
-    scores.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
-    let mut scores = scores.into_iter();
-    let (best, score) = scores.next()?;
-    Some(NameRanking {
-        best,
-        score,
-        runner_up: scores.next().map(|(_, score)| score),
-    })
-}
-
-fn rank_targets(catalog: &EquipmentCatalog, target: &TextSignature) -> Option<NameRanking<Target>> {
-    rank_names(
-        target,
-        catalog
-            .categories
-            .iter()
-            .enumerate()
-            .flat_map(|(category, entry)| {
-                entry
-                    .names
-                    .iter()
-                    .enumerate()
-                    .filter(|(name, _)| entry.order.contains(name))
-                    .map(move |(name, sample)| (Target { category, name }, sample.signature()))
-            }),
-    )
-}
-
-impl Category {
-    /// Intern names only while materializing a completed scan.
-    pub(super) fn identify(&mut self, name: TextSample) -> Option<Name> {
-        if let Some(ranking) = rank_names(
-            name.signature(),
-            self.names
-                .iter()
-                .enumerate()
-                .map(|(index, sample)| (index, sample.signature())),
-        )
-        .filter(|ranking| ranking.score >= NAME_MATCH_THRESHOLD)
-        {
-            return ranking.accepts().then_some(ranking.best);
-        }
-        self.names.push(name);
-        Some(self.names.len() - 1)
-    }
-}
+pub(super) type Target = EquipmentChoice;
 
 pub(super) struct CachedList<'a> {
     kind: EquipmentKind,
@@ -106,9 +33,7 @@ impl<'a> CachedList<'a> {
     }
 
     pub fn target(&self, name: &TextSignature) -> Option<Target> {
-        rank_targets(self.catalog, name)
-            .filter(|ranking| ranking.accepts())
-            .map(|ranking| ranking.best)
+        self.catalog.match_name(name)
     }
 
     fn rows(&self, category: usize) -> usize {
@@ -160,25 +85,19 @@ impl<'a> CachedList<'a> {
             return false;
         }
         let category = &self.catalog.categories[position.category];
-        rank_names(
-            page.name.signature(),
-            category
-                .names
-                .iter()
-                .enumerate()
-                .map(|(id, name)| (id, name.signature())),
-        )
-        .is_some_and(|ranking| ranking.accepts() && row.get(position.col) == Some(&ranking.best))
+        category
+            .match_name(page.name.signature())
+            .is_some_and(|name| row.get(position.col) == Some(&name))
     }
 
     pub fn locate(&self, page: &EquipmentObservation) -> Option<Position> {
         let focus = page.slots.get(page.focus?)?;
-        let ranking = rank_targets(self.catalog, page.name.signature())?;
-        if !ranking.accepts() || !self.category_matches(ranking.best.category, &page.category) {
+        let target = self.target(page.name.signature())?;
+        if !self.category_matches(target.category, &page.category) {
             return None;
         }
         let columns = self.kind.list_columns();
-        let category = &self.catalog.categories[ranking.best.category];
+        let category = &self.catalog.categories[target.category];
         let width = page
             .slots
             .iter()
@@ -189,7 +108,7 @@ impl<'a> CachedList<'a> {
             .iter()
             .enumerate()
             .filter(|(index, name)| {
-                **name == ranking.best.name
+                **name == target.name
                     && index % columns == focus.col
                     && category
                         .order
@@ -199,7 +118,7 @@ impl<'a> CachedList<'a> {
                         == width
             })
             .map(|(index, _)| Position {
-                category: ranking.best.category,
+                category: target.category,
                 row: index / columns,
                 col: focus.col,
             });

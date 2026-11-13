@@ -333,6 +333,120 @@ msgstr "Automatycznie sprawdzaj aktualizacje"
 msgid "Item cache"
 msgstr "Pamięć podręczna przedmiotów"
 
+msgid "Migrate presets"
+msgstr "Przenieś zestawy"
+
+msgid "Scan item lists"
+msgstr "Skanuj listy przedmiotów"
+
+msgid "Check presets"
+msgstr "Sprawdź zestawy"
+
+msgid "Check new lists"
+msgstr "Sprawdź nowe listy"
+
+msgid "Refresh saved preset images after a game language change or Stratagem icon update."
+msgstr "Odśwież obrazy zapisanych zestawów po zmianie języka gry lub aktualizacji ikon manewrów."
+
+msgid "Requires complete caches from a previous scan of the selected item types, with no changes to available items."
+msgstr "Wymaga pełnej pamięci podręcznej z wcześniejszego skanowania wybranych typów przedmiotów. Dostępne przedmioty muszą pozostać bez zmian."
+
+msgid "Check saved images against the existing cache, then scan new lists."
+msgstr "Porównaj zapisane obrazy z istniejącą pamięcią podręczną, a następnie zeskanuj nowe listy."
+
+msgid "Check the old and new lists, then confirm the migration."
+msgstr "Porównaj stare i nowe listy, a następnie potwierdź przeniesienie."
+
+msgid "{} saved slots across {} presets were located in the existing cache."
+msgstr "Zapisane pozycje znalezione w pamięci podręcznej: {} · Zestawy: {}."
+
+msgid "No saved slots were found in the existing cache."
+msgstr "W istniejącej pamięci podręcznej nie znaleziono zapisanych pozycji."
+
+msgid "Scan new lists"
+msgstr "Skanuj nowe listy"
+
+msgid "Checking presets…"
+msgstr "Sprawdzanie zestawów…"
+
+msgid "Could not check presets."
+msgstr "Nie udało się sprawdzić zestawów."
+
+msgid "{} saved slots across {} presets can migrate."
+msgstr "Zapisane pozycje możliwe do przeniesienia: {} · Zestawy: {}."
+
+msgid "No saved slots can be migrated."
+msgstr "Nie można przenieść żadnych zapisanych pozycji."
+
+msgid "{} saved slots could not be matched."
+msgstr "Nie udało się dopasować zapisanych pozycji: {}."
+
+msgid "Saved preset"
+msgstr "Zapisany zestaw"
+
+msgid "Existing cache"
+msgstr "Istniejąca pamięć podręczna"
+
+msgid "New scan"
+msgstr "Nowe skanowanie"
+
+msgid "Used by {} presets"
+msgstr "W {} zestawach"
+
+msgid "Matched"
+msgstr "Dopasowano"
+
+msgid "Conflicting matches"
+msgstr "Sprzeczne dopasowania"
+
+msgid "No correspondence"
+msgstr "Brak dopasowania"
+
+msgid "{} / {} matched"
+msgstr "Dopasowano {} / {}"
+
+msgid "{} old · {} new"
+msgstr "{} starych · {} nowych"
+
+msgid "Only unmatched"
+msgstr "Tylko niedopasowane"
+
+msgid "Loading comparison…"
+msgstr "Wczytywanie porównania…"
+
+msgid "No unmatched items."
+msgstr "Brak niedopasowanych przedmiotów."
+
+msgid "{} saved slots will remain unchanged."
+msgstr "Zapisane pozycje pozostaną bez zmian: {}."
+
+msgid "{} slots unchanged"
+msgstr "Pozycje bez zmian: {}"
+
+msgid "Show full list"
+msgstr "Pokaż pełną listę"
+
+msgid "No saved items in the selected scope."
+msgstr "Brak zapisanych przedmiotów w wybranym zakresie."
+
+msgid "No items used by presets. Show the full list to view this cache."
+msgstr "Brak przedmiotów używanych przez zestawy. Wyświetl pełną listę, aby zobaczyć zawartość tej pamięci podręcznej."
+
+msgid "Nothing to compare."
+msgstr "Brak elementów do porównania."
+
+msgid "List structure changed"
+msgstr "Struktura listy uległa zmianie"
+
+msgid "No previous cache"
+msgstr "Brak poprzedniej pamięci podręcznej"
+
+msgid "Update cache only"
+msgstr "Zaktualizuj tylko pamięć podręczną"
+
+msgid "Migrate and update cache"
+msgstr "Przenieś i zaktualizuj pamięć podręczną"
+
 msgid "All items"
 msgstr "Wszystkie przedmioty"
 

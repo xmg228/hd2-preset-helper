@@ -85,6 +85,12 @@ pub(super) fn connect(
             let _ = scan_send.send(UiRequest::Scan(scope));
         }
     });
+    let migration_send = send.clone();
+    panel.on_inspect_migration(move |index| {
+        if let Some(scope) = ScanScope::from_index(index) {
+            let _ = migration_send.send(UiRequest::InspectMigration(scope));
+        }
+    });
     let weak = panel.as_weak();
     panel.on_clear_shortcut(move |index| {
         if let Some(panel) = weak.upgrade() {

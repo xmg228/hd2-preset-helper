@@ -141,7 +141,7 @@ impl Slot {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub struct SampleGeometry {
     pub center_x: f32,
     pub center_y: f32,

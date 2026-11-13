@@ -26,6 +26,7 @@ use crate::scan::{ScanKind, ScanProgress, ScanScope, ScanSummary};
 
 mod editor;
 mod library;
+mod migration;
 mod placement;
 mod settings;
 mod status;
@@ -67,10 +68,16 @@ pub enum UiRequest {
         section: Option<PresetSection>,
     },
     Scan(ScanScope),
+    InspectMigration(ScanScope),
     ScanMissingItems,
     RefreshItems(ScanKind),
     ConfirmScan,
     CancelScan,
+    ResolveMigration {
+        migrate_presets: Option<bool>,
+    },
+    ContinueMigration,
+    LoadMigrationPreview,
     EditItems,
     SaveItemChoices {
         preset: String,
@@ -129,6 +136,7 @@ pub struct AppUi {
     game_anchor: Option<(i32, i32)>,
     placement_dirty: Rc<Cell<bool>>,
     panel_hide_at: Option<Instant>,
+    migration_view: migration::View,
 }
 
 impl AppUi {
@@ -191,6 +199,7 @@ impl AppUi {
         window.on_cancel_scan(move || {
             let _ = cancel_send.send(UiRequest::CancelScan);
         });
+        migration::connect(&window, send.clone());
         let quick_start_send = send.clone();
         window.on_acknowledge_quick_start(move || {
             let _ = quick_start_send.send(UiRequest::AcknowledgeQuickStart);
@@ -304,6 +313,7 @@ impl AppUi {
             game_anchor: None,
             placement_dirty,
             panel_hide_at: None,
+            migration_view: migration::View::default(),
             window,
             _tray: tray,
             requests,
@@ -592,6 +602,13 @@ impl AppUi {
         self.status.show(&self.status_monitor, self.game_anchor)
     }
 
+    pub fn migration_committing(&mut self, migrate_presets: bool) -> Result<()> {
+        self.set_status("");
+        self.window.set_failure_details("".into());
+        self.status.migration_committing(migrate_presets);
+        self.status.show(&self.status_monitor, self.game_anchor)
+    }
+
     pub fn scan_finished(
         &mut self,
         result: std::result::Result<ScanSummary, String>,
@@ -678,6 +695,7 @@ impl AppUi {
         self.is_quick_start_open()
             || self.is_editing_items()
             || self.is_scan_confirm_open()
+            || self.window.get_migration_open()
             || self.window.get_editing_name()
             || self.window.get_editing_search()
             || self.window.get_editing_folder_name()
@@ -690,6 +708,7 @@ impl AppUi {
         self.is_quick_start_open()
             || self.is_editing_items()
             || self.is_scan_confirm_open()
+            || self.window.get_migration_open()
             || self.window.get_delete_open()
             || self.panel_shortcut_blocked()
             || (self.is_panel_open()
@@ -1038,6 +1057,14 @@ fn stratagem_section(content: PreviewContent<Vec<PreviewImage>>) -> PreviewSecti
                 })
                 .collect(),
         ),
+    }
+}
+
+fn scan_role(kind: ScanKind) -> PreviewRole {
+    match kind {
+        ScanKind::Stratagems => PreviewRole::Stratagem,
+        ScanKind::Booster => PreviewRole::Booster,
+        ScanKind::Equipment(kind) => equipment_role(kind),
     }
 }
 
