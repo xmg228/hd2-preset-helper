@@ -11,6 +11,7 @@ use super::GameAction;
 use super::failure::save_failure_report;
 use crate::app_events::{AppEvent, AppEventSink};
 use crate::app_paths::AppPaths;
+use crate::automation::OperationCancelled;
 use crate::capture::CaptureSessionManager;
 use crate::item_cache::{
     CachedChoices, ItemCache,
@@ -293,15 +294,15 @@ impl ActionWorker {
                                             error
                                         }
                                     });
-                                    let cancelled = result.is_err() && cancel.is_cancelled();
-                                    if !cancelled && let Err(error) = &result {
-                                        error!(elapsed_s = start.elapsed().as_secs_f64(), error = %format!("{error:#}"), "item scan failed");
-                                        save_failure_report(&paths.last_failure, &action, error, Some(&evidence));
-                                    }
-                                    if cancelled {
-                                        WorkCompletion::ScanCancelled
-                                    } else {
-                                        result.unwrap_or_else(|error| WorkCompletion::Scan(Err(format!("{error:#}"))))
+                                    match result {
+                                        Ok(completion) => completion,
+                                        Err(error) if error.is::<OperationCancelled>() => WorkCompletion::ScanCancelled,
+                                        Err(error) => {
+                                            let message = format!("{error:#}");
+                                            error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "item scan failed");
+                                            save_failure_report(&paths.last_failure, &action, &error, Some(&evidence));
+                                            WorkCompletion::Scan(Err(message))
+                                        }
                                     }
                                 }
                             };

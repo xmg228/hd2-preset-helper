@@ -18,7 +18,7 @@ use crate::{
     preset_action::PresetCommand,
     scan::{ScanScope, ScanSummary},
     ui::{MigrationPhase, UiRequest},
-    window::WindowTarget,
+    window::{WindowIdentity, WindowTarget},
 };
 
 impl AppController {
@@ -351,7 +351,7 @@ impl AppController {
                 self.resolve_migration(None)?;
                 return Ok(true);
             }
-            ActionState::Running { cancel } => {
+            ActionState::Running { cancel, .. } => {
                 cancel.cancel();
                 return Ok(true);
             }
@@ -405,11 +405,6 @@ impl AppController {
     }
 
     pub(super) fn review_migration(&mut self, draft: Box<MigrationDraft>) -> Result<()> {
-        let anchor = game_window::foreground_game_window().ok().map(|game| {
-            self.panel_return_target = Some(game.identity());
-            game.client_origin()
-        });
-        self.ui.show_panel(anchor)?;
         self.ui
             .show_migration(Ok(draft.report()), MigrationPhase::Review, draft.groups());
         self.state = ActionState::ReviewingMigration(MigrationReview::Scanned(draft));
@@ -545,8 +540,28 @@ impl AppController {
                 preset: preset.clone(),
                 reason,
             }),
-            GameAction::Scan { .. } => self.finish_scan(Err(reason), cancelled),
+            GameAction::Scan { .. } => {
+                if !cancelled {
+                    self.restore_panel_after_scan(None)?;
+                }
+                self.finish_scan(Err(reason), cancelled)
+            }
         }
+    }
+
+    pub(super) fn restore_panel_after_scan(
+        &mut self,
+        target: Option<WindowIdentity>,
+    ) -> Result<()> {
+        // Startup errors and local migration commits have no running game target.
+        if !self.exiting
+            && let Ok(game) = game_window::foreground_game_window()
+            && target.is_none_or(|target| target == game.identity())
+        {
+            self.panel_return_target = Some(game.identity());
+            self.ui.show_panel(Some(game.client_origin()))?;
+        }
+        Ok(())
     }
 
     pub(super) fn finish_scan(
@@ -556,10 +571,6 @@ impl AppController {
     ) -> Result<()> {
         if self.exiting {
             return Ok(());
-        }
-        if !cancelled && let Ok(game) = game_window::foreground_game_window() {
-            self.panel_return_target = Some(game.identity());
-            self.ui.show_panel(Some(game.client_origin()))?;
         }
         if self.ui.is_editing_items() {
             self.ui
@@ -1010,11 +1021,9 @@ impl AppController {
         ) {
             self.ui.dismiss_migration();
         }
-        self.worker.send(Work::Run {
-            action,
-            target: target.identity(),
-        })?;
-        self.state = ActionState::Running { cancel };
+        let target = target.identity();
+        self.worker.send(Work::Run { action, target })?;
+        self.state = ActionState::Running { target, cancel };
         Ok(())
     }
 }

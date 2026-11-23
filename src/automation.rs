@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use std::{
+    fmt,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -16,6 +17,17 @@ use crate::window::WindowTarget;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Cancellation(Arc<AtomicBool>);
 
+#[derive(Debug)]
+pub(crate) struct OperationCancelled;
+
+impl fmt::Display for OperationCancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("operation cancelled")
+    }
+}
+
+impl std::error::Error for OperationCancelled {}
+
 impl Cancellation {
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Relaxed);
@@ -24,7 +36,9 @@ impl Cancellation {
         self.0.load(Ordering::Relaxed)
     }
     pub fn check(&self) -> Result<()> {
-        ensure!(!self.is_cancelled(), "operation cancelled");
+        if self.is_cancelled() {
+            return Err(OperationCancelled.into());
+        }
         Ok(())
     }
 }

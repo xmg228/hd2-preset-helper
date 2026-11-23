@@ -20,6 +20,7 @@ use crate::config::{AppConfig, ShortcutBindings, load_app_config};
 use crate::preset::{PresetMigration, PresetScope};
 use crate::preset_action::{PresetActionOptions, PresetCommand};
 use crate::scan::ScanScope;
+use crate::window::WindowIdentity;
 use crate::{game_window, input, platform, ui};
 use worker::{
     ActionWorker, MigrationDraft, MigrationInspection, Work, WorkCompletion, WorkerEvent,
@@ -248,7 +249,7 @@ impl GameAction {
 #[derive(Clone)]
 struct PendingAction {
     action: GameAction,
-    target: crate::window::WindowIdentity,
+    target: WindowIdentity,
     hotkey_id: Option<i32>,
     panel_was_open: bool,
 }
@@ -269,6 +270,7 @@ enum ActionState {
         started: Instant,
     },
     Running {
+        target: WindowIdentity,
         cancel: Cancellation,
     },
 }
@@ -296,7 +298,7 @@ struct AppController {
     exiting: bool,
     ready_after: Instant,
     prewarm_requested: bool,
-    panel_return_target: Option<crate::window::WindowIdentity>,
+    panel_return_target: Option<WindowIdentity>,
     notice_pending: bool,
     updates: update::Updates,
     ui: ui::AppUi,
@@ -473,32 +475,7 @@ impl AppController {
                     self.ui.migration_preview_loaded(selection, result);
                 }
                 Ok(WorkerEvent::ScanProgress(progress)) => self.ui.scan_progress(progress)?,
-                Ok(WorkerEvent::Finished(completion)) => {
-                    let cancelled = matches!(&self.state, ActionState::Running { cancel } if cancel.is_cancelled());
-                    self.hotkeys.discard_pending();
-                    self.panel_hotkey.discard_pending();
-                    self.state = ActionState::Idle;
-                    self.ui.set_pending(false);
-                    self.ready_after = Instant::now() + ACTION_COOLDOWN;
-                    match completion {
-                        WorkCompletion::Preset(Ok(
-                            crate::preset_action::PresetActionOutcome::Saved,
-                        )) => {
-                            platform::notify_preset_saved();
-                        }
-                        WorkCompletion::Scan(result) => self.finish_scan(result, cancelled)?,
-                        WorkCompletion::ScanCancelled => {
-                            self.finish_scan(Err("Scan stopped".into()), true)?
-                        }
-                        WorkCompletion::MigrationReady(draft) if !cancelled && !self.exiting => {
-                            self.review_migration(draft)?;
-                        }
-                        WorkCompletion::MigrationReady(_) => {
-                            self.finish_scan(Err("Scan stopped".into()), true)?;
-                        }
-                        WorkCompletion::Preset(_) => {}
-                    }
-                }
+                Ok(WorkerEvent::Finished(completion)) => self.finish_work(completion)?,
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     anyhow::bail!("action worker stopped unexpectedly")
@@ -522,6 +499,39 @@ impl AppController {
             return Ok(ControlFlow::Break(None));
         }
         Ok(ControlFlow::Continue(()))
+    }
+
+    fn finish_work(&mut self, completion: WorkCompletion) -> Result<()> {
+        let (target, cancel_requested) = match std::mem::replace(&mut self.state, ActionState::Idle)
+        {
+            ActionState::Running { target, cancel } => (Some(target), cancel.is_cancelled()),
+            _ => (None, false),
+        };
+        self.hotkeys.discard_pending();
+        self.panel_hotkey.discard_pending();
+        self.ui.set_pending(false);
+        self.ready_after = Instant::now() + ACTION_COOLDOWN;
+        match completion {
+            WorkCompletion::Preset(Ok(crate::preset_action::PresetActionOutcome::Saved)) => {
+                platform::notify_preset_saved();
+                Ok(())
+            }
+            WorkCompletion::Preset(_) => Ok(()),
+            WorkCompletion::Scan(result) => {
+                // A late cancel can suppress refocus, not change the worker's result.
+                if !cancel_requested {
+                    self.restore_panel_after_scan(target)?;
+                }
+                self.finish_scan(result, false)
+            }
+            WorkCompletion::MigrationReady(draft) if !cancel_requested && !self.exiting => {
+                self.restore_panel_after_scan(target)?;
+                self.review_migration(draft)
+            }
+            WorkCompletion::ScanCancelled | WorkCompletion::MigrationReady(_) => {
+                self.finish_scan(Err("Scan stopped".into()), true)
+            }
+        }
     }
 
     fn handle_preset_hotkey(&mut self, id: i32) -> Result<()> {
@@ -559,7 +569,7 @@ impl AppController {
 
 impl Drop for AppController {
     fn drop(&mut self) {
-        if let ActionState::Running { cancel } = &self.state {
+        if let ActionState::Running { cancel, .. } = &self.state {
             cancel.cancel();
         }
         // Release shortcuts before waiting for an in-flight action to finish.
