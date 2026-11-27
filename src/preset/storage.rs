@@ -17,12 +17,8 @@ pub(super) fn load(path: &Path) -> Result<PresetLibrary> {
 }
 
 pub(super) fn write(path: &Path, library: &PresetLibrary) -> Result<()> {
-    crate::persistence::write(path, &encode(library)?)
-}
-
-pub(super) fn encode(library: &PresetLibrary) -> Result<Vec<u8>> {
     library.validate()?;
-    Ok(serde_json::to_vec_pretty(library)?)
+    crate::persistence::write(path, &serde_json::to_vec_pretty(library)?)
 }
 
 pub(super) fn edit<T>(

@@ -15,7 +15,7 @@ use slint::winit_030::{
 use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::app_events::AppEvent;
-use crate::config::{PanelPlacement, SettingsDraft, ShortcutBindings, UiLanguage};
+use crate::config::{PanelPlacement, PreferenceChange, ShortcutBindings, UiLanguage};
 use crate::item::EquipmentKind;
 use crate::item_cache::CachedChoices;
 use crate::preset::preview::{
@@ -59,6 +59,16 @@ pub enum SettingsTarget {
     PresetShortcut(String),
 }
 
+pub(crate) enum SettingEdit {
+    Preference(PreferenceChange),
+    Startup(bool),
+    Shortcut {
+        preset: Option<String>,
+        value: String,
+        row: i32,
+    },
+}
+
 pub enum UiRequest {
     OpenPanel,
     Exit,
@@ -91,10 +101,7 @@ pub enum UiRequest {
         label: String,
     },
     OpenSettings(SettingsTarget),
-    SaveSettings {
-        draft: SettingsDraft,
-        startup_change: Option<bool>,
-    },
+    EditSetting(SettingEdit),
     CheckUpdates,
     ViewUpdateNotes,
     ViewProject,
@@ -492,9 +499,9 @@ impl AppUi {
     }
 
     pub fn set_status_monitor(&mut self, monitor: String) -> Result<()> {
+        self.status.reposition(&monitor, self.game_anchor)?;
         self.status_monitor = monitor;
-        self.status
-            .reposition(&self.status_monitor, self.game_anchor)
+        Ok(())
     }
 
     fn reposition(&self, anchor: Option<(i32, i32)>) -> Result<()> {
@@ -538,12 +545,19 @@ impl AppUi {
 
     pub fn open_settings(
         &self,
-        draft: SettingsDraft,
+        shortcuts: &ShortcutBindings,
         startup_state: Option<bool>,
         target: SettingsTarget,
     ) {
         self.window.invoke_commit_names();
-        settings::open(&self.window, draft, startup_state, target);
+        settings::open(
+            &self.window,
+            shortcuts,
+            self.language,
+            &self.status_monitor,
+            startup_state,
+            target,
+        );
     }
 
     pub fn event(&mut self, event: AppEvent) -> Result<()> {
@@ -725,32 +739,42 @@ impl AppUi {
                 || self.window.get_recording_shortcut() >= 0)
     }
 
-    pub fn settings_saved(&mut self, config: &ShortcutBindings) {
-        self.set_panel_shortcut(&config.panel);
-        let rows = self.window.get_presets();
-        for (index, mut row) in rows.iter().enumerate() {
-            let shortcut = config
-                .presets
-                .get(row.name.as_str())
-                .cloned()
-                .unwrap_or_default();
-            if let Some(info) = self
-                .preset_info
-                .iter_mut()
-                .find(|info| info.id == row.name.as_str())
-            {
-                info.shortcut.clone_from(&shortcut);
-            }
-            row.shortcut = shortcut.into();
-            rows.set_row_data(index, row);
-        }
-        self.window.set_settings_saving(false);
-        self.window.invoke_close_dialogs();
+    pub(super) fn show_preference(&self, change: &PreferenceChange) {
+        settings::show_preference(&self.window, change);
     }
 
-    pub fn settings_failed(&self, error: &str) {
+    pub(super) fn settings_ready(&self) {
         self.window.set_settings_saving(false);
-        self.window.set_settings_error(error.into());
+    }
+
+    pub(super) fn startup_changed(&self, enabled: bool) {
+        self.window.set_setting_start_with_windows(enabled);
+    }
+
+    pub(super) fn shortcut_changed(&mut self, preset: Option<&str>, value: &str, index: i32) {
+        if let Some(preset) = preset {
+            if let Some(info) = self.preset_info.iter_mut().find(|info| info.id == preset) {
+                info.shortcut = value.into();
+            }
+            let rows = self.window.get_presets();
+            if let Some((index, mut row)) =
+                rows.iter().enumerate().find(|(_, row)| row.name == preset)
+            {
+                row.shortcut = value.into();
+                rows.set_row_data(index, row);
+            }
+        } else {
+            self.set_panel_shortcut(value);
+        }
+        let rows = self.window.get_shortcut_rows();
+        if let Some(mut row) = rows.row_data(index as usize) {
+            row.binding = value.into();
+            rows.set_row_data(index as usize, row);
+        }
+    }
+
+    pub(super) fn settings_error(&self, error: &str, row: Option<i32>) {
+        settings::show_error(&self.window, error, row);
     }
 
     pub fn set_update_install_allowed(&self, allowed: bool) {

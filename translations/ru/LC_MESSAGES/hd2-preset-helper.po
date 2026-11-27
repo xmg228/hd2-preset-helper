@@ -265,6 +265,9 @@ msgstr "Больше не спрашивать в этом сеансе"
 msgid "Cancel"
 msgstr "Отмена"
 
+msgid "Close"
+msgstr "Закрыть"
+
 msgid "Delete"
 msgstr "Удалить"
 

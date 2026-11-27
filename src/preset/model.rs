@@ -1,5 +1,5 @@
 //! An ordered preset tree; identity is independent of placement.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -362,20 +362,6 @@ impl PresetLibrary {
                 .expect("validated destination entry remains after removal")
         });
         entries.insert(index, entry);
-        Ok(())
-    }
-
-    pub(super) fn set_shortcuts(&mut self, bindings: &BTreeMap<String, String>) -> Result<()> {
-        ensure!(
-            bindings.len() == self.presets().count()
-                && self
-                    .presets()
-                    .all(|preset| bindings.contains_key(&preset.id)),
-            "preset list changed while editing shortcuts; reopen Settings"
-        );
-        for preset in self.presets_mut() {
-            preset.shortcut.clone_from(&bindings[&preset.id]);
-        }
         Ok(())
     }
 

@@ -265,6 +265,9 @@ msgstr "In dieser Sitzung nicht mehr nachfragen"
 msgid "Cancel"
 msgstr "Abbrechen"
 
+msgid "Close"
+msgstr "Schließen"
+
 msgid "Delete"
 msgstr "Löschen"
 

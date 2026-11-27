@@ -265,6 +265,9 @@ msgstr "이번 실행 중에는 다시 묻지 않기"
 msgid "Cancel"
 msgstr "취소"
 
+msgid "Close"
+msgstr "닫기"
+
 msgid "Delete"
 msgstr "삭제"
 

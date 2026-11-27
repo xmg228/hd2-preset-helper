@@ -265,6 +265,9 @@ msgstr "本次執行不再提示"
 msgid "Cancel"
 msgstr "取消"
 
+msgid "Close"
+msgstr "關閉"
+
 msgid "Delete"
 msgstr "刪除"
 

@@ -8,7 +8,7 @@ use tracing::info;
 mod migration;
 mod settings;
 mod shortcuts;
-pub use settings::SettingsDraft;
+pub(crate) use settings::{PreferenceChange, save_panel_shortcut};
 pub use shortcuts::ShortcutBindings;
 
 const DEFAULT_CONFIG_TOML: &str = include_str!("../data/config.toml");

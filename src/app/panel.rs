@@ -744,21 +744,7 @@ impl AppController {
                         self.update_failed(&error);
                     }
                 }
-                UiRequest::SaveSettings {
-                    draft,
-                    startup_change,
-                } => match self.save_settings(draft, startup_change) {
-                    Ok(()) => {}
-                    Err(error) if error.is::<crate::persistence::RollbackFailed>() => {
-                        return Err(error.context(
-                            "settings could not be restored; restart after checking the saved files",
-                        ));
-                    }
-                    Err(error) => {
-                        warn!(error = %format!("{error:#}"), "settings were not saved");
-                        self.ui.settings_failed(&format!("{error:#}"));
-                    }
-                },
+                UiRequest::EditSetting(edit) => self.edit_setting(edit),
                 UiRequest::CreatePreset { source }
                     if !self.exiting
                         && matches!(self.state, ActionState::Idle)

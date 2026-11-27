@@ -8,22 +8,26 @@ import { UpdateView, UpdatePhase } from "updates.slint";
 import { UiText } from "text.slint";
 
 export enum SettingsPage { general, shortcuts, item-cache, preset-shortcut, about, licenses }
+export enum SettingToggleKey {
+    apply-in-saved-order, auto-ready-up, save-fallback-when-taken, keep-panel-open,
+    always-on-top, start-with-windows, check-updates-automatically
+}
 
 export component SettingsDialog inherits Rectangle {
     in property <bool> enabled;
     in property <[ShortcutRow]> rows;
     in property <[string]> monitor-labels;
-    in-out property <int> selected-monitor;
-    in-out property <int> selected-language;
+    in property <int> selected-monitor;
+    in property <int> selected-language;
     in property <[string]> language-fonts;
-    in-out property <bool> keep-panel-open;
-    in-out property <bool> always-on-top;
+    in property <bool> keep-panel-open;
+    in property <bool> always-on-top;
     in property <bool> startup-available;
-    in-out property <bool> start-with-windows;
-    in-out property <bool> apply-in-saved-order;
-    in-out property <bool> auto-ready-up;
-    in-out property <bool> save-fallback-when-taken;
-    in-out property <bool> check-updates-automatically;
+    in property <bool> start-with-windows;
+    in property <bool> apply-in-saved-order;
+    in property <bool> auto-ready-up;
+    in property <bool> save-fallback-when-taken;
+    in property <bool> check-updates-automatically;
     in property <UpdatePhase> update-phase;
     in property <string> current-version;
     in property <string> update-version;
@@ -33,6 +37,7 @@ export component SettingsDialog inherits Rectangle {
     in property <bool> update-install-allowed;
     in-out property <int> recording: -1;
     in property <string> error;
+    in property <int> shortcut-error-index: -1;
     in property <string> shortcut-warning;
     in property <bool> saving;
     in property <int> shortcut-index: -1;
@@ -46,9 +51,12 @@ export component SettingsDialog inherits Rectangle {
         @tr("Helmet"), @tr("Armor"), @tr("Cape"),
         @tr("Primary"), @tr("Secondary"), @tr("Throwable")];
     out property <bool> viewing-licenses: page == SettingsPage.licenses;
+    callback record(int);
     callback clear(int);
-    callback save();
-    callback cancel();
+    callback change-toggle(SettingToggleKey, bool);
+    callback change-language(int);
+    callback change-monitor(int);
+    callback close();
     callback check-updates();
     callback view-update-notes();
     callback download-update();
@@ -84,7 +92,7 @@ export component SettingsDialog inherits Rectangle {
             if (event.text == Key.Escape && !root.saving) {
                 if (root.recording >= 0) { root.recording = -1; }
                 else if (root.viewing-licenses) { root.page = SettingsPage.about; keys.focus(); }
-                else { root.cancel(); }
+                else { root.close(); }
                 return accept;
             }
             return reject;
@@ -92,7 +100,23 @@ export component SettingsDialog inherits Rectangle {
         VerticalLayout {
             padding: 22px;
             spacing: 12px;
-            Text { text: root.shortcut-only ? @tr("Set shortcut") : @tr("Settings"); color: Theme.text; font-size: 21px; height: 30px; }
+            HorizontalLayout {
+                height: 30px;
+                Text {
+                    text: root.shortcut-only ? @tr("Set shortcut") : @tr("Settings");
+                    color: Theme.text;
+                    font-size: 21px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                IconButton {
+                    label: @tr("Close");
+                    icon: Icons.close;
+                    cross-axis-self-alignment: center;
+                    enabled: root.enabled && !root.saving;
+                    clicked => { root.close(); }
+                }
+            }
             if (!root.shortcut-only): HorizontalLayout {
                 height: 32px;
                 alignment: start;
@@ -129,8 +153,9 @@ export component SettingsDialog inherits Rectangle {
                 BindingRow {
                     item: root.rows[root.shortcut-index];
                     recording: root.recording == root.shortcut-index;
+                    error: root.shortcut-error-index == root.shortcut-index ? root.error : "";
                     enabled: root.enabled && !root.saving;
-                    record => { root.recording = root.shortcut-index; }
+                    record => { root.record(root.shortcut-index); }
                     clear => { keys.focus(); root.clear(root.shortcut-index); }
                 }
             }
@@ -142,19 +167,22 @@ export component SettingsDialog inherits Rectangle {
                     SettingToggle {
                         text: @tr("Apply Stratagems in saved order");
                         description: @tr("Only when all four slots start empty.");
-                        checked <=> root.apply-in-saved-order;
+                        checked: root.apply-in-saved-order;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.apply-in-saved-order, value); }
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
                         text: @tr("Auto ready up");
                         description: @tr("Ready up after successfully applying a Booster.");
-                        checked <=> root.auto-ready-up;
+                        checked: root.auto-ready-up;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.auto-ready-up, value); }
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
                         text: @tr("Remember a fallback Booster");
                         description: @tr("Remembers your replacement when saved Boosters are taken.");
-                        checked <=> root.save-fallback-when-taken;
+                        checked: root.save-fallback-when-taken;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.save-fallback-when-taken, value); }
                         enabled: root.enabled && !root.saving;
                     }
                     Rectangle { height: 1px; background: Theme.border; }
@@ -167,8 +195,10 @@ export component SettingsDialog inherits Rectangle {
                                 "日本語", "한국어", "Deutsch", "Français", "Italiano",
                                 "Español (España)", "Español (Latinoamérica)",
                                 "Português (Brasil)", "Português (Portugal)", "Polski", "Русский"];
-                            current-index <=> root.selected-language;
+                            current-index: root.selected-language;
+                            choose(index) => { root.change-language(index); }
                             font-families: root.language-fonts;
+                            wheel-select: false;
                             enabled: root.enabled && !root.saving;
                         }
                         Text { text: @tr("Display language for the interface."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
@@ -179,7 +209,9 @@ export component SettingsDialog inherits Rectangle {
                         Text { text: @tr("Status window"); color: Theme.text; font-size: 14px; }
                         PanelComboBox {
                             model: root.monitor-labels;
-                            current-index <=> root.selected-monitor;
+                            current-index: root.selected-monitor;
+                            choose(index) => { root.change-monitor(index); }
+                            wheel-select: false;
                             enabled: root.enabled && !root.saving;
                         }
                         Text { text: @tr("Screen for the status window."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
@@ -187,19 +219,22 @@ export component SettingsDialog inherits Rectangle {
                     SettingToggle {
                         text: @tr("Keep panel open");
                         description: @tr("Stays visible when you switch windows or run an action.");
-                        checked <=> root.keep-panel-open;
+                        checked: root.keep-panel-open;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.keep-panel-open, value); }
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
                         text: @tr("Always on top");
                         description: @tr("Keeps the panel above other windows.");
-                        checked <=> root.always-on-top;
+                        checked: root.always-on-top;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.always-on-top, value); }
                         enabled: root.enabled && !root.saving;
                     }
                     SettingToggle {
                         text: @tr("Start with Windows");
                         description: @tr("Starts in the background after sign-in.");
-                        checked <=> root.start-with-windows;
+                        checked: root.start-with-windows;
+                        toggle(value) => { root.change-toggle(SettingToggleKey.start-with-windows, value); }
                         enabled: root.enabled && !root.saving && root.startup-available;
                     }
                 }
@@ -299,7 +334,8 @@ export component SettingsDialog inherits Rectangle {
                         }
                     }
                     UpdateView {
-                        check-automatically <=> root.check-updates-automatically;
+                        check-automatically: root.check-updates-automatically;
+                        change-check-automatically(value) => { root.change-toggle(SettingToggleKey.check-updates-automatically, value); }
                         enabled: root.enabled && !root.saving;
                         install-allowed: root.update-install-allowed;
                         phase: root.update-phase;
@@ -343,8 +379,11 @@ export component SettingsDialog inherits Rectangle {
             }
             if (root.page == SettingsPage.shortcuts): ShortcutEditor {
                 rows: root.rows;
-                recording <=> root.recording;
+                recording: root.recording;
+                error: root.error;
+                error-index: root.shortcut-error-index;
                 enabled: root.enabled && !root.saving;
+                record(index) => { root.record(index); }
                 clear(index) => { keys.focus(); root.clear(index); }
             }
             if root.viewing-licenses: VerticalLayout {
@@ -381,7 +420,7 @@ export component SettingsDialog inherits Rectangle {
                 overflow: elide;
                 Tooltip { text: @markdown("\{parent.text}"); }
             }
-            if (root.error != ""): Text {
+            if (root.error != "" && root.shortcut-error-index < 0): Text {
                 text: root.error;
                 color: #e9b3a0;
                 wrap: word-wrap;
@@ -389,14 +428,6 @@ export component SettingsDialog inherits Rectangle {
                 max-height: 56px;
                 overflow: elide;
                 Tooltip { text: @markdown("\{root.error}"); }
-            }
-            Rectangle { height: 1px; background: Theme.border; }
-            HorizontalLayout {
-                height: 32px;
-                alignment: end;
-                spacing: 10px;
-                PanelButton { min-width: 86px; text: @tr("Cancel"); filled: true; enabled: root.enabled && !root.saving; clicked => { root.cancel(); } }
-                if (!root.shortcut-only): PanelButton { min-width: 86px; text: root.saving ? @tr("Saving…") : @tr("Save"); accent: true; enabled: root.enabled && !root.saving && root.recording < 0; clicked => { keys.focus(); root.save(); } }
             }
         }
     }

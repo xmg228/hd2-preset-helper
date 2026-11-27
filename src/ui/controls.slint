@@ -7,9 +7,13 @@ export component PanelComboBox inherits Rectangle {
     in property <[string]> model;
     in property <[string]> font-families;
     in property <bool> enabled: true;
+    in property <bool> wheel-select: true;
     in-out property <int> current-index;
-    out property <string> current-value: model[current-index];
+    out property <string> current-value: model[active-index];
+    private property <int> active-index: current-index.clamp(0, max(0, model.length - 1));
     private property <length> scroll-y;
+    callback choose(int);
+    choose(index) => { root.current-index = index; }
     min-width: 160px;
     min-height: 32px;
     horizontal-stretch: 1;
@@ -29,19 +33,20 @@ export component PanelComboBox inherits Rectangle {
     function open() {
         if (root.enabled && root.model.length > 0) {
             keys.focus();
-            root.scroll-y = -max(0, root.current-index - 5) * 36px;
+            root.scroll-y = -max(0, root.active-index - 5) * 36px;
             popup.show();
         }
     }
     function select(index: int) {
         if (root.enabled && root.model.length > 0) {
-            root.current-index = index.clamp(0, root.model.length - 1);
+            let next = index.clamp(0, root.model.length - 1);
+            if (next != root.active-index) { root.choose(next); }
         }
     }
     function handle-key(event: KeyEvent) -> EventResult {
         if (!root.enabled) { return reject; }
-        if (event.text == Key.UpArrow) { root.select(root.current-index - 1); }
-        else if (event.text == Key.DownArrow) { root.select(root.current-index + 1); }
+        if (event.text == Key.UpArrow) { root.select(root.active-index - 1); }
+        else if (event.text == Key.DownArrow) { root.select(root.active-index + 1); }
         else if (event.text == Key.Home) { root.select(0); }
         else if (event.text == Key.End) { root.select(root.model.length - 1); }
         else if (event.text == Key.Return || event.text == Key.Space) {
@@ -55,11 +60,7 @@ export component PanelComboBox inherits Rectangle {
         }
         return accept;
     }
-    changed current-index => { root.scroll-y = -max(0, root.current-index - 5) * 36px; }
-    changed model => {
-        root.current-index = root.current-index.clamp(0, max(0, root.model.length - 1));
-        root.scroll-y = -max(0, root.current-index - 5) * 36px;
-    }
+    changed active-index => { root.scroll-y = -max(0, root.active-index - 5) * 36px; }
 
     HorizontalLayout {
         padding-left: 12px;
@@ -67,7 +68,7 @@ export component PanelComboBox inherits Rectangle {
         spacing: 8px;
         Text {
             text: root.current-value;
-            font-family: root.font-families[root.current-index];
+            font-family: root.font-families[root.active-index];
             color: root.enabled ? Theme.control-text : Theme.text-disabled;
             vertical-alignment: center;
             overflow: elide;
@@ -88,9 +89,9 @@ export component PanelComboBox inherits Rectangle {
         enabled: root.enabled;
         clicked => { root.open(); }
         scroll-event(event) => {
-            if (!keys.has-focus) { return reject; }
-            if (event.delta-y < -2px) { root.select(root.current-index + 1); return accept; }
-            if (event.delta-y > 2px) { root.select(root.current-index - 1); return accept; }
+            if (!root.wheel-select || !keys.has-focus) { return reject; }
+            if (event.delta-y < -2px) { root.select(root.active-index + 1); return accept; }
+            if (event.delta-y > 2px) { root.select(root.active-index - 1); return accept; }
             return reject;
         }
     }
@@ -118,14 +119,14 @@ export component PanelComboBox inherits Rectangle {
                             height: 36px;
                             border-radius: 3px;
                             background: item-touch.has-hover ? Theme.hover
-                                : index == root.current-index ? #2d3032 : transparent;
+                                : index == root.active-index ? #2d3032 : transparent;
                             accessible-role: list-item;
                             accessible-label: value;
                             accessible-item-selectable: true;
-                            accessible-item-selected: index == root.current-index;
+                            accessible-item-selected: index == root.active-index;
                             accessible-item-index: index;
                             accessible-action-default => { root.select(index); popup.close(); }
-                            if index == root.current-index: Rectangle {
+                            if index == root.active-index: Rectangle {
                                 x: 2px; y: 10px;
                                 width: 3px; height: 16px;
                                 border-radius: 2px;
@@ -253,6 +254,8 @@ export component SettingToggle inherits Rectangle {
     in property <bool> compact;
     in property <length> content-padding: root.compact ? 0px : 8px;
     in-out property <bool> checked;
+    callback toggle(bool);
+    toggle(value) => { root.checked = value; }
     private property <bool> pointer-focus;
     min-height: root.description == "" ? (root.compact ? 28px : 36px) : 64px;
     vertical-stretch: 0;
@@ -265,7 +268,7 @@ export component SettingToggle inherits Rectangle {
     accessible-enabled: enabled;
     accessible-checkable: true;
     accessible-checked: checked;
-    accessible-action-default => { if (root.enabled) { root.checked = !root.checked; } }
+    accessible-action-default => { if (root.enabled) { root.toggle(!root.checked); } }
     forward-focus: keys;
     GridLayout {
         padding: root.content-padding;
@@ -309,7 +312,7 @@ export component SettingToggle inherits Rectangle {
         key-pressed(event) => {
             root.pointer-focus = false;
             if (event.text == Key.Space || event.text == Key.Return) {
-                if (!event.repeat) { root.checked = !root.checked; }
+                if (!event.repeat) { root.toggle(!root.checked); }
                 return accept;
             }
             return reject;
@@ -321,7 +324,7 @@ export component SettingToggle inherits Rectangle {
         clicked => {
             keys.focus();
             root.pointer-focus = true;
-            root.checked = !root.checked;
+            root.toggle(!root.checked);
         }
     }
 }

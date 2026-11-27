@@ -7,7 +7,7 @@ export component UpdateView inherits Rectangle {
     vertical-stretch: 0;
     in property <bool> enabled;
     in property <bool> install-allowed;
-    in-out property <bool> check-automatically;
+    in property <bool> check-automatically;
     in property <UpdatePhase> phase;
     in property <string> current-version;
     in property <string> available-version;
@@ -27,6 +27,7 @@ export component UpdateView inherits Rectangle {
     callback notes();
     callback download();
     callback install();
+    callback change-check-automatically(bool);
     VerticalLayout {
         padding: 8px;
         spacing: 8px;
@@ -118,7 +119,8 @@ export component UpdateView inherits Rectangle {
         SettingToggle {
             content-padding: 0px;
             text: @tr("Check for updates automatically");
-            checked <=> root.check-automatically;
+            checked: root.check-automatically;
+            toggle(value) => { root.change-check-automatically(value); }
             enabled: root.enabled && !root.installing;
         }
     }

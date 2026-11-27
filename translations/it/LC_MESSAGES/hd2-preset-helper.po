@@ -265,6 +265,9 @@ msgstr "Non chiedere più durante questa sessione"
 msgid "Cancel"
 msgstr "Annulla"
 
+msgid "Close"
+msgstr "Chiudi"
+
 msgid "Delete"
 msgstr "Elimina"
 

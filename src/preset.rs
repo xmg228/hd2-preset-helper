@@ -11,11 +11,7 @@ pub(crate) mod stratagems;
 use crate::item_cache::{CachedChoices, IconChoice, ItemCache};
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::Path,
-};
+use std::{collections::BTreeSet, fs, path::Path};
 
 pub(crate) use images::{load_template_image, resolve_template_path};
 pub(crate) use migration::initialize;
@@ -279,15 +275,10 @@ pub(crate) fn rename(path: &Path, id: &str, label: &str) -> Result<()> {
     })
 }
 
-/// Keep the writer lock until the caller has published the updated document.
-pub(crate) fn edit_shortcuts(
-    path: &Path,
-    bindings: &BTreeMap<String, String>,
-    publish: impl FnOnce(&[u8]) -> Result<()>,
-) -> Result<()> {
-    storage::locked(path, |library| {
-        library.set_shortcuts(bindings)?;
-        publish(&storage::encode(library)?)
+pub(crate) fn set_shortcut(path: &Path, id: &str, value: &str) -> Result<()> {
+    storage::edit(path, |library| {
+        library.get_mut(id)?.shortcut = value.into();
+        Ok(())
     })
 }
 

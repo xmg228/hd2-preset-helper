@@ -5,14 +5,17 @@ import { Icons } from "icons.slint";
 import { ShortcutRow } from "models.slint";
 import { UiText } from "text.slint";
 
-export component BindingRow inherits Rectangle {
+export component BindingRow inherits VerticalLayout {
     in property <ShortcutRow> item;
     in property <bool> recording;
     in property <bool> enabled: true;
+    in property <string> error;
     callback record();
     callback clear();
-    height: 40px;
+    vertical-stretch: 0;
+    spacing: 4px;
     HorizontalLayout {
+        height: 40px;
         spacing: 8px;
         Text {
             text: root.item.name == "" ? @tr("Open panel") : UiText.preset-title(root.item.label, root.item.number);
@@ -22,7 +25,7 @@ export component BindingRow inherits Rectangle {
             width: 218px;
             border-radius: 4px;
             border-width: 1px;
-            border-color: root.recording ? Theme.accent : #424846;
+            border-color: root.recording ? Theme.accent : root.error != "" ? Theme.error : #424846;
             background: root.recording ? #302e22 : #202526;
             PanelButton {
                 text: root.recording ? @tr("Press keys…") : root.item.binding == "" ? @tr("Unassigned") : root.item.binding;
@@ -38,20 +41,33 @@ export component BindingRow inherits Rectangle {
             clicked => { root.clear(); }
         }
     }
+    if (root.error != ""): Text {
+        text: root.error;
+        color: Theme.error;
+        font-size: 12px;
+        wrap: word-wrap;
+        max-height: 56px;
+        overflow: elide;
+        Tooltip { text: @markdown("\{root.error}"); }
+    }
 }
 
 export component ShortcutEditor inherits VerticalLayout {
     in property <bool> enabled;
     in property <[ShortcutRow]> rows;
-    in-out property <int> recording: -1;
+    in property <int> recording: -1;
+    in property <string> error;
+    in property <int> error-index: -1;
+    callback record(int);
     callback clear(int);
     spacing: 10px;
     Text { text: @tr("Click a shortcut to record. Esc cancels."); color: Theme.text-secondary; font-size: 12px; wrap: word-wrap; }
     BindingRow {
         item: root.rows[0];
         recording: root.recording == 0;
+        error: root.error-index == 0 ? root.error : "";
         enabled: root.enabled;
-        record => { root.recording = 0; }
+        record => { root.record(0); }
         clear => { root.clear(0); }
     }
     Text { text: @tr("The panel shortcut works globally; preset shortcuts work in the game or panel."); color: Theme.text-secondary; font-size: 11px; wrap: word-wrap; }
@@ -65,8 +81,9 @@ export component ShortcutEditor inherits VerticalLayout {
             for index in max(0, root.rows.length - 1): BindingRow {
                 item: root.rows[index + 1];
                 recording: root.recording == index + 1;
+                error: root.error-index == index + 1 ? root.error : "";
                 enabled: root.enabled;
-                record => { root.recording = index + 1; }
+                record => { root.record(index + 1); }
                 clear => { root.clear(index + 1); }
             }
         }

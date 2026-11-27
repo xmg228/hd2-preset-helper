@@ -1,5 +1,6 @@
-//! Settings stay in a UI draft until the controller validates and saves them.
+//! Settings request one change at a time; controls show the accepted values.
 //! Key capture uses winit to distinguish keypad digits.
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
 
@@ -10,11 +11,19 @@ use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
 use super::{
-    MonitorChoice, MonitorRole, PresetPanel, SettingsPage, SettingsTarget, ShortcutRow, UiRequest,
+    MonitorChoice, MonitorRole, PresetPanel, SettingEdit, SettingToggleKey, SettingsPage,
+    SettingsTarget, ShortcutRow, UiRequest,
 };
-use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings, UiLanguage};
+use crate::config::{AUTO_MONITOR, PreferenceChange, ShortcutBindings, UiLanguage};
 use crate::input::Shortcut;
 use crate::scan::ScanScope;
+
+struct RecordedKey {
+    physical_key: PhysicalKey,
+    row: i32,
+    // None means Esc was pressed; wait for release without submitting a shortcut.
+    value: Option<String>,
+}
 
 pub(super) fn connect(
     panel: &PresetPanel,
@@ -88,48 +97,73 @@ pub(super) fn connect(
             let _ = migration_send.send(UiRequest::InspectMigration(scope));
         }
     });
+    let recorded = Rc::new(RefCell::<Option<RecordedKey>>::new(None));
     let weak = panel.as_weak();
-    panel.on_clear_shortcut(move |index| {
+    let recording = recorded.clone();
+    panel.on_record_shortcut(move |index| {
         if let Some(panel) = weak.upgrade() {
-            set_binding(&panel, index, String::new());
-            panel.set_recording_shortcut(-1);
-            if panel.get_settings_open()
-                && panel.get_shortcut_settings_index() > 0
-                && panel.get_settings_error().is_empty()
-            {
-                panel.invoke_save_settings();
-            }
+            recording.take();
+            show_error(&panel, "", None);
+            panel.set_recording_shortcut(index);
         }
     });
     let weak = panel.as_weak();
-    panel.on_save_settings(move || {
+    let clear_send = send.clone();
+    panel.on_clear_shortcut(move |index| {
+        if let Some(panel) = weak.upgrade() {
+            panel.set_recording_shortcut(-1);
+            request_shortcut(&panel, &clear_send, index, String::new());
+        }
+    });
+    let weak = panel.as_weak();
+    let toggle_send = send.clone();
+    panel.on_change_setting_toggle(move |key, value| {
         let Some(panel) = weak.upgrade() else { return };
-        let monitor = panel
-            .get_monitor_choices()
-            .row_data(panel.get_selected_monitor() as usize)
-            .expect("settings always include a selected display");
-        panel.set_settings_saving(true);
-        let _ = send.send(UiRequest::SaveSettings {
-            draft: SettingsDraft {
-                shortcuts: bindings(&panel),
-                keep_panel_open: panel.get_draft_keep_panel_open(),
-                always_on_top: panel.get_draft_always_on_top(),
-                status_monitor: monitor.id.to_string(),
-                language: UiLanguage::ALL[panel.get_selected_language() as usize],
-                apply_in_saved_order: panel.get_draft_apply_in_saved_order(),
-                auto_ready_up: panel.get_draft_auto_ready_up(),
-                save_fallback_when_taken: panel.get_draft_save_fallback_when_taken(),
-                check_updates_automatically: panel.get_draft_check_updates_automatically(),
-            },
-            startup_change: (panel.get_startup_available()
-                && panel.get_draft_start_with_windows() != panel.get_initial_start_with_windows())
-            .then_some(panel.get_draft_start_with_windows()),
-        });
+        use PreferenceChange as P;
+        use SettingToggleKey as K;
+        let change = match key {
+            K::ApplyInSavedOrder => P::ApplyInSavedOrder(value),
+            K::AutoReadyUp => P::AutoReadyUp(value),
+            K::SaveFallbackWhenTaken => P::SaveFallbackWhenTaken(value),
+            K::KeepPanelOpen => P::KeepPanelOpen(value),
+            K::AlwaysOnTop => P::AlwaysOnTop(value),
+            K::CheckUpdatesAutomatically => P::CheckUpdatesAutomatically(value),
+            K::StartWithWindows => {
+                request(&panel, &toggle_send, SettingEdit::Startup(value));
+                return;
+            }
+        };
+        request(&panel, &toggle_send, SettingEdit::Preference(change));
+    });
+    let weak = panel.as_weak();
+    let language_send = send.clone();
+    panel.on_change_setting_language(move |index| {
+        if let Some(panel) = weak.upgrade()
+            && let Some(&language) = UiLanguage::ALL.get(index as usize)
+        {
+            request(
+                &panel,
+                &language_send,
+                SettingEdit::Preference(PreferenceChange::Language(language)),
+            );
+        }
+    });
+    let weak = panel.as_weak();
+    let monitor_send = send.clone();
+    panel.on_change_setting_monitor(move |index| {
+        if let Some(panel) = weak.upgrade()
+            && let Some(monitor) = panel.get_monitor_choices().row_data(index as usize)
+        {
+            request(
+                &panel,
+                &monitor_send,
+                SettingEdit::Preference(PreferenceChange::StatusMonitor(monitor.id.to_string())),
+            );
+        }
     });
 
     let weak = panel.as_weak();
     let mut modifiers = ModifiersState::empty();
-    let mut captured = None;
     move |event: &WindowEvent| {
         let Some(panel) = weak.upgrade() else {
             return EventResult::Propagate;
@@ -138,60 +172,71 @@ pub(super) fn connect(
             WindowEvent::ModifiersChanged(value) => modifiers = value.state(),
             WindowEvent::Focused(false) => {
                 modifiers = ModifiersState::empty();
-                captured = None;
+                recorded.take();
                 panel.set_recording_shortcut(-1);
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if let Some((key, cancelled)) = captured
-                    && key == event.physical_key
+                let index = panel.get_recording_shortcut();
+                let recording = panel.get_settings_open() && index >= 0;
+                let mut recorded = recorded.borrow_mut();
+                if recording
+                    && event.state == ElementState::Pressed
+                    && !event.repeat
+                    && event.logical_key == Key::Named(NamedKey::Escape)
+                {
+                    show_error(&panel, "", None);
+                    *recorded = Some(RecordedKey {
+                        physical_key: event.physical_key,
+                        row: index,
+                        value: None,
+                    });
+                    return EventResult::PreventDefault;
+                }
+                if recorded
+                    .as_ref()
+                    .is_some_and(|key| key.physical_key == event.physical_key)
                 {
                     if event.state == ElementState::Released {
-                        captured = None;
-                        let shortcut_only = panel.get_settings_open()
-                            && panel.get_shortcut_settings_index() > 0
-                            && panel.get_recording_shortcut() >= 0;
                         // Resume shortcuts only after the recorded key is released.
-                        panel.set_recording_shortcut(-1);
-                        if shortcut_only {
-                            if cancelled {
-                                panel.invoke_close_dialogs();
-                            } else if panel.get_settings_error().is_empty() {
-                                panel.invoke_save_settings();
+                        let key = recorded.take().unwrap();
+                        if recording && key.row == index {
+                            panel.set_recording_shortcut(-1);
+                            if let Some(value) = key.value {
+                                request_shortcut(&panel, &send, index, value);
                             }
                         }
                     }
                     return EventResult::PreventDefault;
                 }
-                if panel.get_settings_open() && panel.get_recording_shortcut() >= 0 {
-                    if event.state == ElementState::Pressed && !event.repeat {
-                        if event.logical_key == Key::Named(NamedKey::Escape) {
-                            captured = Some((event.physical_key, true));
-                        } else if let Some(key) = key_name(event) {
-                            let mut parts = Vec::new();
-                            if modifiers.control_key() {
-                                parts.push("Ctrl");
+                if recording {
+                    if event.state == ElementState::Pressed
+                        && !event.repeat
+                        && recorded.is_none()
+                        && let Some(key) = key_name(event)
+                    {
+                        let mut parts = Vec::new();
+                        if modifiers.control_key() {
+                            parts.push("Ctrl");
+                        }
+                        if modifiers.shift_key() {
+                            parts.push("Shift");
+                        }
+                        if modifiers.alt_key() {
+                            parts.push("Alt");
+                        }
+                        if modifiers.super_key() {
+                            parts.push("Win");
+                        }
+                        parts.push(&key);
+                        match parts.join(" + ").parse::<Shortcut>() {
+                            Ok(shortcut) => {
+                                *recorded = Some(RecordedKey {
+                                    physical_key: event.physical_key,
+                                    row: index,
+                                    value: Some(shortcut.to_string()),
+                                });
                             }
-                            if modifiers.shift_key() {
-                                parts.push("Shift");
-                            }
-                            if modifiers.alt_key() {
-                                parts.push("Alt");
-                            }
-                            if modifiers.super_key() {
-                                parts.push("Win");
-                            }
-                            parts.push(&key);
-                            match parts.join(" + ").parse::<Shortcut>() {
-                                Ok(shortcut) => {
-                                    set_binding(
-                                        &panel,
-                                        panel.get_recording_shortcut(),
-                                        shortcut.to_string(),
-                                    );
-                                    captured = Some((event.physical_key, false));
-                                }
-                                Err(error) => panel.set_settings_error(error.to_string().into()),
-                            }
+                            Err(error) => show_error(&panel, &error.to_string(), Some(index)),
                         }
                     }
                     return EventResult::PreventDefault;
@@ -205,19 +250,20 @@ pub(super) fn connect(
 
 pub(super) fn open(
     panel: &PresetPanel,
-    draft: SettingsDraft,
+    shortcuts: &ShortcutBindings,
+    language: UiLanguage,
+    status_monitor: &str,
     startup_state: Option<bool>,
     target: SettingsTarget,
 ) {
     let rows = std::iter::once(ShortcutRow {
         name: "".into(),
-        binding: draft.shortcuts.panel.as_str().into(),
+        binding: shortcuts.panel.as_str().into(),
         ..Default::default()
     })
     .chain(panel.get_presets().iter().map(|row| {
         ShortcutRow {
-            binding: draft
-                .shortcuts
+            binding: shortcuts
                 .presets
                 .get(row.name.as_str())
                 .map(String::as_str)
@@ -252,10 +298,10 @@ pub(super) fn open(
     }
     let selected = monitors
         .iter()
-        .position(|monitor| monitor.id.eq_ignore_ascii_case(&draft.status_monitor))
+        .position(|monitor| monitor.id.eq_ignore_ascii_case(status_monitor))
         .unwrap_or_else(|| {
             monitors.push(MonitorChoice {
-                id: draft.status_monitor.as_str().into(),
+                id: status_monitor.into(),
                 role: MonitorRole::Unavailable,
                 ..Default::default()
             });
@@ -263,23 +309,11 @@ pub(super) fn open(
         });
     panel.set_monitor_choices(Rc::new(VecModel::from(monitors)).into());
     panel.set_selected_monitor(selected as i32);
-    panel.set_selected_language(
-        UiLanguage::ALL
-            .iter()
-            .position(|&language| language == draft.language)
-            .unwrap_or_default() as i32,
-    );
-    panel.set_draft_keep_panel_open(draft.keep_panel_open);
-    panel.set_draft_always_on_top(draft.always_on_top);
+    show_preference(panel, &PreferenceChange::Language(language));
     panel.set_startup_available(startup_state.is_some());
-    panel.set_initial_start_with_windows(startup_state.unwrap_or_default());
-    panel.set_draft_start_with_windows(panel.get_initial_start_with_windows());
-    panel.set_draft_apply_in_saved_order(draft.apply_in_saved_order);
-    panel.set_draft_auto_ready_up(draft.auto_ready_up);
-    panel.set_draft_save_fallback_when_taken(draft.save_fallback_when_taken);
-    panel.set_draft_check_updates_automatically(draft.check_updates_automatically);
+    panel.set_setting_start_with_windows(startup_state.unwrap_or_default());
     panel.set_shortcut_rows(Rc::new(VecModel::from(rows)).into());
-    panel.set_settings_error("".into());
+    show_error(panel, "", None);
     panel.set_settings_saving(false);
     panel.set_recording_shortcut(-1);
     panel.set_shortcut_settings_index(shortcut_index);
@@ -288,35 +322,64 @@ pub(super) fn open(
     panel.invoke_focus_settings(page);
 }
 
-fn bindings(panel: &PresetPanel) -> ShortcutBindings {
-    let rows = panel.get_shortcut_rows();
-    ShortcutBindings {
-        panel: rows
-            .row_data(0)
-            .map(|row| row.binding.to_string())
-            .unwrap_or_default(),
-        presets: rows
-            .iter()
-            .skip(1)
-            .map(|row| (row.name.to_string(), row.binding.to_string()))
-            .collect(),
+pub(super) fn show_preference(panel: &PresetPanel, change: &PreferenceChange) {
+    use PreferenceChange as P;
+    match change {
+        P::ApplyInSavedOrder(value) => panel.set_setting_apply_in_saved_order(*value),
+        P::AutoReadyUp(value) => panel.set_setting_auto_ready_up(*value),
+        P::SaveFallbackWhenTaken(value) => panel.set_setting_save_fallback_when_taken(*value),
+        P::KeepPanelOpen(value) => panel.set_setting_keep_panel_open(*value),
+        P::AlwaysOnTop(value) => panel.set_setting_always_on_top(*value),
+        P::CheckUpdatesAutomatically(value) => {
+            panel.set_setting_check_updates_automatically(*value)
+        }
+        P::Language(value) => panel.set_selected_language(
+            UiLanguage::ALL
+                .iter()
+                .position(|language| language == value)
+                .unwrap() as i32,
+        ),
+        P::StatusMonitor(value) => {
+            if let Some(index) = panel
+                .get_monitor_choices()
+                .iter()
+                .position(|monitor| monitor.id.eq_ignore_ascii_case(value))
+            {
+                panel.set_selected_monitor(index as i32);
+            }
+        }
     }
 }
 
-fn set_binding(panel: &PresetPanel, index: i32, binding: String) {
-    let rows = panel.get_shortcut_rows();
-    if let Some(mut row) = rows.row_data(index as usize) {
-        row.binding = binding.into();
-        rows.set_row_data(index as usize, row);
+fn request_shortcut(panel: &PresetPanel, send: &Sender<UiRequest>, index: i32, value: String) {
+    if let Some(row) = panel.get_shortcut_rows().row_data(index as usize)
+        && row.binding != value
+    {
+        request(
+            panel,
+            send,
+            SettingEdit::Shortcut {
+                preset: (index != 0).then(|| row.name.to_string()),
+                value,
+                row: index,
+            },
+        );
     }
-    panel.set_settings_error(
-        bindings(panel)
-            .validate()
-            .err()
-            .map(|error| error.to_string())
-            .unwrap_or_default()
-            .into(),
-    );
+}
+
+fn request(panel: &PresetPanel, send: &Sender<UiRequest>, edit: SettingEdit) {
+    if panel.get_settings_open()
+        && !panel.get_settings_saving()
+        && send.send(UiRequest::EditSetting(edit)).is_ok()
+    {
+        show_error(panel, "", None);
+        panel.set_settings_saving(true);
+    }
+}
+
+pub(super) fn show_error(panel: &PresetPanel, error: &str, row: Option<i32>) {
+    panel.set_shortcut_error_index(row.unwrap_or(-1));
+    panel.set_settings_error(error.into());
 }
 
 fn key_name(event: &winit::event::KeyEvent) -> Option<String> {
