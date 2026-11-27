@@ -1,4 +1,6 @@
 //! Read-only candidates for editing presets from the local catalog.
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use image::RgbaImage;
 
@@ -14,6 +16,7 @@ use crate::{
 pub(crate) struct EquipmentCandidate {
     pub choice: EquipmentChoice,
     pub picture: RgbaImage,
+    pub thumbnail: Option<Arc<RgbaImage>>,
 }
 
 pub(crate) struct EquipmentCategoryPreview {
@@ -70,12 +73,14 @@ fn equipment_candidates(cache: &ItemCache) -> Result<EquipmentCandidates> {
                         continue;
                     }
                     *seen = true;
+                    let entry = &category.names[name];
                     items.push(EquipmentCandidate {
                         choice: EquipmentChoice {
                             category: category_index,
                             name,
                         },
-                        picture: render_text(&category.names[name]),
+                        picture: render_text(&entry.sample),
+                        thumbnail: entry.thumbnail.clone(),
                     });
                 }
                 Ok(EquipmentCategoryPreview {

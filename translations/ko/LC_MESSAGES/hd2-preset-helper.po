@@ -339,6 +339,15 @@ msgstr "프리셋 이전"
 msgid "Scan item lists"
 msgstr "아이템 목록 스캔"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "프리셋을 편집하고 적용하는 데 쓰이는 아이템 목록을 게임에서 갱신합니다. 장비를 스캔하면 썸네일도 생성됩니다."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "아이템 목록을 다시 스캔하면 장비 썸네일이 표시됩니다."
+
+msgid "Open scan settings"
+msgstr "스캔 설정 열기"
+
 msgid "Check presets"
 msgstr "프리셋 확인"
 

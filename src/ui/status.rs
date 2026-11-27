@@ -47,6 +47,7 @@ impl Status {
 
     pub fn update(&mut self, event: AppEvent, preset_info: &[PresetMetadata]) {
         self.window.set_item_scan(false);
+        self.window.set_stoppable_scan(false);
         use StatusTone::{Error, Success, Warning, Working};
         if let AppEvent::PresetStarted { preset }
         | AppEvent::HotkeyReleaseRequested { preset }
@@ -150,9 +151,16 @@ impl Status {
         self.hide_at = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     }
 
-    fn scan_feedback(&mut self, message: String, tone: StatusTone, seconds: Option<u64>) {
+    fn scan_feedback(
+        &mut self,
+        message: String,
+        tone: StatusTone,
+        seconds: Option<u64>,
+        stoppable: bool,
+    ) {
         self.preset.clear();
         self.window.set_item_scan(true);
+        self.window.set_stoppable_scan(stoppable);
         self.window.set_stratagems(Default::default());
         self.window.set_booster(StatusItem::default());
         self.window.set_picture(slint::Image::default());
@@ -166,13 +174,14 @@ impl Status {
             "Release the keys and mouse button to continue".into(),
             StatusTone::Working,
             None,
+            true,
         );
     }
 
     pub fn scan_progress(&mut self, progress: ScanProgress) {
         let (message, picture) =
             scan_progress_content(progress.kind, progress.category.as_ref(), progress.items);
-        self.scan_feedback(message, StatusTone::Working, None);
+        self.scan_feedback(message, StatusTone::Working, None, true);
         self.window.set_picture(picture);
     }
 
@@ -181,6 +190,7 @@ impl Status {
             "Scan complete · review the results in the panel".into(),
             StatusTone::Working,
             Some(3),
+            false,
         );
     }
 
@@ -194,6 +204,7 @@ impl Status {
             .into(),
             StatusTone::Working,
             None,
+            false,
         );
     }
 
@@ -221,7 +232,7 @@ impl Status {
                 5,
             ),
         };
-        self.scan_feedback(message, tone, Some(seconds));
+        self.scan_feedback(message, tone, Some(seconds), false);
     }
 
     /// Load only at the start or when switching to the fallback Booster.

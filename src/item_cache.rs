@@ -6,6 +6,9 @@ mod storage;
 
 pub(crate) use equipment::NAME_MATCH_THRESHOLD;
 
+use std::sync::Arc;
+
+use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -45,9 +48,15 @@ pub(crate) struct EquipmentItem {
 pub(crate) type EquipmentSet = [Option<EquipmentItem>; 6];
 
 #[derive(Clone)]
+pub(crate) struct EquipmentName {
+    pub sample: TextSample,
+    pub thumbnail: Option<Arc<RgbaImage>>,
+}
+
+#[derive(Clone)]
 pub(crate) struct EquipmentCategory {
     pub title: TextSample,
-    pub names: Vec<TextSample>,
+    pub names: Vec<EquipmentName>,
     pub order: Vec<usize>,
 }
 

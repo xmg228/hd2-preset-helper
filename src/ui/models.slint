@@ -15,9 +15,10 @@ export struct MigrationPairRow {
     is-category: bool, category: CandidateGroupRole, source: bool,
     source-label: string, source-number: string,
 }
-export struct PreviewRow { role: PreviewRole, number: int, state: PreviewState, picture: image, error: string }
+export struct PreviewRow { role: PreviewRole, number: int, state: PreviewState, picture: image, thumbnail: image, error: string }
 export struct PreviewSection { items: [PreviewRow], summary: image, error: string, ready: bool, saved: bool }
-export struct CandidateRow { category: int, item: int, picture: image }
+export struct EditorChoice { category: int, item: int }
+export struct CandidateRow { category: int, item: int, picture: image, thumbnail: image }
 export struct CandidateGroupRow { title: image, role: CandidateGroupRole, items: [CandidateRow] }
 export struct CandidateCatalogRow { groups: [CandidateGroupRow] }
 export struct PresetRow {

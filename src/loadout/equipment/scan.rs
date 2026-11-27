@@ -1,5 +1,8 @@
 //! Complete row cycles from an arbitrary entry, with boundary-based completion as fallback.
+use std::sync::Arc;
+
 use anyhow::{Context, Result, bail, ensure};
+use image::RgbaImage;
 
 use super::{
     CATEGORY_MATCH_THRESHOLD, EquipmentItem, InputAction, NAME_MATCH_THRESHOLD, NavigationWait,
@@ -78,6 +81,7 @@ fn wrapped_down(
 struct ScannedRow {
     category: TextSample,
     names: Vec<TextSample>,
+    thumbnails: Vec<Option<Arc<RgbaImage>>>,
     boundary_before: bool,
 }
 
@@ -150,9 +154,10 @@ fn complete_categories(
                 });
             }
         }
+        let mut thumbnails = row.thumbnails.into_iter();
         for sample in row.names {
             let name = category
-                .identify(sample)
+                .identify(sample, thumbnails.next().flatten())
                 .context("equipment scan found ambiguous item names")?;
             category.order.push(name);
         }
@@ -306,6 +311,15 @@ impl Session<'_> {
         &mut self,
         progress: &mut impl FnMut(&TextSample, usize),
     ) -> Result<Collection> {
+        let result = self.collect_rows(progress);
+        self.thumbnail_row = None;
+        result
+    }
+
+    fn collect_rows(
+        &mut self,
+        progress: &mut impl FnMut(&TextSample, usize),
+    ) -> Result<Collection> {
         self.automation.check_cancelled()?;
         let kind = self.observer.kind();
         let original_col =
@@ -319,6 +333,7 @@ impl Session<'_> {
         let mut row: Option<RowScan<TextSample>> = None;
         let mut items = 0;
         let mut visits = 1;
+        self.begin_thumbnail_row();
 
         let start = loop {
             self.automation.check_cancelled()?;
@@ -329,6 +344,7 @@ impl Session<'_> {
             let focus =
                 &self.page.slots[self.page.focus.context("equipment scan focus is missing")?];
             let col = focus.col;
+            let focus_row = focus.row;
             let width = self
                 .page
                 .slots
@@ -377,19 +393,22 @@ impl Session<'_> {
                         sampling.observed_slots()
                     },
             );
+            self.wait_for_thumbnail_artwork()?;
             let (action, wait) = match step {
                 RowStep::Column(col) => (InputAction::ClickColumn(col), NavigationWait::Responsive),
                 RowStep::Complete(names) => {
                     items += names.len();
+                    let thumbnails = self.finish_thumbnail_row()?;
                     rows.push(ScannedRow {
                         category: self.page.category.clone(),
                         names,
+                        thumbnails,
                         boundary_before,
                     });
                     // A one-row list has no Down response to confirm a cycle.
                     if rows.len() == 1
                         && self.page.scrollbar.is_none()
-                        && self.page.slots.iter().all(|slot| slot.row == focus.row)
+                        && self.page.slots.iter().all(|slot| slot.row == focus_row)
                     {
                         break 0;
                     }
@@ -409,6 +428,9 @@ impl Session<'_> {
                 !input.retried,
                 "equipment scan lost input continuity; the current type was not saved"
             );
+            if matches!(action, InputAction::Key(Key::Down)) {
+                self.begin_thumbnail_row();
+            }
             self.sync_category()?;
             if matches!(action, InputAction::Key(Key::Down)) {
                 down_steps += 1;
@@ -447,6 +469,11 @@ impl Session<'_> {
         tracing::debug!(
             categories = categories.len(),
             rows = row_count,
+            thumbnails = categories
+                .iter()
+                .flat_map(|category| &category.names)
+                .filter(|name| name.thumbnail.is_some())
+                .count(),
             down_steps,
             global_wrap = cut.is_some(),
             closed_at_entry = start == 0 && reference.is_some(),

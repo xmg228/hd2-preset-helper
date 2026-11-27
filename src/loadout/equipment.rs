@@ -5,6 +5,7 @@ mod navigation;
 mod row;
 mod scan;
 mod search;
+mod thumbnails;
 
 use crate::item_cache::{EquipmentItem, EquipmentSet, NAME_MATCH_THRESHOLD};
 use evidence::EquipmentEvidence;
@@ -99,6 +100,7 @@ pub(crate) struct Session<'a> {
     evidence: EquipmentEvidence<'a>,
     client_size: (u32, u32),
     last_release: Option<Instant>,
+    thumbnail_row: Option<thumbnails::ThumbnailRow>,
 }
 
 pub(crate) enum ApplyProgress<'a> {
@@ -132,6 +134,7 @@ impl<'a> Session<'a> {
             evidence,
             client_size,
             last_release: None,
+            thumbnail_row: None,
         })
     }
 
@@ -142,6 +145,9 @@ impl<'a> Session<'a> {
         let started = Instant::now();
         self.page = self.observer.observe(&self.frame);
         let observe_ms = started.elapsed().as_secs_f64() * 1000.0;
+        if let Some(row) = &mut self.thumbnail_row {
+            row.observe(&self.frame, &self.page);
+        }
         self.evidence
             .observe(&self.frame, &self.page, capture_ms, observe_ms);
         Ok(())

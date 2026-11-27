@@ -139,10 +139,9 @@ impl<'a> CachedList<'a> {
             }
             for (row, old) in entry.order.chunks(self.kind.list_columns()).enumerate() {
                 if old.len() == names.len()
-                    && old
-                        .iter()
-                        .zip(names)
-                        .all(|(&id, name)| entry.names[id].cosine(name) >= NAME_MATCH_THRESHOLD)
+                    && old.iter().zip(names).all(|(&id, name)| {
+                        entry.names[id].sample.cosine(name) >= NAME_MATCH_THRESHOLD
+                    })
                 {
                     positions.push(Position { category, row, col });
                 }

@@ -1,5 +1,5 @@
 //! Read-only presentation data. No window, UI framework or current game state required.
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use image::RgbaImage;
@@ -7,6 +7,7 @@ use image::RgbaImage;
 use super::{LocalTemplate, storage, stratagems};
 use crate::{
     item::{EquipmentKind, ItemKind},
+    item_cache::ItemCache,
     vision::{IconSample, equipment::EquipmentText, render_icon},
 };
 
@@ -32,12 +33,34 @@ pub enum PreviewContent<T> {
 
 pub struct PresetPreview {
     pub stratagems: PreviewContent<Vec<PreviewImage>>,
-    pub equipment: [PreviewContent<RgbaImage>; 6],
+    pub equipment: [PreviewContent<EquipmentPreview>; 6],
 }
 
-pub(crate) fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
+#[derive(Default)]
+pub(crate) struct PresetPreviews {
+    pub entries: BTreeMap<String, PresetPreview>,
+    pub equipment_lists_without_thumbnails: bool,
+}
+
+pub struct EquipmentPreview {
+    pub name: RgbaImage,
+    pub thumbnail: Option<Arc<RgbaImage>>,
+}
+
+pub(crate) fn load(path: &Path, cache: &ItemCache) -> Result<PresetPreviews> {
     let file = storage::load(path)?;
-    Ok(file
+    let catalogs = cache.equipment.each_ref().map(|catalog| {
+        catalog.as_ref().filter(|catalog| {
+            catalog
+                .categories
+                .iter()
+                .flat_map(|category| &category.names)
+                .any(|name| name.thumbnail.is_some())
+        })
+    });
+    let equipment_lists_without_thumbnails =
+        cache.equipment.iter().any(Option::is_some) && catalogs.iter().all(Option::is_none);
+    let entries = file
         .into_presets()
         .map(|record| {
             let id = record.id;
@@ -87,7 +110,13 @@ pub(crate) fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
                     item.name_client_size.unwrap_or(equipment.client_size),
                     EquipmentText::Name,
                 ) {
-                    Ok(sample) => PreviewContent::Ready(name_preview(&sample)),
+                    Ok(sample) => PreviewContent::Ready(EquipmentPreview {
+                        name: name_preview(&sample),
+                        thumbnail: catalogs[index].and_then(|catalog| {
+                            let choice = catalog.match_name(sample.signature())?;
+                            catalog.thumbnail(choice).cloned()
+                        }),
+                    }),
                     Err(error) => PreviewContent::Invalid(format!("{error:#}")),
                 }
             });
@@ -99,7 +128,11 @@ pub(crate) fn load(path: &Path) -> Result<BTreeMap<String, PresetPreview>> {
                 },
             )
         })
-        .collect())
+        .collect();
+    Ok(PresetPreviews {
+        entries,
+        equipment_lists_without_thumbnails,
+    })
 }
 
 pub fn equipment_name(path: &Path, preset: &str, kind: EquipmentKind) -> Result<RgbaImage> {

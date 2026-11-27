@@ -339,6 +339,15 @@ msgstr "Voreinstellungen migrieren"
 msgid "Scan item lists"
 msgstr "Gegenstandslisten scannen"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "Aktualisiert die Gegenstandslisten aus dem Spiel zum Bearbeiten und Anwenden von Voreinstellungen. Beim Scannen der Ausrüstung entstehen auch Vorschaubilder."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "Scanne die Gegenstandslisten erneut, um Vorschaubilder der Ausrüstung anzuzeigen."
+
+msgid "Open scan settings"
+msgstr "Scan-Einstellungen öffnen"
+
 msgid "Check presets"
 msgstr "Voreinstellungen prüfen"
 

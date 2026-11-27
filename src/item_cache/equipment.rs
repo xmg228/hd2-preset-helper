@@ -1,5 +1,9 @@
 //! Name identities shared by equipment navigation and preset refreshes.
-use super::{EquipmentCatalog, EquipmentCategory, EquipmentChoice};
+use std::sync::Arc;
+
+use image::RgbaImage;
+
+use super::{EquipmentCatalog, EquipmentCategory, EquipmentChoice, EquipmentName};
 use crate::vision::text::{TextSample, TextSignature};
 
 // One threshold for smoothed name identities and saved-target acceptance.
@@ -51,13 +55,22 @@ impl EquipmentCatalog {
                         .iter()
                         .enumerate()
                         .filter(|(name, _)| entry.order.contains(name))
-                        .map(move |(name, sample)| {
-                            (EquipmentChoice { category, name }, sample.signature())
+                        .map(move |(name, entry)| {
+                            (EquipmentChoice { category, name }, entry.sample.signature())
                         })
                 }),
         )
         .filter(|ranking| ranking.accepts())
         .map(|ranking| ranking.best)
+    }
+
+    pub fn thumbnail(&self, choice: EquipmentChoice) -> Option<&Arc<RgbaImage>> {
+        self.categories
+            .get(choice.category)?
+            .names
+            .get(choice.name)?
+            .thumbnail
+            .as_ref()
     }
 }
 
@@ -68,26 +81,37 @@ impl EquipmentCategory {
             self.names
                 .iter()
                 .enumerate()
-                .map(|(index, sample)| (index, sample.signature())),
+                .map(|(index, entry)| (index, entry.sample.signature())),
         )
         .filter(|ranking| ranking.accepts())
         .map(|ranking| ranking.best)
     }
 
     /// Intern names only while materializing a completed scan.
-    pub fn identify(&mut self, name: TextSample) -> Option<usize> {
+    pub fn identify(
+        &mut self,
+        sample: TextSample,
+        thumbnail: Option<Arc<RgbaImage>>,
+    ) -> Option<usize> {
         if let Some(ranking) = rank_names(
-            name.signature(),
+            sample.signature(),
             self.names
                 .iter()
                 .enumerate()
-                .map(|(index, sample)| (index, sample.signature())),
+                .map(|(index, entry)| (index, entry.sample.signature())),
         )
         .filter(|ranking| ranking.score >= NAME_MATCH_THRESHOLD)
         {
-            return ranking.accepts().then_some(ranking.best);
+            if !ranking.accepts() {
+                return None;
+            }
+            let entry = &mut self.names[ranking.best];
+            if entry.thumbnail.is_none() {
+                entry.thumbnail = thumbnail;
+            }
+            return Some(ranking.best);
         }
-        self.names.push(name);
+        self.names.push(EquipmentName { sample, thumbnail });
         Some(self.names.len() - 1)
     }
 }

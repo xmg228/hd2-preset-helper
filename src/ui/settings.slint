@@ -7,7 +7,7 @@ import { ShortcutRow } from "models.slint";
 import { UpdateView, UpdatePhase } from "updates.slint";
 import { UiText } from "text.slint";
 
-enum SettingsPage { general, shortcuts, item-cache, preset-shortcut, about, licenses }
+export enum SettingsPage { general, shortcuts, item-cache, preset-shortcut, about, licenses }
 
 export component SettingsDialog inherits Rectangle {
     in property <bool> enabled;
@@ -40,6 +40,7 @@ export component SettingsDialog inherits Rectangle {
     private property <bool> shortcut-only: page == SettingsPage.preset-shortcut;
     private property <string> notices;
     private property <int> scan-kind;
+    private property <bool> focus-scan-on-open;
     private property <int> migration-kind: 0;
     private property <[string]> item-kinds: [@tr("All items"), @tr("Stratagems"), @tr("Booster"),
         @tr("Helmet"), @tr("Armor"), @tr("Cape"),
@@ -58,11 +59,13 @@ export component SettingsDialog inherits Rectangle {
     callback inspect-migration(int);
     callback license-text() -> string;
     forward-focus: keys;
-    public function focus-dialog(show-about: bool) {
-        root.page = root.shortcut-index > 0 ? SettingsPage.preset-shortcut : show-about ? SettingsPage.about
-            : root.shortcut-warning == "" ? SettingsPage.general : SettingsPage.shortcuts;
+    public function focus-dialog(page: SettingsPage) {
+        root.page = root.shortcut-index > 0 ? SettingsPage.preset-shortcut
+            : page == SettingsPage.general && root.shortcut-warning != "" ? SettingsPage.shortcuts : page;
+        root.scan-kind = 0;
         root.notices = "";
         keys.focus();
+        root.focus-scan-on-open = root.page == SettingsPage.item-cache;
     }
     background: Theme.surface;
     border-color: Theme.border-strong;
@@ -202,6 +205,15 @@ export component SettingsDialog inherits Rectangle {
                 }
             }
             if (root.page == SettingsPage.item-cache): ScrollView {
+                private property <bool> scan-focus-requested: root.focus-scan-on-open;
+                function focus-scan-if-requested() {
+                    if (self.scan-focus-requested) {
+                        scan-button.focus();
+                        root.focus-scan-on-open = false;
+                    }
+                }
+                init => { self.focus-scan-if-requested(); }
+                changed scan-focus-requested => { self.focus-scan-if-requested(); }
                 content-width: self.visible-width - 8px;
                 VerticalLayout {
                     alignment: start;
@@ -210,6 +222,12 @@ export component SettingsDialog inherits Rectangle {
                         padding: 8px;
                         spacing: 6px;
                         Text { text: @tr("Scan item lists"); color: Theme.text; font-size: 14px; font-weight: 600; }
+                        Text {
+                            text: @tr("Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails.");
+                            color: Theme.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
                         HorizontalLayout {
                             spacing: 8px;
                             PanelComboBox {
@@ -217,7 +235,7 @@ export component SettingsDialog inherits Rectangle {
                                 current-index <=> root.scan-kind;
                                 enabled: root.enabled && !root.saving;
                             }
-                            PanelButton {
+                            scan-button := PanelButton {
                                 text: @tr("Scan");
                                 filled: true;
                                 enabled: root.enabled && !root.saving;
@@ -225,8 +243,7 @@ export component SettingsDialog inherits Rectangle {
                             }
                         }
                         Text {
-                            text: (root.scan-kind == 0 || root.scan-kind == 2 ? UiText.booster-scan-hint + "\n" : "")
-                                + @tr("Open the panel to stop scanning.");
+                            text: UiText.booster-scan-hint;
                             color: Theme.text-secondary;
                             font-size: 11px;
                             wrap: word-wrap;
@@ -237,6 +254,12 @@ export component SettingsDialog inherits Rectangle {
                         padding: 8px;
                         spacing: 6px;
                         Text { text: @tr("Migrate presets"); color: Theme.text; font-size: 14px; font-weight: 600; }
+                        Text {
+                            text: @tr("Refresh saved preset images after a game language change or Stratagem icon update.");
+                            color: Theme.text-secondary;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
                         HorizontalLayout {
                             spacing: 8px;
                             PanelComboBox {
@@ -253,8 +276,7 @@ export component SettingsDialog inherits Rectangle {
                             }
                         }
                         Text {
-                            text: @tr("Refresh saved preset images after a game language change or Stratagem icon update.")
-                                + "\n" + @tr("Requires complete caches from a previous scan of the selected item types, with no changes to available items.");
+                            text: @tr("Requires complete caches from a previous scan of the selected item types, with no changes to available items.");
                             color: Theme.text-secondary;
                             font-size: 11px;
                             wrap: word-wrap;

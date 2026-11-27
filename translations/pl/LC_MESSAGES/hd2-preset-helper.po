@@ -339,6 +339,15 @@ msgstr "Przenieś zestawy"
 msgid "Scan item lists"
 msgstr "Skanuj listy przedmiotów"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "Pobiera z gry aktualne listy przedmiotów potrzebne do edycji i stosowania zestawów. Skanowanie sprzętu tworzy też miniatury."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "Zeskanuj ponownie listy przedmiotów, aby wyświetlić miniatury sprzętu."
+
+msgid "Open scan settings"
+msgstr "Otwórz ustawienia skanowania"
+
 msgid "Check presets"
 msgstr "Sprawdź zestawy"
 

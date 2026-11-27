@@ -86,6 +86,7 @@ pub(super) fn write_cached(
             .names
             .get(choice.name)
             .filter(|_| category.order.contains(&choice.name))
+            .map(|entry| &entry.sample)
             .context("selected equipment item is not available")?;
         items[kind.index()] = Some(CapturedEquipmentItem {
             name: sample.clone(),

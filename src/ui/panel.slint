@@ -2,7 +2,8 @@ import { Theme } from "theme.slint";
 import { Icon, Icons, DragHandle } from "icons.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PanelButton, IconButton, DeletePresetDialog, ScanConfirmationDialog, NameImage, FailureNotice } from "controls.slint";
-import { SettingsDialog } from "settings.slint";
+import { SettingsDialog, SettingsPage } from "settings.slint";
+export { SettingsPage }
 import { ItemEditor } from "editor.slint";
 import { QuickStartDialog } from "quick-start.slint";
 import { MigrationPage } from "migration.slint";
@@ -12,10 +13,10 @@ import { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, Pre
 import { UiText } from "text.slint";
 import { FolderHeader } from "library.slint";
 import { LibraryEntryRow, EntryDropTarget } from "models.slint";
-import { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole } from "models.slint";
+import { EditorChoice, CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole } from "models.slint";
 import { MigrationPhase, MigrationGroupRow, MigrationPairRow, MigrationPairState } from "models.slint";
 export { LibraryEntryRow, EntryDropTarget }
-export { CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole }
+export { EditorChoice, CandidateRow, CandidateGroupRow, CandidateCatalogRow, CandidateGroupRole }
 export { MigrationPhase, MigrationGroupRow, MigrationPairRow, MigrationPairState }
 export { ActionScope, PreviewRole, PreviewState, PreviewRow, PreviewSection, PresetRow, MonitorRole, ShortcutRow, MonitorChoice }
 export { AppTray } from "tray.slint";
@@ -122,6 +123,8 @@ component EquipmentTile inherits Rectangle {
     in property <PreviewRow> item;
     in property <bool> checked;
     in property <bool> enabled: true;
+    private property <bool> show-thumbnail: item.state == PreviewState.ready && item.thumbnail.width > 0;
+    private property <float> content-opacity: enabled ? (checked ? 1 : 0.5) : (checked ? 0.65 : 0.4);
     callback toggled();
     min-width: 0px;
     preferred-width: 0px;
@@ -137,11 +140,22 @@ component EquipmentTile inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { root.toggled(); }
     }
+    if (root.show-thumbnail): Image {
+        x: 4px;
+        y: (parent.height - self.height) / 2;
+        width: Theme.equipment-thumbnail-width;
+        height: Theme.equipment-thumbnail-height;
+        source: root.item.thumbnail;
+        image-fit: contain;
+        opacity: root.content-opacity;
+    }
     VerticalLayout {
+        x: root.show-thumbnail ? Theme.equipment-thumbnail-width + 6px : 0px;
+        width: parent.width - self.x;
         alignment: center;
         padding: 4px;
         spacing: 2px;
-        opacity: root.enabled ? (root.checked ? 1 : 0.5) : (root.checked ? 0.65 : 0.4);
+        opacity: root.content-opacity;
         HorizontalLayout {
             height: 15px;
             spacing: 4px;
@@ -154,10 +168,10 @@ component EquipmentTile inherits Rectangle {
                     stroke: root.enabled ? Theme.accent-soft : Theme.text-secondary;
                 }
             }
-            Text { text: UiText.item-label(root.item); color: Theme.text-secondary; font-size: 11px; }
+            Text { text: UiText.item-label(root.item); color: Theme.text-secondary; font-size: 11px; overflow: elide; }
         }
         Rectangle {
-            height: 21px;
+            height: Theme.equipment-name-height;
             if (root.item.state == PreviewState.ready): NameImage { source: root.item.picture; }
             if (root.item.state != PreviewState.ready): Text {
                 text: root.item.state == PreviewState.invalid ? @tr("Preview unavailable") : @tr("Not saved");
@@ -303,6 +317,7 @@ export component PresetPanel inherits Window {
     animate panel-opacity { duration: root.fade-duration; easing: linear; }
 
     in property <[PresetRow]> presets;
+    in property <bool> equipment-lists-without-thumbnails;
     in property <[LibraryEntryRow]> entries;
     in property <data-transfer> entry-drag-data;
     in property <string> status;
@@ -346,7 +361,7 @@ export component PresetPanel inherits Window {
     in-out property <int> editor-slot;
     in-out property <[CandidateCatalogRow]> editor-catalogs;
     in-out property <[PreviewRow]> editor-draft;
-    in-out property <[CandidateRow]> editor-choices;
+    in-out property <[EditorChoice]> editor-choices;
     in property <[ShortcutRow]> shortcut-rows;
     in property <[MonitorChoice]> monitor-choices;
     private property <[string]> monitor-labels: root.project-monitor-labels(
@@ -469,7 +484,7 @@ export component PresetPanel inherits Window {
     callback request-folder-rename(string, string);
     callback request-ungroup(string);
     callback request-compact-list(bool);
-    callback edit-settings(bool);
+    callback edit-settings(SettingsPage);
     callback edit-shortcut(string);
     callback save-settings();
     callback check-updates();
@@ -515,7 +530,7 @@ export component PresetPanel inherits Window {
         root.editing-folder = "";
         if (save) { root.request-folder-rename(name, root.folder-name-draft); }
     }
-    public function focus-settings(show-about: bool) { root.hovered-index = -1; settings.focus-dialog(show-about); }
+    public function focus-settings(page: SettingsPage) { root.hovered-index = -1; settings.focus-dialog(page); }
     public function focus-item-editor() {
         root.hovered-index = -1;
         root.apply-key-down = false;
@@ -771,7 +786,7 @@ export component PresetPanel inherits Window {
                         enabled: root.interactive;
                         clicked => {
                             root.commit-names();
-                            root.edit-settings(true);
+                            root.edit-settings(SettingsPage.about);
                             root.install-update();
                         }
                     }
@@ -779,7 +794,7 @@ export component PresetPanel inherits Window {
                         label: @tr("View available update");
                         icon: Icons.update;
                         enabled: root.interactive;
-                        clicked => { root.commit-names(); root.edit-settings(true); }
+                        clicked => { root.commit-names(); root.edit-settings(SettingsPage.about); }
                         Rectangle {
                             x: parent.width - 7px; y: 1px;
                             width: 5px; height: 5px; border-radius: 3px;
@@ -791,7 +806,7 @@ export component PresetPanel inherits Window {
                         label: @tr("Settings");
                         icon: Icons.settings;
                         enabled: root.interactive;
-                        clicked => { root.commit-names(); root.edit-settings(false); }
+                        clicked => { root.commit-names(); root.edit-settings(SettingsPage.general); }
                     }
                     VerticalLayout {
                         width: 28px;
@@ -1376,6 +1391,30 @@ export component PresetPanel inherits Window {
                                                             wrap: word-wrap;
                                                             font-size: 12px;
                                                             vertical-alignment: top;
+                                                        }
+                                                    }
+                                                    if (root.equipment-lists-without-thumbnails && root.current.equipment.saved): HorizontalLayout {
+                                                        alignment: start;
+                                                        spacing: 4px;
+                                                        Text {
+                                                            text: @tr("Rescan the item lists to show equipment thumbnails.");
+                                                            color: Theme.text-secondary;
+                                                            font-size: 11px;
+                                                            min-width: 0px;
+                                                            vertical-alignment: center;
+                                                            wrap: word-wrap;
+                                                        }
+                                                        PanelButton {
+                                                            text: @tr("Open scan settings") + " ›";
+                                                            height: 24px;
+                                                            horizontal-padding: 6px;
+                                                            horizontal-stretch: 0;
+                                                            cross-axis-self-alignment: center;
+                                                            enabled: root.interactive;
+                                                            clicked => {
+                                                                root.commit-names();
+                                                                root.edit-settings(SettingsPage.item-cache);
+                                                            }
                                                         }
                                                     }
                                                 }

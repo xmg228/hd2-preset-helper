@@ -37,6 +37,19 @@ pub struct ScrollbarObservation {
     pub at_bottom: bool,
 }
 
+impl ScrollbarObservation {
+    /// Compare thumb endpoints when both frames provide scrollbar evidence.
+    pub(crate) fn moved(before: Option<Self>, after: Option<Self>, tolerance: f64) -> bool {
+        before.zip(after).is_some_and(|(a, b)| {
+            f64::from(
+                (a.upper_y - b.upper_y)
+                    .abs()
+                    .max((a.lower_y - b.lower_y).abs()),
+            ) > tolerance
+        })
+    }
+}
+
 struct Row {
     yellow: f64,
     gray: bool,

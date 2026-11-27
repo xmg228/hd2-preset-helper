@@ -47,6 +47,7 @@ export component ActionStatus inherits Window {
     in property <string> preset-label;
     in property <string> preset-number;
     in property <bool> item-scan;
+    in property <bool> stoppable-scan;
     in property <string> message;
     in property <StatusTone> tone;
     private property <color> accent: tone == StatusTone.success ? Theme.success
@@ -59,7 +60,7 @@ export component ActionStatus inherits Window {
     Rectangle { x: 0px; y: 0px; width: 3px; height: parent.height; background: root.accent; }
     VerticalLayout {
         padding: 12px;
-        spacing: 6px;
+        spacing: root.stoppable-scan ? 4px : 6px;
         alignment: start;
         Text { text: root.item-scan ? @tr("Item scan") : UiText.preset-title(root.preset-label, root.preset-number); color: root.accent; font-size: 13px; height: 16px; overflow: elide; }
         Text { text: root.message; color: Theme.text; font-size: 13px; min-height: 16px; wrap: word-wrap; overflow: elide; }
@@ -75,7 +76,7 @@ export component ActionStatus inherits Window {
             if (root.booster.item-id != ""): ItemIcon { item: root.booster; }
         }
         if (root.picture.width > 0): Rectangle {
-            height: 40px;
+            height: root.stoppable-scan ? 24px : 40px;
             NameImage {
                 x: 0px;
                 y: 0px;
@@ -84,6 +85,13 @@ export component ActionStatus inherits Window {
                 height: 24px;
                 colorize: #ffffff;
             }
+        }
+        if (root.stoppable-scan): Text {
+            text: @tr("Open the panel to stop scanning.");
+            color: Theme.text-secondary;
+            font-size: 11px;
+            height: 16px;
+            overflow: elide;
         }
     }
 }

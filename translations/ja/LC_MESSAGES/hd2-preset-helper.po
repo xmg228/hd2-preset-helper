@@ -339,6 +339,15 @@ msgstr "プリセットを移行"
 msgid "Scan item lists"
 msgstr "アイテムリストをスキャン"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "プリセットの編集や適用に使うアイテムリストをゲームから更新します。装備をスキャンすると、サムネイルも作成されます。"
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "アイテムリストを再スキャンすると、装備のサムネイルが表示されます。"
+
+msgid "Open scan settings"
+msgstr "スキャン設定を開く"
+
 msgid "Check presets"
 msgstr "プリセットを確認"
 

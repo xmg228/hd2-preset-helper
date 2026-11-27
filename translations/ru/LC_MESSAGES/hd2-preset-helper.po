@@ -339,6 +339,15 @@ msgstr "Перенести наборы"
 msgid "Scan item lists"
 msgstr "Сканировать списки предметов"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "Обновляет списки предметов по данным игры для редактирования и применения наборов. При сканировании снаряжения также создаются миниатюры."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "Чтобы увидеть миниатюры снаряжения, повторно отсканируйте списки предметов."
+
+msgid "Open scan settings"
+msgstr "Открыть настройки сканирования"
+
 msgid "Check presets"
 msgstr "Проверить наборы"
 

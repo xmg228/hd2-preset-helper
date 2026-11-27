@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use tracing::{Level, error, info, warn};
 
-use crate::app_events::{AppEvent, PresetCompletion};
 use crate::app_paths::AppPaths;
 use crate::automation::Cancellation;
 use crate::config::{AppConfig, ShortcutBindings, load_app_config};
@@ -433,21 +432,7 @@ impl AppController {
         }
         loop {
             match self.worker.events.try_recv() {
-                Ok(WorkerEvent::Progress(event)) => {
-                    let refresh = matches!(
-                        &event,
-                        AppEvent::PresetDone {
-                            completion: PresetCompletion::Saved
-                                | PresetCompletion::FallbackBoosterSaved,
-                            ..
-                        } | AppEvent::PresetFailed { .. }
-                            | AppEvent::PresetCancelled { .. }
-                    );
-                    self.ui.event(event)?;
-                    if refresh && self.ui.is_panel_open() {
-                        self.worker.send(Work::LoadPreviews)?;
-                    }
-                }
+                Ok(WorkerEvent::Progress(event)) => self.ui.event(event)?,
                 Ok(WorkerEvent::PreviewsLoaded(result)) => match result {
                     Ok(previews) => self.ui.set_previews(previews),
                     Err(error) => {
@@ -512,11 +497,18 @@ impl AppController {
         self.ui.set_pending(false);
         self.ready_after = Instant::now() + ACTION_COOLDOWN;
         match completion {
-            WorkCompletion::Preset(Ok(crate::preset_action::PresetActionOutcome::Saved)) => {
-                platform::notify_preset_saved();
+            WorkCompletion::Preset {
+                saved,
+                refresh_previews,
+            } => {
+                if saved {
+                    platform::notify_preset_saved();
+                }
+                if refresh_previews && self.ui.is_panel_open() {
+                    self.worker.send(Work::LoadPreviews)?;
+                }
                 Ok(())
             }
-            WorkCompletion::Preset(_) => Ok(()),
             WorkCompletion::Scan(result) => {
                 // A late cancel can suppress refocus, not change the worker's result.
                 if !cancel_requested {

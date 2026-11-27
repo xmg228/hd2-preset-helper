@@ -19,7 +19,8 @@ use crate::config::{PanelPlacement, SettingsDraft, ShortcutBindings, UiLanguage}
 use crate::item::EquipmentKind;
 use crate::item_cache::CachedChoices;
 use crate::preset::preview::{
-    PresetPreview, PreviewContent, PreviewImage, PreviewRole as PreviewImageRole,
+    EquipmentPreview, PresetPreview, PresetPreviews, PreviewContent, PreviewImage,
+    PreviewRole as PreviewImageRole,
 };
 use crate::preset::{LibraryMetadata, PresetMetadata, PresetScope, PresetSection};
 use crate::scan::{ScanKind, ScanProgress, ScanScope, ScanSummary};
@@ -54,8 +55,7 @@ fn prepare_window(window: &slint::Window, role: WindowRole) -> Result<bool> {
 }
 
 pub enum SettingsTarget {
-    General,
-    About,
+    Page(SettingsPage),
     PresetShortcut(String),
 }
 
@@ -321,7 +321,7 @@ impl AppUi {
         };
         ui.set_language(language)?;
         ui.set_library(library, None);
-        ui.set_previews(BTreeMap::new());
+        ui.set_previews(PresetPreviews::default());
         Ok(ui)
     }
 
@@ -351,7 +351,7 @@ impl AppUi {
         self.activate_panel()?;
         if installing {
             self.window.set_settings_open(true);
-            self.window.invoke_focus_settings(true);
+            self.window.invoke_focus_settings(SettingsPage::About);
         } else {
             self.window.invoke_focus_current_view();
         }
@@ -963,15 +963,23 @@ impl AppUi {
         self.window.set_pending(pending);
     }
 
-    pub fn set_previews(&self, mut previews: BTreeMap<String, PresetPreview>) {
+    pub fn set_previews(&self, previews: PresetPreviews) {
         self.window.set_loading(false);
+        self.window
+            .set_equipment_lists_without_thumbnails(previews.equipment_lists_without_thumbnails);
+        let mut entries = previews.entries;
         let current = self.window.get_presets();
+        let editor_preset = self
+            .window
+            .get_editor_open()
+            .then(|| self.window.get_editor_preset())
+            .filter(|id| entries.contains_key(id.as_str()));
         let rows: Vec<_> = self
             .preset_info
             .iter()
             .map(|info| {
                 let name = &info.id;
-                let incoming = previews.remove(name);
+                let incoming = entries.remove(name);
                 // An in-flight snapshot can predate a newly inserted preset.
                 if incoming.is_none()
                     && let Some(row) = current.iter().find(|row| row.name == name.as_str())
@@ -992,6 +1000,9 @@ impl AppUi {
                 }
             })
             .collect();
+        if let Some(preset) = editor_preset.and_then(|id| rows.iter().find(|row| row.name == id)) {
+            self.refresh_item_editor_previews(preset);
+        }
         let selected = self
             .window
             .get_presets()
@@ -1079,12 +1090,28 @@ fn equipment_role(kind: EquipmentKind) -> PreviewRole {
     }
 }
 
-fn equipment_section(items: [PreviewContent<image::RgbaImage>; 6]) -> PreviewSection {
+fn equipment_section(items: [PreviewContent<EquipmentPreview>; 6]) -> PreviewSection {
     preview_section(
         EquipmentKind::ALL
             .into_iter()
             .zip(items)
-            .map(|(kind, content)| preview_item(equipment_role(kind), 0, content))
+            .map(|(kind, content)| {
+                let role = equipment_role(kind);
+                match content {
+                    PreviewContent::Ready(equipment) => PreviewRow {
+                        thumbnail: equipment
+                            .thumbnail
+                            .as_deref()
+                            .map(image)
+                            .unwrap_or_default(),
+                        ..preview_item(role, 0, PreviewContent::Ready(equipment.name))
+                    },
+                    PreviewContent::Missing => preview_item(role, 0, PreviewContent::Missing),
+                    PreviewContent::Invalid(error) => {
+                        preview_item(role, 0, PreviewContent::Invalid(error))
+                    }
+                }
+            })
             .collect(),
     )
 }
@@ -1109,6 +1136,7 @@ fn preview_item(
         state,
         picture,
         error,
+        thumbnail: Default::default(),
     }
 }
 

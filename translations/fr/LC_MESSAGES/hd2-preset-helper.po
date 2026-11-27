@@ -339,6 +339,15 @@ msgstr "Migrer les préréglages"
 msgid "Scan item lists"
 msgstr "Analyser les listes d'objets"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "Met à jour les listes d'objets à partir du jeu pour modifier et appliquer les préréglages. L'analyse de l'équipement crée aussi des miniatures."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "Analysez de nouveau les listes d'objets pour afficher les miniatures de l'équipement."
+
+msgid "Open scan settings"
+msgstr "Ouvrir les paramètres d’analyse"
+
 msgid "Check presets"
 msgstr "Vérifier les préréglages"
 

@@ -8,10 +8,12 @@ import { UiText } from "text.slint";
 component ItemChoice inherits Rectangle {
     in property <string> label;
     in property <image> picture;
+    in property <image> thumbnail;
     in property <bool> selected;
     in property <bool> missing;
     in property <bool> icon-mode;
     in property <bool> enabled: true;
+    private property <bool> show-thumbnail: !missing && !icon-mode && thumbnail.width > 0;
     callback clicked();
     min-width: 0px;
     preferred-width: 0px;
@@ -25,7 +27,18 @@ component ItemChoice inherits Rectangle {
     accessible-label: label;
     accessible-enabled: enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    if (root.show-thumbnail): Image {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: Theme.equipment-thumbnail-width;
+        height: Theme.equipment-thumbnail-height;
+        source: root.thumbnail;
+        image-fit: contain;
+        opacity: root.enabled ? 1 : 0.5;
+    }
     VerticalLayout {
+        x: root.show-thumbnail ? Theme.equipment-thumbnail-width + 6px : 0px;
+        width: parent.width - self.x;
         padding: root.icon-mode && root.label == "" ? 6px : 8px;
         spacing: 4px;
         alignment: center;
@@ -37,7 +50,7 @@ component ItemChoice inherits Rectangle {
             overflow: elide;
         }
         if (!root.missing && !root.icon-mode): NameImage {
-            height: 18px;
+            height: Theme.equipment-name-height;
             source: root.picture;
             colorize: root.enabled ? Theme.text : Theme.text-disabled;
         }
@@ -133,6 +146,7 @@ export component ItemEditor inherits Rectangle {
     private property <bool> choosing;
     private property <bool> icon-mode: current-slot < 6;
     private property <int> icon-columns: clamp(floor(candidates.visible-width / 64px), 1, 8);
+    private property <int> equipment-columns: 3;
     private property <string> refresh-hint: @tr("Scan this list from the game. All unsaved edits will be discarded.")
         + (current-slot == 4 || current-slot == 5 ? "\n" + UiText.booster-scan-hint : "");
     callback choose(int, int);
@@ -333,6 +347,7 @@ export component ItemEditor inherits Rectangle {
                                         height: parent.height;
                                         label: UiText.item-label(root.slots[6 + row * 3 + column]);
                                         picture: root.slots[6 + row * 3 + column].picture;
+                                        thumbnail: root.slots[6 + row * 3 + column].thumbnail;
                                         missing: root.slots[6 + row * 3 + column].state != PreviewState.ready;
                                         selected: root.current-slot == 6 + row * 3 + column;
                                         enabled: root.interactive && !root.choosing;
@@ -393,24 +408,26 @@ export component ItemEditor inherits Rectangle {
                             }
                             if (!root.icon-mode): VerticalLayout {
                                 spacing: 6px;
-                                for row in ceil(group.items.length / 2): HorizontalLayout {
-                                    height: 38px;
+                                for row in ceil(group.items.length / root.equipment-columns): HorizontalLayout {
+                                    height: 42px;
                                     spacing: 8px;
-                                    for column in 2: Rectangle {
+                                    for column in root.equipment-columns: cell := Rectangle {
+                                        property <int> item-index: row * root.equipment-columns + column;
                                         min-width: 0px;
                                         preferred-width: 0px;
                                         horizontal-stretch: 1;
-                                        if (row * 2 + column < group.items.length): ItemChoice {
+                                        if (cell.item-index < group.items.length): ItemChoice {
                                             x: 0px; y: 0px;
                                             width: parent.width;
                                             height: parent.height;
-                                            picture: group.items[row * 2 + column].picture;
-                                            selected: root.chosen-category == group.items[row * 2 + column].category
-                                                && root.chosen-item == group.items[row * 2 + column].item;
+                                            picture: group.items[cell.item-index].picture;
+                                            thumbnail: group.items[cell.item-index].thumbnail;
+                                            selected: root.chosen-category == group.items[cell.item-index].category
+                                                && root.chosen-item == group.items[cell.item-index].item;
                                             enabled: root.interactive && root.choosing;
                                             clicked => {
-                                                root.finish-choice(group.items[row * 2 + column].category,
-                                                    group.items[row * 2 + column].item);
+                                                root.finish-choice(group.items[cell.item-index].category,
+                                                    group.items[cell.item-index].item);
                                             }
                                         }
                                     }

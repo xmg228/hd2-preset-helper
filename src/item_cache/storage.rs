@@ -3,6 +3,7 @@ use std::{
     fs,
     io::{BufWriter, ErrorKind},
     path::Path,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, ensure};
@@ -11,7 +12,8 @@ use image::{DynamicImage, ImageEncoder, ImageFormat, RgbaImage, codecs::png::Png
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CachedIcon, EquipmentCatalog, EquipmentCategory, IconCatalog, IconPosition, ItemCache,
+    CachedIcon, EquipmentCatalog, EquipmentCategory, EquipmentName, IconCatalog, IconPosition,
+    ItemCache,
 };
 use crate::{
     item::ItemKind,
@@ -48,8 +50,16 @@ struct Text {
 #[derive(Serialize, Deserialize)]
 struct Category {
     title: Text,
-    names: Vec<Text>,
+    names: Vec<Name>,
     order: Vec<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Name {
+    #[serde(flatten)]
+    sample: Text,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thumbnail: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,9 +108,10 @@ impl ItemCache {
         })
     }
 
-    pub fn save_if_changed(&mut self, path: &Path) -> Result<()> {
+    /// Returns whether an updated snapshot was written.
+    pub fn save_if_changed(&mut self, path: &Path) -> Result<bool> {
         if !self.dirty {
-            return Ok(());
+            return Ok(false);
         }
         let mut equipment: [Option<Catalog>; 6] = std::array::from_fn(|_| None);
         for (catalog, saved) in self.equipment.iter().zip(&mut equipment) {
@@ -125,7 +136,7 @@ impl ItemCache {
         crate::persistence::publish(writer.into_inner()?, path)?;
         self.dirty = false;
         tracing::debug!("item cache saved");
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -141,7 +152,7 @@ fn encode_catalog(catalog: &EquipmentCatalog) -> Result<Catalog> {
                     names: category
                         .names
                         .iter()
-                        .map(encode_text)
+                        .map(encode_name)
                         .collect::<Result<_>>()?,
                     order: category.order.clone(),
                 })
@@ -176,7 +187,7 @@ fn decode_catalog(catalog: Catalog) -> Result<EquipmentCatalog> {
                 names: category
                     .names
                     .into_iter()
-                    .map(|sample| decode_text(sample, EquipmentText::Name))
+                    .map(decode_name)
                     .collect::<Result<_>>()?,
                 order: category.order,
             })
@@ -186,6 +197,27 @@ fn decode_catalog(catalog: Catalog) -> Result<EquipmentCatalog> {
         client_size: catalog.client_size,
         categories,
     })
+}
+
+fn encode_name(name: &EquipmentName) -> Result<Name> {
+    Ok(Name {
+        sample: encode_text(&name.sample)?,
+        thumbnail: name.thumbnail.as_deref().map(encode_image).transpose()?,
+    })
+}
+
+fn decode_name(name: Name) -> Result<EquipmentName> {
+    let sample = decode_text(name.sample, EquipmentText::Name)?;
+    let thumbnail = name
+        .thumbnail
+        .as_deref()
+        .and_then(|png| {
+            decode_image(png)
+                .inspect_err(|error| tracing::debug!(%error, "invalid equipment thumbnail"))
+                .ok()
+        })
+        .map(Arc::new);
+    Ok(EquipmentName { sample, thumbnail })
 }
 
 fn encode_image(image: &RgbaImage) -> Result<String> {

@@ -29,6 +29,7 @@ const SCROLLBAR_TRACK: Track = Track {
     top: 57.0,
     bottom: 795.0,
 };
+const FOCUS_RESPONSE_THRESHOLD: f32 = 0.2;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EquipmentText {
@@ -80,6 +81,10 @@ pub struct EquipmentSlot {
 }
 
 impl EquipmentSlot {
+    pub(crate) fn has_yellow_border(&self) -> bool {
+        self.focus_response >= FOCUS_RESPONSE_THRESHOLD
+    }
+
     pub fn center(&self) -> (u32, u32) {
         let [l, t, r, b] = self.rect;
         (
@@ -140,16 +145,8 @@ impl EquipmentObservation {
                 .iter()
                 .zip(&previous.slots)
                 .any(|(a, b)| moved(a, b));
-        let scrollbar_changed = self
-            .scrollbar
-            .zip(previous.scrollbar)
-            .is_some_and(|(a, b)| {
-                f64::from(
-                    (a.upper_y - b.upper_y)
-                        .abs()
-                        .max((a.lower_y - b.lower_y).abs()),
-                ) > 3.0 * self.scale
-            });
+        let scrollbar_changed =
+            ScrollbarObservation::moved(previous.scrollbar, self.scrollbar, 3.0 * self.scale);
         let focus_changed = match (self.focus, previous.focus) {
             (Some(a), Some(b)) => moved(&self.slots[a], &previous.slots[b]),
             _ => self.focus != previous.focus,
@@ -192,6 +189,10 @@ impl EquipmentObserver {
     /// Distance between the track's cap centers in native ROI pixels.
     pub(crate) fn scrollbar_span(&self) -> f64 {
         (SCROLLBAR_TRACK.bottom - SCROLLBAR_TRACK.top) * self.geometry.scale
+    }
+
+    pub(crate) fn scrollbar(&self, image: &RgbaImage) -> Option<ScrollbarObservation> {
+        scrollbar::detect(image, self.geometry, SCROLLBAR_TRACK)
     }
 
     /// Same-category row spacing in reference pixels, before UI scaling.
@@ -269,7 +270,7 @@ impl EquipmentObserver {
         let focus = slots
             .iter()
             .enumerate()
-            .filter(|(_, slot)| slot.focus_response >= 0.2)
+            .filter(|(_, slot)| slot.has_yellow_border())
             .max_by(|(_, a), (_, b)| a.focus_response.total_cmp(&b.focus_response))
             .map(|(index, _)| index)
             // Valid on a settled page; navigation must not mistake an old hover for new focus.
@@ -281,7 +282,7 @@ impl EquipmentObserver {
             slots,
             focus,
             hover,
-            scrollbar: scrollbar::detect(image, self.geometry, SCROLLBAR_TRACK),
+            scrollbar: self.scrollbar(image),
             name,
             category,
             scale: self.geometry.scale,
@@ -341,6 +342,12 @@ impl EquipmentObserver {
             reference_distance: round_ties_even(4.0 * scale).max(2),
             reference_half_width: round_ties_even(scale).max(0),
         }
+    }
+
+    pub(crate) fn has_yellow_border(&self, image: &RgbaImage, rect: [f64; 4]) -> bool {
+        let scale = self.geometry.scale;
+        let params = self.sampling_params((rect[2] - rect[0]) / scale, (rect[3] - rect[1]) / scale);
+        border_responses(image, rect, params)[0] >= FOCUS_RESPONSE_THRESHOLD
     }
 
     fn grid<const N: usize>(
@@ -430,13 +437,16 @@ fn border_responses(image: &RgbaImage, rect: [f64; 4], params: SamplingParams) -
     })
 }
 
+/// Dot center in pixel-corner coordinates, 11 reference pixels inside the frame.
+pub(crate) fn equipped_marker_center(rect: [f64; 4], scale: f64) -> [f64; 2] {
+    [rect[2], rect[3]].map(|edge| edge + 0.5 - 11.0 * scale)
+}
+
 pub(crate) fn equipped_marker_rect(rect: [f64; 4], scale: f64) -> ImageRect {
-    // Dot center: 11 reference pixels inside the frame. Convert pixel-index frame
-    // coordinates to pixel-corner coordinates (+0.5), then round only the origin.
     // The patch stays inside the complete detected slot and excludes its border.
     let side = (8.0 * scale).round().max(1.0) as u32;
-    let [x, y] = [rect[2], rect[3]]
-        .map(|edge| (edge + 0.5 - 11.0 * scale - side as f64 * 0.5).round() as u32);
+    let [x, y] = equipped_marker_center(rect, scale)
+        .map(|center| (center - side as f64 * 0.5).round() as u32);
     ImageRect {
         x,
         y,

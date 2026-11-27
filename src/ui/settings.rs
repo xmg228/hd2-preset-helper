@@ -9,7 +9,9 @@ use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
-use super::{MonitorChoice, MonitorRole, PresetPanel, SettingsTarget, ShortcutRow, UiRequest};
+use super::{
+    MonitorChoice, MonitorRole, PresetPanel, SettingsPage, SettingsTarget, ShortcutRow, UiRequest,
+};
 use crate::config::{AUTO_MONITOR, SettingsDraft, ShortcutBindings, UiLanguage};
 use crate::input::Shortcut;
 use crate::scan::ScanScope;
@@ -41,13 +43,8 @@ pub(super) fn connect(
         Rc::new(VecModel::from(labels)).into()
     });
     let open_send = send.clone();
-    panel.on_edit_settings(move |show_about| {
-        let target = if show_about {
-            SettingsTarget::About
-        } else {
-            SettingsTarget::General
-        };
-        let _ = open_send.send(UiRequest::OpenSettings(target));
+    panel.on_edit_settings(move |page| {
+        let _ = open_send.send(UiRequest::OpenSettings(SettingsTarget::Page(page)));
     });
     let open_send = send.clone();
     panel.on_edit_shortcut(move |preset| {
@@ -232,14 +229,13 @@ pub(super) fn open(
         }
     }))
     .collect::<Vec<_>>();
-    let (show_about, shortcut_index) = match target {
-        SettingsTarget::General => (false, -1),
-        SettingsTarget::About => (true, -1),
+    let (page, shortcut_index) = match target {
+        SettingsTarget::Page(page) => (page, -1),
         SettingsTarget::PresetShortcut(name) => {
             let Some(index) = rows.iter().position(|row| row.name == name) else {
                 return;
             };
-            (false, index as i32)
+            (SettingsPage::General, index as i32)
         }
     };
     let mut monitors = vec![MonitorChoice {
@@ -289,7 +285,7 @@ pub(super) fn open(
     panel.set_shortcut_settings_index(shortcut_index);
     panel.invoke_focus_list();
     panel.set_settings_open(true);
-    panel.invoke_focus_settings(show_about);
+    panel.invoke_focus_settings(page);
 }
 
 fn bindings(panel: &PresetPanel) -> ShortcutBindings {

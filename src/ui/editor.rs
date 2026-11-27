@@ -5,8 +5,8 @@ use std::sync::mpsc::Sender;
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use super::{
-    AppUi, CandidateCatalogRow, CandidateGroupRole, CandidateGroupRow, CandidateRow, PresetPanel,
-    PresetRow, PreviewRole, PreviewRow, PreviewState, UiRequest, image,
+    AppUi, CandidateCatalogRow, CandidateGroupRole, CandidateGroupRow, CandidateRow, EditorChoice,
+    PresetPanel, PresetRow, PreviewRole, PreviewRow, PreviewState, UiRequest, image,
 };
 use crate::{
     item::EquipmentKind,
@@ -30,7 +30,8 @@ fn update_choice(window: &PresetPanel, index: usize, choice: CandidateRow) {
     let Some(mut slot) = slots.row_data(index) else {
         return;
     };
-    slot.picture = choice.picture.clone();
+    slot.picture = choice.picture;
+    slot.thumbnail = choice.thumbnail;
     slot.state = if choice.item >= 0 {
         PreviewState::Ready
     } else {
@@ -38,16 +39,27 @@ fn update_choice(window: &PresetPanel, index: usize, choice: CandidateRow) {
     };
     slot.error = Default::default();
     slots.set_row_data(index, slot);
-    window.get_editor_choices().set_row_data(index, choice);
+    window.get_editor_choices().set_row_data(
+        index,
+        EditorChoice {
+            category: choice.category,
+            item: choice.item,
+        },
+    );
     window.set_editor_dirty(true);
     window.set_editor_error("".into());
+    update_draft_availability(window);
+}
+
+fn update_draft_availability(window: &PresetPanel) {
     window.set_editor_can_save(
         window
             .get_editor_choices()
             .iter()
             .take(6)
             .all(|choice| choice.item == -1)
-            || slots
+            || window
+                .get_editor_draft()
                 .iter()
                 .take(4)
                 .all(|slot| slot.state == PreviewState::Ready),
@@ -235,6 +247,31 @@ pub(super) fn connect(window: &PresetPanel, send: Sender<UiRequest>) {
     });
 }
 
+fn saved_slots(preset: &PresetRow) -> Vec<PreviewRow> {
+    let mut slots = (0..6)
+        .map(|index| PreviewRow {
+            role: match index {
+                4 => PreviewRole::Booster,
+                5 => PreviewRole::FallbackBooster,
+                _ => PreviewRole::Stratagem,
+            },
+            number: if index < 4 { index + 1 } else { 0 },
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    for item in preset.stratagems.items.iter() {
+        let index = match item.role {
+            PreviewRole::Stratagem if (1..=4).contains(&item.number) => (item.number - 1) as usize,
+            PreviewRole::Booster => 4,
+            PreviewRole::FallbackBooster => 5,
+            _ => continue,
+        };
+        slots[index] = item;
+    }
+    slots.extend(preset.equipment.items.iter());
+    slots
+}
+
 impl AppUi {
     pub fn is_editing_items(&self) -> bool {
         self.window.get_editor_open() || self.window.get_editor_busy()
@@ -264,37 +301,14 @@ impl AppUi {
     }
 
     fn begin_item_editor(&self, preset: PresetRow) {
-        let mut slots = (0..6)
-            .map(|index| PreviewRow {
-                role: match index {
-                    4 => PreviewRole::Booster,
-                    5 => PreviewRole::FallbackBooster,
-                    _ => PreviewRole::Stratagem,
-                },
-                number: if index < 4 { index + 1 } else { 0 },
-                ..Default::default()
-            })
-            .collect::<Vec<_>>();
-        for item in preset.stratagems.items.iter() {
-            let index = match item.role {
-                PreviewRole::Stratagem if (1..=4).contains(&item.number) => {
-                    item.number as usize - 1
-                }
-                PreviewRole::Booster => 4,
-                PreviewRole::FallbackBooster => 5,
-                _ => continue,
-            };
-            slots[index] = item;
-        }
-        slots.extend(preset.equipment.items.iter());
+        let slots = saved_slots(&preset);
         self.window.set_editor_can_save(true);
         self.window.set_editor_preset(preset.name);
         self.window.set_editor_draft(model(slots));
         self.window.set_editor_choices(model(vec![
-            CandidateRow {
+            EditorChoice {
                 category: -1,
                 item: -1,
-                ..Default::default()
             };
             12
         ]));
@@ -308,6 +322,21 @@ impl AppUi {
         self.window.set_editor_loading(true);
         self.window.set_editor_open(true);
         self.window.invoke_focus_item_editor();
+    }
+
+    pub(super) fn refresh_item_editor_previews(&self, preset: &PresetRow) {
+        let draft = self.window.get_editor_draft();
+        let choices = self.window.get_editor_choices();
+        for (index, slot) in saved_slots(preset).into_iter().enumerate() {
+            // Only the keep sentinel follows the saved preview; a clear is an edit.
+            if choices
+                .row_data(index)
+                .is_some_and(|choice| choice.item == -1)
+            {
+                draft.set_row_data(index, slot);
+            }
+        }
+        update_draft_availability(&self.window);
     }
 
     pub fn item_candidates_loaded(&self, result: Result<ItemCandidates, String>) {
@@ -338,6 +367,7 @@ impl AppUi {
                                 category: item.choice.category as i32,
                                 item: item.choice.name as i32,
                                 picture: image(&item.picture),
+                                thumbnail: item.thumbnail.as_deref().map(image).unwrap_or_default(),
                             })
                             .collect(),
                     ),
@@ -416,6 +446,7 @@ fn icon_group(
                     category: category as i32,
                     item: item.index as i32,
                     picture: image(&item.picture),
+                    ..Default::default()
                 })
                 .collect(),
         ),

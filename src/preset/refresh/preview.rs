@@ -476,6 +476,7 @@ fn equipment_picture(
         .as_ref()
         .and_then(|catalog| catalog.categories.get(choice.category))
         .and_then(|category| category.names.get(choice.name))
+        .map(|entry| &entry.sample)
         .context("migration equipment picture is not available")?;
     Ok(thumbnail(render_text(sample), 32))
 }

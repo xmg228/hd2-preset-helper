@@ -572,13 +572,13 @@ impl AppController {
         if self.exiting {
             return Ok(());
         }
+        self.worker.send(Work::LoadPreviews)?;
         if self.ui.is_editing_items() {
             self.ui
                 .resume_item_editor(result.as_ref().err().map(String::as_str));
             self.worker.send(Work::LoadItemCandidates)?;
         }
-        self.ui.scan_finished(result, cancelled)?;
-        self.worker.send(Work::LoadPreviews)
+        self.ui.scan_finished(result, cancelled)
     }
 
     fn save_scope(&mut self, scope: PresetScope) {

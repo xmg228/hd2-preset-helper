@@ -2,6 +2,7 @@ mod booster;
 mod borders;
 mod color;
 pub(crate) mod equipment;
+pub(crate) mod equipment_thumbnail;
 mod geometry;
 mod icon;
 mod matcher;

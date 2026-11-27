@@ -339,6 +339,15 @@ msgstr "Migrar predefinições"
 msgid "Scan item lists"
 msgstr "Analisar listas de itens"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "Atualiza as listas de itens com dados do jogo para editar e aplicar predefinições. A análise do equipamento também cria miniaturas."
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "Volta a analisar as listas de itens para ver as miniaturas do equipamento."
+
+msgid "Open scan settings"
+msgstr "Abrir definições de análise"
+
 msgid "Check presets"
 msgstr "Verificar predefinições"
 

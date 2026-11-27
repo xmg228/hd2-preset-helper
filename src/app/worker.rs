@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
@@ -9,7 +8,7 @@ use tracing::{debug, error, info_span, warn};
 
 use super::GameAction;
 use super::failure::save_failure_report;
-use crate::app_events::{AppEvent, AppEventSink};
+use crate::app_events::{AppEvent, AppEventSink, PresetCompletion};
 use crate::app_paths::AppPaths;
 use crate::automation::OperationCancelled;
 use crate::capture::CaptureSessionManager;
@@ -20,7 +19,7 @@ use crate::item_cache::{
 use crate::preset::{
     MigrationGroupSummary, MigrationPair, MigrationReport, MigrationSelection, PresetMigration,
     PresetScope,
-    preview::{self, PresetPreview},
+    preview::{self, PresetPreviews},
 };
 use crate::preset_action::{PresetActionContext, PresetActionOutcome, execute_preset};
 use crate::scan::{self, ScanProgress, ScanSummary};
@@ -61,7 +60,7 @@ pub(super) enum WorkerEvent {
     Progress(AppEvent),
     ScanProgress(ScanProgress),
     Finished(WorkCompletion),
-    PreviewsLoaded(std::result::Result<BTreeMap<String, PresetPreview>, String>),
+    PreviewsLoaded(std::result::Result<PresetPreviews, String>),
     PresetChecked(std::result::Result<usize, String>),
     MigrationInspected(std::result::Result<MigrationInspection, String>),
     MigrationPreviewLoaded {
@@ -76,7 +75,7 @@ pub(super) enum WorkerEvent {
 }
 
 pub(super) enum WorkCompletion {
-    Preset(std::result::Result<PresetActionOutcome, String>),
+    Preset { saved: bool, refresh_previews: bool },
     Scan(std::result::Result<ScanSummary, String>),
     ScanCancelled,
     MigrationReady(Box<MigrationDraft>),
@@ -154,7 +153,7 @@ impl ActionWorker {
                         Work::Prepare(target) => prepare_capture(&mut capture_session, target),
                         Work::Discard => capture_session.cancel_prepare(),
                         Work::LoadPreviews => {
-                            let previews = preview::load(&paths.presets)
+                            let previews = preview::load(&paths.presets, &item_cache)
                                 .map_err(|error| format!("{error:#}"));
                             if event_tx.send(WorkerEvent::PreviewsLoaded(previews)).is_err() { break; }
                         }
@@ -235,29 +234,39 @@ impl ActionWorker {
                                         cancel,
                                     };
                                     let outcome = execute_preset(&runtime, &mut context, preset, *command, &mut capture_session, target);
-                                    let outcome = match outcome {
+                                    let (saved, refresh_previews) = match outcome {
                                         Ok((outcome, completion)) => {
+                                            let saved = outcome == PresetActionOutcome::Saved;
+                                            let refresh = saved || matches!(completion, PresetCompletion::FallbackBoosterSaved);
                                             tracing::info!(elapsed_s = start.elapsed().as_secs_f64(), ?completion, "preset action completed");
                                             sink.emit(AppEvent::PresetDone { preset: preset.clone(), completion });
-                                            Ok(outcome)
+                                            (saved, refresh)
                                         }
                                         Err(error) => {
                                             let message = format!("{error:#}");
                                             if cancel.is_cancelled() {
                                                 debug!("preset action cancelled");
-                                                sink.emit(AppEvent::PresetCancelled { preset: preset.clone(), reason: message.clone() });
+                                                sink.emit(AppEvent::PresetCancelled { preset: preset.clone(), reason: message });
                                             } else {
                                                 error!(elapsed_s = start.elapsed().as_secs_f64(), error = %message, "preset action failed");
-                                                sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message.clone() });
+                                                sink.emit(AppEvent::PresetFailed { preset: preset.clone(), error: message });
                                                 save_failure_report(&paths.last_failure, &action, &error, Some(&evidence));
                                             }
-                                            Err(message)
+                                            (false, true)
                                         }
                                     };
-                                    if let Err(error) = item_cache.save_if_changed(&cache_path) {
-                                        warn!(error = %format!("{error:#}"), "could not save learned item cache");
+                                    let cache_changed = match item_cache.save_if_changed(&cache_path) {
+                                        Ok(changed) => changed,
+                                        Err(error) => {
+                                            warn!(error = %format!("{error:#}"), "could not save learned item cache");
+                                            // Previews also use the updated in-memory cache.
+                                            true
+                                        }
+                                    };
+                                    WorkCompletion::Preset {
+                                        saved,
+                                        refresh_previews: refresh_previews || cache_changed,
                                     }
-                                    WorkCompletion::Preset(outcome)
                                 }
                                 GameAction::Scan { scope, migration, cancel } => {
                                     let progress = event_tx.clone();

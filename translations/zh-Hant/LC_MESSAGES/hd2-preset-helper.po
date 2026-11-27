@@ -339,6 +339,15 @@ msgstr "遷移預設"
 msgid "Scan item lists"
 msgstr "掃描物品列表"
 
+msgid "Updates item lists from the game for editing and applying presets. Equipment scans also generate thumbnails."
+msgstr "從遊戲更新物品列表，用於編輯與套用預設。掃描裝備時也會產生縮圖。"
+
+msgid "Rescan the item lists to show equipment thumbnails."
+msgstr "重新掃描物品列表，即可顯示裝備縮圖。"
+
+msgid "Open scan settings"
+msgstr "前往掃描"
+
 msgid "Check presets"
 msgstr "核對預設"
 
